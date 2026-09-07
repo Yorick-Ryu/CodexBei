@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">小北科研 API</title>
+  <desc id="desc">蓝色北字圆角方标</desc>
+  <style>
+    .surface { fill: #ffffff; }
+    .outline { fill: none; stroke: #e5e7eb; stroke-width: 36; }
+    .glyph { fill: #2563eb; }
+    @media (prefers-color-scheme: dark) {
+      .surface { fill: #111827; }
+      .outline { stroke: #243244; }
+      .glyph { fill: #3b82f6; }
+    }
+  </style>
+  <rect class="surface" x="18" y="18" width="988" height="988" rx="350" />
+  <rect class="outline" x="18" y="18" width="988" height="988" rx="350" />
+  <text
+    class="glyph"
+    x="512"
+    y="532"
+    dominant-baseline="central"
+    text-anchor="middle"
+    font-family="Hiragino Sans GB, PingFang SC, Microsoft YaHei, sans-serif"
+    font-size="512"
+    font-weight="700"
+  >北</text>
+</svg>

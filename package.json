@@ -1,0 +1,74 @@
+{
+  "name": "codexbei",
+  "version": "0.3.1",
+  "private": true,
+  "description": "CodexBei 桌面配置助手",
+  "author": "BeiAPI",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "test:ui": "node --test test/desktop.e2e.cjs",
+    "build:mac": "electron-builder --mac dmg zip",
+    "build:win": "electron-builder --win nsis",
+    "build:dir": "electron-builder --dir",
+    "build:icons": "node scripts/build-icons.cjs",
+    "worker:check": "wrangler types worker/env.d.ts && tsc -p worker/tsconfig.json && node scripts/publish-templates.cjs"
+  },
+  "dependencies": {
+    "@iarna/toml": "2.2.5",
+    "semver": "^7.8.5",
+    "toml-eslint-parser": "1.0.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260907.1",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.58.0",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.129.1"
+  },
+  "build": {
+    "appId": "cn.beiapi.codexbei",
+    "productName": "CodexBei",
+    "artifactName": "CodexBei-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "CodexBei",
+        "schemes": [
+          "codexbei"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": null
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "codexbei-config",
+  "account_id": "4e528d4c6e70aee6dd9fec89af0e0522",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "codexbei.beiapi.cn", "custom_domain": true }],
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}
