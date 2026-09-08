@@ -49,12 +49,14 @@
       }
     ],
     "mac": {
+      "electronLanguages": ["en", "zh_CN"],
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "signIgnore": ["\\.lproj/locale\\.pak$"],
       "icon": "build/icon.icns"
     },
     "win": {
+      "electronLanguages": ["en-US", "zh-CN"],
       "target": [
         {
           "target": "nsis",
@@ -67,6 +69,7 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
+      "installerLanguages": ["en_US", "zh_CN"],
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true

@@ -61,6 +61,7 @@ VITE_SETUP_MAC_X64_URL
 macOS 的正式打包入口与凭据配置见 [签名与公证](docs/macos-signing.md)。公开分发前需完成 Apple 公证及 Windows 代码签名配置，再发布安装包并设置下载地址。
 
 测试安装包位于 `dist/`（未签名），版本以 `package.json` 为准。
+安装包仅保留 Electron 的简体中文和英文语言资源；`package.json` 的 `build.mac.electronLanguages` 使用 `en` / `zh_CN`，`build.win.electronLanguages` 使用 `en-US` / `zh-CN`。Windows 安装向导的 `build.nsis.installerLanguages` 同样仅保留 `en_US` / `zh_CN`。语言裁剪在签名之前由 electron-builder 执行。
 配置、链接解析与网站交互测试分别见 `test/` 和网站组件的 `__tests__/`。
 桌面核心测试、网站交互测试和 UI 测试覆盖配置与唤起流程。
 `npm run test:ui` 在临时目录验证自动填入、设置默认收起、首屏主操作可见、一键配置、可选预览、错误重试和完整还原，并保存截图至 `artifacts/`。
