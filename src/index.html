@@ -17,17 +17,16 @@
         <label title="石墨灰 · 深色"><input type="radio" name="appearance" value="dark" aria-label="石墨灰"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 14.5A8.5 8.5 0 0 1 9.5 3.8a8.5 8.5 0 1 0 10.7 10.7Z"/></svg></label>
         <label title="雾白 · 浅色"><input type="radio" name="appearance" value="light" aria-label="雾白"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></label>
       </div>
-    <button id="website" class="text-button website">官网 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></button>
     </div>
   </header>
   <main>
+    <div id="configuration-page">
     <div class="tabs" role="tablist" aria-label="选择工具">
-      <button role="tab" aria-selected="true" aria-controls="codex-panel" id="codex-tab"><img class="agent-icon codex-icon" src="assets/agents/codex.svg" alt="" aria-hidden="true">Codex</button>
+      <button role="tab" aria-selected="true" aria-controls="codex-panel" id="codex-tab"><img class="agent-icon chatgpt-icon" src="assets/agents/chatgpt.svg" alt="" aria-hidden="true">ChatGPT</button>
       <button role="tab" aria-selected="false" disabled><img class="agent-icon" src="assets/agents/claude-code.svg" alt="" aria-hidden="true">Claude Code <span>即将支持</span></button>
     </div>
     <section id="codex-panel" role="tabpanel" aria-labelledby="codex-tab">
       <div id="setup-view">
-        <div class="page-heading"><h1>连接 Codex</h1><span id="config-state" class="state-badge" role="status">正在检查</span></div>
         <form id="configure">
           <div class="config-card">
             <div class="provider-row">
@@ -45,22 +44,9 @@
               <p id="key-help" class="field-help">使用你在 BeiAPI 创建的密钥。</p>
             </div>
             <p id="template-notice" class="notice" role="status" hidden></p>
-            <div id="version-choice" hidden>
-              <label for="installation">使用的 Codex</label>
-              <select id="installation"><option value="auto">自动匹配</option></select>
-              <div id="manual-version" hidden>
-                <label for="codex-kind">版本类型</label>
-                <select id="codex-kind"><option value="cli">Codex CLI</option><option value="desktop">Codex 桌面版</option></select>
-                <label for="runtime-version">Codex 内核版本</label>
-                <input id="runtime-version" placeholder="例如 0.153.4" maxlength="80" autocomplete="off">
-                <label for="app-version">桌面版应用版本（可选）</label>
-                <input id="app-version" placeholder="例如 26.901.51231" maxlength="80" autocomplete="off">
-              </div>
-            </div>
             <details id="settings">
               <summary><span class="summary-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>更多设置</span><span class="summary-hint">模型、版本与路径</span></summary>
               <div class="settings-body">
-                <div class="version-row"><p id="version-info" class="connection"></p><button type="button" id="change-version" class="text-button" aria-controls="version-choice" aria-expanded="false">选择 Codex 版本</button></div>
                 <div class="label-row model-label"><label for="model">模型</label><button type="button" id="refresh-models" class="text-button">刷新列表</button></div>
                 <select id="model" required aria-describedby="models-help"><option value="gpt-6-astra">gpt-6-astra</option></select>
                 <p id="models-help" class="field-help" role="status" hidden></p>
@@ -68,28 +54,74 @@
                 <input id="base-url" type="url" value="https://api.beiapi.cn/v1" required autocomplete="off" spellcheck="false">
                 <label for="target">配置文件</label>
                 <div class="path-row"><select id="target" required></select><button type="button" id="choose" class="secondary">更改</button></div>
-                <button type="button" id="preview-button" class="text-button preview-button">查看配置改动</button>
-                <div id="preview" hidden><pre id="preview-code" aria-label="配置改动预览"></pre></div>
+                <p class="preview-heading">配置预览</p>
+                <div id="preview">
+                  <div class="preview-meta">
+                    <div class="version-row"><p id="version-info" class="connection"></p><button type="button" id="change-version" class="text-button" aria-controls="version-choice" aria-haspopup="dialog" aria-expanded="false">选择 ChatGPT 版本</button></div>
+                    <div class="template-version-row"><p id="preview-version" class="preview-version"></p><button type="button" id="update-template" class="text-button template-update" disabled>更新配置模板<span id="template-update-dot" class="template-update-dot" aria-hidden="true" hidden></span></button></div>
+                  </div>
+                  <pre id="preview-code" aria-label="配置预览"></pre>
+                </div>
               </div>
             </details>
-            <div class="action-row"><button type="submit" id="apply" class="primary" disabled>一键配置</button></div>
+            <div class="action-row"><label class="login-option"><input type="checkbox" id="keep-official-login">保留官方登录</label><button type="submit" id="apply" class="primary" disabled>一键配置</button></div>
           </div>
         </form>
       </div>
       <div id="success" hidden>
         <div class="success-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></svg></div>
-        <span class="eyebrow">准备就绪</span>
         <h1 id="success-title" tabindex="-1">配置完成</h1>
-        <p>重新打开 Codex，即可开始使用。</p>
+        <p>请彻底退出并重新打开 ChatGPT，即可开始使用。</p>
         <button id="done" class="primary">完成</button>
       </div>
-      <p id="status" role="status" aria-live="polite"></p>
     </section>
-    <details id="history" class="history">
-      <summary><span class="summary-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2 7M3 5v6h6m3-4v5l3 2"/></svg>还原配置</span><span class="summary-hint">查看历史备份</span></summary>
+    <button type="button" id="open-history" class="history-entry" aria-controls="history-page"><span class="summary-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2 7M3 5v6h6m3-4v5l3 2"/></svg>历史备份</span><span class="summary-hint">查看备份记录</span><svg class="history-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+    </div>
+    <section id="history-page" aria-labelledby="history-title" hidden>
+      <div class="history-page-header">
+        <button type="button" id="back-to-config" class="history-back" aria-label="返回配置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
+        <h1 id="history-title" tabindex="-1">历史备份</h1>
+        <button type="button" id="refresh-backups" class="text-button">刷新</button>
+      </div>
+      <p class="history-description">保留最近 10 份备份，可查看或还原历史配置。</p>
       <div id="backups"></div>
-    </details>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p>
   </main>
+  <dialog id="version-choice" aria-labelledby="version-dialog-title">
+    <div class="version-dialog-header">
+      <h2 id="version-dialog-title">选择 ChatGPT 版本</h2>
+      <button type="button" id="close-version" class="version-dialog-close" aria-label="关闭版本选择"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <label for="installation">使用的 ChatGPT</label>
+    <select id="installation"><option value="auto">自动匹配</option></select>
+    <div id="manual-version" hidden>
+      <label for="codex-kind">版本类型</label>
+      <select id="codex-kind"><option value="cli">CLI</option><option value="desktop">ChatGPT 桌面版</option></select>
+      <label for="runtime-version">内核版本</label>
+      <input id="runtime-version" placeholder="例如 0.153.4" maxlength="80" autocomplete="off">
+      <label for="app-version">桌面版应用版本（可选）</label>
+      <input id="app-version" placeholder="例如 26.901.51231" maxlength="80" autocomplete="off">
+    </div>
+    <p id="version-status" class="version-status" role="status" hidden></p>
+  </dialog>
+  <dialog id="backup-preview" aria-labelledby="backup-dialog-title" aria-describedby="backup-preview-note">
+    <div class="version-dialog-header">
+      <h2 id="backup-dialog-title">历史配置</h2>
+      <button type="button" id="close-backup" class="version-dialog-close" aria-label="关闭历史配置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="backup-preview-meta">
+      <p id="backup-preview-date" class="field-help"></p>
+      <p id="backup-preview-path" class="field-help"></p>
+    </div>
+    <p id="backup-preview-note" class="field-help">密钥已隐藏。</p>
+    <p id="backup-preview-status" class="field-help" role="status"></p>
+    <pre id="backup-preview-code" tabindex="0" aria-label="历史配置内容" hidden></pre>
+    <div class="backup-preview-footer">
+      <button type="button" id="delete-backup" class="text-button danger-button">删除备份</button>
+      <button type="button" id="restore-backup" class="primary">还原此配置</button>
+    </div>
+  </dialog>
   <script src="renderer.js"></script>
 </body>
 </html>

@@ -18,6 +18,61 @@ function fixture(t, initial, options = {}) {
   return { dir, file, store };
 }
 
+test('retention keeps ten newest backups, preserves the latest undo snapshot and ignores unrelated files', async (t) => {
+  const { dir, file, store } = fixture(t, 'model="original"\n');
+  const ids = [];
+  for (let i = 0; i < 13; i++) {
+    const metadata = store.snapshot(file, Buffer.from(`model="state-${i}"\n`), fs.readFileSync(file), 'configure');
+    metadata.created = new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
+    fs.writeFileSync(path.join(store.backupDir, metadata.id, 'metadata.json'), JSON.stringify(metadata));
+    ids.push(metadata.id);
+  }
+  fs.writeFileSync(path.join(store.backupDir, 'unrelated.txt'), 'keep');
+  const trash = path.join(dir, 'trash'); fs.mkdirSync(trash);
+  const move = async (folder) => fs.renameSync(folder, path.join(trash, path.basename(folder)));
+  await store.pruneBackups(move);
+  assert.deepEqual(store.list().map(item => item.id), ids.slice(3).reverse());
+  for (const id of ids.slice(0, 3)) assert.ok(fs.existsSync(path.join(trash, id, 'metadata.json')));
+  assert.equal(fs.readFileSync(path.join(store.backupDir, 'unrelated.txt'), 'utf8'), 'keep');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'model="original"\n');
+  const state = store.inspectRestore(ids[3]);
+  const restored = store.restore(ids[3], state.currentHash);
+  // Even a backwards clock must not prune the snapshot needed to undo this restore.
+  const metadataFile = path.join(store.backupDir, restored.backupId, 'metadata.json');
+  const metadata = JSON.parse(fs.readFileSync(metadataFile)); metadata.created = '2020-01-01T00:00:00.000Z';
+  fs.writeFileSync(metadataFile, JSON.stringify(metadata));
+  await store.pruneBackups(move, restored.backupId);
+  assert.equal(store.list().length, 10);
+  assert.ok(store.list().some(item => item.id === restored.backupId));
+  assert.equal(store.loadBackup(restored.backupId).bytes.toString(), 'model="original"\n');
+});
+
+test('failed retention leaves recovery snapshots and the current configuration intact', async (t) => {
+  const { file, store } = fixture(t, 'model="original"\n');
+  for (let i = 0; i < 11; i++) store.snapshot(file, fs.readFileSync(file), fs.readFileSync(file), 'configure');
+  const ids = store.list().map(item => item.id);
+  await assert.rejects(store.pruneBackups(async () => { throw new Error('trash unavailable'); }), /trash unavailable/);
+  assert.deepEqual(store.list().map(item => item.id), ids);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'model="original"\n');
+});
+
+test('backup list summarizes the saved endpoint and official login state without exposing keys or reading current settings', (t) => {
+  const original = 'model_provider="custom"\n[model_providers.custom]\nbase_url="https://old.example/v1"\nrequires_openai_auth=true\nexperimental_bearer_token="' + KEY + '"\n';
+  const { file, store } = fixture(t, original);
+  const first = store.apply(store.prepare(file, KEY).id).backupId;
+  const second = store.apply(store.prepare(file, KEY).id).backupId;
+  const rows = store.list();
+  assert.equal(rows.find(row => row.id === first).baseUrl, 'https://old.example/v1');
+  assert.equal(rows.find(row => row.id === first).keepOfficialLogin, true);
+  assert.equal(rows.find(row => row.id === second).baseUrl, 'https://api.beiapi.cn/v1');
+  assert.equal(rows.find(row => row.id === second).keepOfficialLogin, false);
+  assert.equal(JSON.stringify(rows).includes(KEY), false);
+  const missing = store.snapshot(file, null, fs.readFileSync(file), 'configure');
+  const row = store.list().find(row => row.id === missing.id);
+  assert.equal(row.baseUrl, null);
+  assert.equal(row.keepOfficialLogin, null);
+});
+
 test('model discovery reuses a saved key only for its own gateway, without writing config', (t) => {
   const initial = 'model_provider="custom"\nmodel="model-a"\n[model_providers.custom]\nbase_url="https://api.beiapi.cn/v1"\nexperimental_bearer_token="' + KEY + '"\n';
   const { file, store } = fixture(t, initial);
@@ -217,4 +272,138 @@ test('selected model flows into preview and saved config while preserving tools'
   assert.ok(output.includes(tools));
   assert.throws(() => store.prepare(file, KEY, undefined, 'bad\nmodel'));
   assert.equal(fs.readFileSync(file, 'utf8'), output);
+});
+
+test('historical preview reads the selected snapshot, hides credentials while preserving ordinary values and never writes', (t) => {
+  const original = '# api_key=fixture-comment-secret\nmodel="old-model"\nmodel_provider="custom"\ncustom_text="fixture-private-text"\n[model_providers.custom]\nbase_url="https://fixture-user:fixture-password@example.com/v1?token=fixture-query-secret"\nexperimental_bearer_token="fixture-bearer-secret"\nhttp_headers={ "x-custom"="fixture-header-secret" }\n[mcp_servers.editor]\nargs=["fixture-argument-secret"]\nenv={ API_KEY="fixture-env-secret", MODE="local" }\n';
+  const { file, store } = fixture(t, original);
+  const { backupId } = store.apply(store.prepare(file, KEY).id);
+  const current = fs.readFileSync(file);
+  const entries = fs.readdirSync(store.backupDir);
+  const preview = store.previewBackup(backupId);
+  assert.equal(preview.file, file);
+  assert.equal(preview.existed, true);
+  const parsed = TOML.parse(preview.content);
+  assert.equal(parsed.model, 'old-model');
+  assert.equal(new URL(parsed.model_providers.custom.base_url).pathname, '/v1');
+  assert.equal(parsed.custom_text, 'fixture-private-text');
+  assert.deepEqual(parsed.mcp_servers.editor.args, ['fixture-argument-secret']);
+  assert.equal(parsed.mcp_servers.editor.env.MODE, 'local');
+  assert.equal(parsed.model_providers.custom.http_headers['x-custom'], 'fixture-header-secret');
+  for (const privateValue of ['fixture-comment-secret', 'fixture-password', 'fixture-query-secret', 'fixture-bearer-secret', 'fixture-env-secret', KEY]) {
+    assert.equal(JSON.stringify(preview).includes(privateValue), false);
+  }
+  assert.deepEqual(fs.readFileSync(file), current);
+  assert.equal(fs.readFileSync(path.join(store.backupDir, backupId, 'config.toml'), 'utf8'), original);
+  assert.deepEqual(fs.readdirSync(store.backupDir), entries);
+  fs.writeFileSync(path.join(store.backupDir, backupId, 'config.toml'), 'model="tampered"');
+  assert.throws(() => store.previewBackup(backupId), /校验失败/);
+  assert.throws(() => store.previewBackup('../config.toml'), /无效/);
+});
+
+test('historical preview distinguishes absent and empty configuration files', (t) => {
+  for (const initial of [undefined, '']) {
+    const { file, store } = fixture(t, initial);
+    const { backupId } = store.apply(store.prepare(file, KEY).id);
+    const preview = store.previewBackup(backupId);
+    assert.equal(preview.existed, initial !== undefined);
+    assert.equal(preview.content, '');
+    assert.equal(fs.existsSync(file), true);
+  }
+});
+
+
+test('historical preview preserves tool settings, references and token limits but masks embedded credentials', () => {
+  const { backupPreview } = require('../src/backup-preview.cjs');
+  const source = TOML.stringify({
+    model_max_output_tokens: 8000,
+    access_tokens: ['fixture-access-secret'],
+    mcp_servers: { editor: { command: 'node', args: ['tool.js', '--api-key', 'fixture-flag-secret', '--token=fixture-inline-secret'], env: { MODE: 'local', API_KEY: 'fixture-env-secret' } } },
+    model_providers: { custom: { env_key: 'OPENAI_API_KEY', base_url: 'https://example.com/gateway/v1?region=cn', http_headers: { 'x-extra': 'keep', Authorization: 'Bearer fixture-header-secret' } } },
+  });
+  const preview = backupPreview(Buffer.from(source));
+  const parsed = TOML.parse(preview);
+  assert.equal(parsed.model_max_output_tokens, 8000);
+  assert.equal(parsed.mcp_servers.editor.command, 'node');
+  assert.equal(parsed.mcp_servers.editor.args[0], 'tool.js');
+  assert.equal(parsed.model_providers.custom.env_key, 'OPENAI_API_KEY');
+  assert.equal(parsed.model_providers.custom.base_url, 'https://example.com/gateway/v1?region=cn');
+  assert.equal(parsed.model_providers.custom.http_headers['x-extra'], 'keep');
+  for (const secret of ['fixture-flag-secret', 'fixture-inline-secret', 'fixture-env-secret', 'fixture-header-secret', 'fixture-access-secret']) assert.equal(preview.includes(secret), false);
+});
+
+test('deleting one backup moves only that verified snapshot to trash and preserves the current config', async (t) => {
+  const { dir, file, store } = fixture(t, 'model="old"\n');
+  const first = store.apply(store.prepare(file, KEY).id).backupId;
+  const second = store.apply(store.prepare(file, KEY).id).backupId;
+  const current = fs.readFileSync(file);
+  const trash = path.join(dir, 'trash');
+  const result = await store.deleteBackup(first, async (folder) => {
+    assert.equal(folder, path.join(store.backupDir, first));
+    fs.renameSync(folder, trash);
+  });
+  assert.deepEqual(result, { id: first });
+  assert.deepEqual(store.list().map(item => item.id), [second]);
+  assert.equal(fs.readFileSync(path.join(trash, 'config.toml'), 'utf8'), 'model="old"\n');
+  assert.deepEqual(fs.readFileSync(file), current);
+  await assert.rejects(store.deleteBackup('../config.toml', () => assert.fail('must not trash invalid path')), /无效/);
+  await assert.rejects(store.deleteBackup(first, () => assert.fail('must not trash missing backup')), /不存在/);
+  await assert.rejects(store.deleteBackup(second, async () => { throw new Error('fixture trash unavailable'); }), /trash unavailable/);
+  assert.equal(store.list().length, 1);
+  assert.deepEqual(fs.readFileSync(file), current);
+});
+
+test('official login choice agrees with preview, persists both ways and leaves login credentials untouched', (t) => {
+  const { file, store } = fixture(t, 'model="old"\n');
+  const auth = path.join(path.dirname(file), 'auth.json');
+  fs.writeFileSync(auth, 'fixture-official-login-state');
+  const template = structuredClone(require('../src/bootstrap-manifest.json').templates[0]);
+  const originalTemplate = JSON.stringify(template);
+  for (const keepOfficialLogin of [true, false]) {
+    const before = fs.readFileSync(file);
+    const plan = store.prepare(file, keepOfficialLogin ? KEY : '', undefined, undefined, template, keepOfficialLogin);
+    assert.equal(TOML.parse(plan.preview).model_providers.custom.requires_openai_auth, keepOfficialLogin);
+    assert.deepEqual(fs.readFileSync(file), before);
+    const applied = store.apply(plan.id);
+    assert.equal(TOML.parse(fs.readFileSync(file, 'utf8')).model_providers.custom.requires_openai_auth, keepOfficialLogin);
+    assert.equal(store.inspect(file).keepOfficialLogin, keepOfficialLogin);
+    assert.equal(fs.readFileSync(auth, 'utf8'), 'fixture-official-login-state');
+    assert.equal(fs.readFileSync(path.join(store.backupDir, applied.backupId, 'config.toml')).equals(before), true);
+  }
+  assert.equal(JSON.stringify(template), originalTemplate);
+  for (const invalid of ['true', 1, null, {}]) assert.throws(() => store.prepare(file, KEY, undefined, undefined, template, invalid), /官方登录选项无效/);
+});
+
+test('explicit official login choice survives a remote template removing that field', (t) => {
+  const { file, store } = fixture(t, 'model="old"\n');
+  const template = structuredClone(require('../src/bootstrap-manifest.json').templates[0]);
+  delete template.set.model_providers.custom.requires_openai_auth;
+  template.remove.push(['model_providers', 'custom', 'requires_openai_auth']);
+  const plan = store.prepare(file, KEY, undefined, undefined, template, true);
+  assert.equal(TOML.parse(plan.preview).model_providers.custom.requires_openai_auth, true);
+  assert.equal(plan.preview.includes('# model_providers.custom.requires_openai_auth'), false);
+  store.apply(plan.id);
+  assert.equal(store.inspect(file).keepOfficialLogin, true);
+});
+
+test('backup preview retains original inline and table formatting and shows the actor endpoint without exposing tokens', () => {
+  const { backupPreview } = require('../src/backup-preview.cjs');
+  for (const headers of [
+    'http_headers = { "x-openai-actor-authorization" = "https://api.beiapi.cn/v1", "Authorization" = "Bearer fixture-secret" }',
+    '[model_providers.custom.http_headers]\r\n"x-openai-actor-authorization" = "https://api.beiapi.cn/v1"\r\nAuthorization = "Bearer fixture-secret"',
+  ]) {
+    const source = '# My provider\r\n[model_providers.custom]\r\nbase_url = "https://api.beiapi.cn/v1"\r\nexperimental_bearer_token = "fixture-key" # key stays local\r\n' + headers + '\r\n';
+    const expected = source.replace('"fixture-key"', '"（已隐藏）"').replace('"Bearer fixture-secret"', '"（已隐藏）"');
+    assert.equal(backupPreview(Buffer.from(source)), expected);
+  }
+});
+
+test('format-preserving previews redact multiline, quoted, array and comment credentials', () => {
+  const { backupPreview } = require('../src/backup-preview.cjs');
+  const source = '# ordinary note\n# API_KEY="fixture-comment"\n[model_providers.custom]\nbase_url="https://api.beiapi.cn/v1"\nexperimental_bearer_token="""fixture-multiline\nsecond-line"""\nhttp_headers={"x-openai-actor-authorization"="Bearer fixture-actor"}\n[[tools]]\n"api_key"="fixture-quoted"\nargs=["tool.js", "--api-key", "fixture-argument"]\n';
+  const preview = backupPreview(Buffer.from(source));
+  assert.ok(preview.startsWith('# ordinary note\n'));
+  assert.ok(preview.includes('[[tools]]'));
+  assert.equal(TOML.parse(preview).tools[0].args[0], 'tool.js');
+  for (const secret of ['fixture-comment', 'fixture-multiline', 'second-line', 'fixture-actor', 'fixture-quoted', 'fixture-argument']) assert.equal(preview.includes(secret), false);
 });

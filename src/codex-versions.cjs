@@ -92,4 +92,11 @@ function selectInstallations(installations, selection = { mode: 'auto' }) {
   throw new Error('请选择 Codex 版本。');
 }
 
-module.exports = { detectInstallations, selectInstallations, parseVersion };
+function modelClientVersion(installations, selection) {
+  const targets = selectInstallations(installations, selection);
+  const known = targets.filter((item) => typeof item.runtimeVersion === 'string' && semver.valid(item.runtimeVersion));
+  // Automatic mode prefers the CLI; desktop requests use its embedded runtime, not its app build.
+  return (known.find((item) => item.kind === 'cli') ?? known[0])?.runtimeVersion ?? null;
+}
+
+module.exports = { detectInstallations, selectInstallations, parseVersion, modelClientVersion };

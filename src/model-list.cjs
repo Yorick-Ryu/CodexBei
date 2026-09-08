@@ -1,9 +1,11 @@
 const { normalizeBaseUrl, validateKey, validateModel } = require('./deep-link.cjs');
+const { validVersion } = require('./version-request.cjs');
 
 const MAX_BYTES = 1024 * 1024;
 
-async function fetchModels({ baseUrl, apiKey }, fetchImpl = globalThis.fetch) {
-  const endpoint = `${normalizeBaseUrl(baseUrl)}/models`;
+async function fetchModels({ baseUrl, apiKey, clientVersion }, fetchImpl = globalThis.fetch) {
+  if (!validVersion(clientVersion)) throw new Error('未识别到 Codex 内核版本，请先选择 Codex 版本。');
+  const endpoint = `${normalizeBaseUrl(baseUrl)}/models?client_version=${encodeURIComponent(clientVersion)}`;
   const key = validateKey(apiKey);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -24,8 +26,9 @@ async function fetchModels({ baseUrl, apiKey }, fetchImpl = globalThis.fetch) {
       chunks.push(Buffer.from(chunk));
     }
     const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!Array.isArray(value.data) || value.data.length > 5000 || value.error || value.success === false) throw new Error();
-    const models = [...new Set(value.data.map((item) => validateModel(item?.id)))].sort();
+    if (!Array.isArray(value.models) || value.models.length > 5000 || value.error || value.success === false) throw new Error();
+    const models = [...new Set(value.models.filter((item) => item?.visibility === 'list' && item.supported_in_api === true)
+      .map((item) => validateModel(item.slug)))];
     return { models };
   } catch {
     // Never forward remote errors or request headers: either may contain credentials.

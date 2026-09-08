@@ -69,7 +69,7 @@ async function main() {
     if (!response.ok || !data.success) throw Error('Worker uploaded; custom domain attachment failed');
   }
   if (args.includes('--apply')) {
-    const request = { clientVersion: require('../package.json').version, targets: [{ kind: 'cli', runtimeVersion: '0.153.4' }] };
+    const request = { targets: [{ kind: 'cli', runtimeVersion: '0.153.4' }] };
     const expected = resolveResponse(manifest, request);
     let verified = false;
     for (let attempt = 0; attempt < 4; attempt++) {

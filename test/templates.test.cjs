@@ -22,26 +22,31 @@ function updated() {
   return m;
 }
 
-test('matching uses CLI and desktop runtime versions independently, with explicit manual fallback', () => {
+test('default covers all versions; specific policies override it and require their own runtime/app match', () => {
   const m = clone();
-  assert.ok(selectTemplate(m, [cli], '0.3.1'));
-  assert.equal(selectTemplate(m, [cli, { kind: 'desktop', runtimeVersion: '0.152.1', appVersion: '26.901.51231' }], '0.3.1'), null);
-  assert.equal(selectTemplate(m, [{ kind: 'desktop', runtimeVersion: null, appVersion: '26.901.51231' }], '0.3.1'), null);
-  assert.equal(selectTemplate(m, [cli], '0.1.5'), null);
-  assert.equal(selectTemplate(m, [], '0.3.1'), null);
+  for (const targets of [[cli], [], [{ kind: 'desktop', runtimeVersion: null }], [{ kind: 'cli', runtimeVersion: '0.154.0-alpha.3' }]]) {
+    assert.equal(selectTemplate(m, targets).id, 'codex-default');
+  }
+  const special = structuredClone(m.templates[0]); special.id = 'special'; special.default = false;
+  special.targets = [{ kind: 'desktop', runtimeRange: '>=0.153.0 <0.154.0', appRange: { min: '26.0.0', maxExclusive: '27.0.0' } }];
+  m.templates[0].version = '9.0.0'; m.templates.push(special);
+  validateManifest(m);
   const selected = selectInstallations([], { mode: 'manual', kind: 'desktop', runtimeVersion: '0.153.4', appVersion: '26.901.51231' });
-  assert.ok(selectTemplate(m, selected, '0.3.1'));
+  assert.equal(selectTemplate(m, selected).id, 'special');
+  assert.equal(selectTemplate(m, [cli]).id, 'codex-default');
+  assert.equal(selectTemplate(m, [{ ...selected[0], appVersion: '27.0.0' }]).id, 'codex-default');
   assert.throws(() => selectInstallations([], { mode: 'manual', kind: 'desktop', runtimeVersion: 'latest' }));
-  m.templates[0].targets[1].appRange = { min: '27.0.0', maxExclusive: '28.0.0' };
-  assert.equal(selectTemplate(m, selected, '0.3.1'), null);
-  assert.equal(selectTemplate(m, [{ kind: 'cli', runtimeVersion: '0.153.4-beta.1' }], '0.3.1'), null);
 });
 
-test('higher matching template wins and equal-priority ambiguous templates are rejected', () => {
-  const m = updated(); m.templates.push(clone().templates[0]);
-  assert.equal(selectTemplate(m, [cli], '0.3.1').version, '1.1.0');
-  m.templates.push({ ...structuredClone(m.templates[0]), id: 'overlapping' });
-  assert.equal(selectTemplate(m, [cli], '0.3.1'), null);
+test('specific policy revisions resolve overlap; duplicate defaults and ambiguous overrides are rejected', () => {
+  const m = clone(); const special = structuredClone(m.templates[0]);
+  special.id = 'special'; special.default = false; special.targets = [{ kind: 'cli', runtimeRange: '>=0.153.0 <0.154.0' }];
+  m.templates.push(special, { ...structuredClone(special), id: 'newer', version: '1.1.0' });
+  assert.equal(selectTemplate(m, [cli]).id, 'newer');
+  m.templates.push({ ...structuredClone(m.templates[2]), id: 'ambiguous' });
+  assert.equal(selectTemplate(m, [cli]), null);
+  const invalid = clone(); invalid.templates.push({ ...structuredClone(invalid.templates[0]), id: 'duplicate-default' });
+  assert.throws(() => validateManifest(invalid));
 });
 
 test('remote templates cannot overwrite user models, carry credentials, touch unrelated settings or delete entire tables', () => {
@@ -55,7 +60,7 @@ test('remote templates cannot overwrite user models, carry credentials, touch un
     (t) => { t.remove = [['model_reasoning_effort']]; },
     (t) => { t.set.model_providers.custom.requires_openai_auth = true; },
     (t) => { t.set.model_providers.custom.request_max_retries = 100000; },
-    (t) => { t.targets[0].runtimeRange = 'latest'; },
+    (t) => { t.default = false; t.targets = [{ kind: 'cli', runtimeRange: 'latest' }]; },
   ]) {
     const m = clone(); mutate(m.templates[0]); assert.throws(() => validateManifest(m));
   }
@@ -75,28 +80,55 @@ test('remote values bind the selected model and connection only when applying lo
 test('remote refresh caches validated releases without sending local data and survives offline restart', async (t) => {
   const directory = temporary(t);
   let requests = 0;
-  const manager = new TemplateStore({ directory, clientVersion: '0.3.1', fetchImpl: async (url, options) => {
+  const manager = new TemplateStore({ directory, fetchImpl: async (url, options) => {
     requests++; assert.equal(url, RESOLVE_URL); assert.equal(options.redirect, 'error');
-    assert.equal(options.method, 'POST'); assert.deepEqual(JSON.parse(options.body), requestFor([cli], '0.3.1')); assert.equal(options.body.includes(KEY), false);
-    return new Response(JSON.stringify(resolveResponse(updated(), requestFor([cli], '0.3.1'))));
+    assert.equal(options.method, 'POST'); assert.deepEqual(JSON.parse(options.body), requestFor([cli])); assert.equal(options.body.includes(KEY), false);
+    return new Response(JSON.stringify(resolveResponse(updated(), requestFor([cli]))));
   } });
   await Promise.all([manager.check([cli]), manager.check([cli])]); assert.equal(requests, 1);
   assert.equal(manager.resolve([cli]).template.version, '1.1.0');
   const bytes = fs.readFileSync(path.join(directory, 'resolved-templates.json'), 'utf8'); assert.equal(bytes.includes(KEY), false);
-  const restarted = new TemplateStore({ directory, clientVersion: '0.3.1', fetchImpl: async () => { throw new Error('offline'); } });
+  const restarted = new TemplateStore({ directory, fetchImpl: async () => { throw new Error('offline'); } });
   assert.equal(await restarted.check([cli]), false); assert.equal(restarted.resolve([cli]).template.version, '1.1.0');
   assert.equal(restarted.resolve([cli]).offline, true);
 });
 
+test('template selection changes only on activation and survives checks, restart and offline failure', async (t) => {
+  const directory = temporary(t);
+  let offline = false;
+  const fetchImpl = async (_url, options) => {
+    if (offline) throw new Error('offline');
+    return Response.json(resolveResponse(updated(), JSON.parse(options.body)));
+  };
+  let manager = new TemplateStore({ directory, fetchImpl });
+  assert.equal(manager.current([cli]).template.version, '1.0.0');
+  await manager.check([cli]);
+  assert.equal(manager.resolve([cli]).template.version, '1.1.0');
+  assert.equal(manager.current([cli]).template.version, '1.0.0');
+  manager = new TemplateStore({ directory, fetchImpl });
+  assert.equal(manager.current([cli]).template.version, '1.0.0');
+  offline = true;
+  await manager.check([cli]);
+  assert.throws(() => manager.activate([cli]), /无法获取最新模板/);
+  assert.equal(manager.current([cli]).template.version, '1.0.0');
+  offline = false;
+  await manager.check([cli]);
+  manager.activate([cli]);
+  assert.equal(manager.current([cli]).template.version, '1.1.0');
+  manager = new TemplateStore({ directory, fetchImpl });
+  assert.equal(manager.current([cli]).template.version, '1.1.0');
+  assert.equal(manager.current([]).template.version, '1.0.0');
+});
+
 test('invalid, oversized, stale and silently mutated updates cannot replace the last usable cache', async (t) => {
-  const directory = temporary(t); let response = () => new Response(JSON.stringify(resolveResponse(updated(), requestFor([cli], '0.3.1'))));
-  const manager = new TemplateStore({ directory, clientVersion: '0.3.1', fetchImpl: async () => response() });
+  const directory = temporary(t); let response = () => new Response(JSON.stringify(resolveResponse(updated(), requestFor([cli]))));
+  const manager = new TemplateStore({ directory, fetchImpl: async () => response() });
   assert.equal(await manager.check([cli]), true);
   const before = fs.readFileSync(path.join(directory, 'resolved-templates.json'));
   const mutated = updated(); mutated.templates[0].set.model_reasoning_effort = 'low';
   const futureSchema = updated(); futureSchema.schemaVersion = 2;
   for (const data of [clone(), mutated, futureSchema, { error: 'bad' }]) {
-    response = () => new Response(JSON.stringify(data.templates ? { ...resolveResponse(data, requestFor([cli], '0.3.1')), schemaVersion: data.schemaVersion } : data)); assert.equal(await manager.check([cli]), false);
+    response = () => new Response(JSON.stringify(data.templates ? { ...resolveResponse(data, requestFor([cli])), schemaVersion: data.schemaVersion } : data)); assert.equal(await manager.check([cli]), false);
     assert.deepEqual(fs.readFileSync(path.join(directory, 'resolved-templates.json')), before);
   }
   response = () => new Response('a'.repeat(MAX_BYTES + 1)); assert.equal(await manager.check([cli]), false);
@@ -106,9 +138,9 @@ test('invalid, oversized, stale and silently mutated updates cannot replace the 
 
 test('corrupt disk cache falls back to the bundled validated policy, never an arbitrary version', (t) => {
   const directory = temporary(t); fs.writeFileSync(path.join(directory, 'resolved-templates.json'), 'broken');
-  const manager = new TemplateStore({ directory, clientVersion: '0.3.1' });
+  const manager = new TemplateStore({ directory });
   assert.equal(manager.resolve([cli]).source, 'bundled');
-  assert.equal(manager.resolve([{ kind: 'cli', runtimeVersion: '0.150.0' }]), null);
+  assert.equal(manager.resolve([{ kind: 'cli', runtimeVersion: '0.150.0' }]).template.id, 'codex-default');
 });
 
 test('template update keeps the stored key and user model, removes only a named deprecated field and restores exact original bytes', (t) => {

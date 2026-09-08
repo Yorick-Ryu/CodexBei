@@ -1,22 +1,12 @@
 {
   "schemaVersion": 1,
-  "release": 3,
-  "publishedAt": "2026-09-07T16:25:44.254132Z",
+  "release": 1,
+  "publishedAt": "2026-09-08T02:15:39.747459Z",
   "templates": [
     {
-      "id": "codex-0153",
-      "version": "1.0.2",
-      "clientRange": ">=0.3.1 <1.0.0",
-      "targets": [
-        {
-          "kind": "cli",
-          "runtimeRange": ">=0.153.0 <0.154.0"
-        },
-        {
-          "kind": "desktop",
-          "runtimeRange": ">=0.153.0 <0.154.0"
-        }
-      ],
+      "id": "codex-default",
+      "version": "1.0.0",
+      "targets": [],
       "set": {
         "model_provider": "custom",
         "model": "$model",
@@ -37,7 +27,8 @@
           }
         }
       },
-      "remove": []
+      "remove": [],
+      "default": true
     }
   ]
 }

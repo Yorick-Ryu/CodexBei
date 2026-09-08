@@ -8,9 +8,11 @@ const { formatPreset } = require('./format-preset.cjs');
 const { normalizeBaseUrl, validateKey, validateModel } = require('./deep-link.cjs');
 const { materialize, templateDigest } = require('./template-policy.cjs');
 const bootstrap = require('./bootstrap-manifest.json');
+const { backupPreview } = require('./backup-preview.cjs');
 
 const BASE_URL = 'https://api.beiapi.cn/v1';
 const MODEL = 'gpt-6-astra';
+const BACKUP_LIMIT = 10;
 const digest = (bytes) => createHash('sha256').update(bytes === null ? 'missing' : Buffer.concat([Buffer.from('file:'), bytes])).digest('hex');
 
 function readConfig(file) {
@@ -31,8 +33,24 @@ function parseConfig(bytes) {
   catch { throw new Error('配置不是有效的 TOML，未修改任何配置。请先修复原文件。'); }
 }
 
-function preset(apiKey, baseUrl = BASE_URL, model = MODEL, template = bootstrap.templates[0]) {
-  return materialize(template, { apiKey, baseUrl, model });
+function preset(apiKey, baseUrl = BASE_URL, model = MODEL, template = bootstrap.templates[0], keepOfficialLogin = false) {
+  if (typeof keepOfficialLogin !== 'boolean') throw new Error('官方登录选项无效，请重新选择。');
+  const result = materialize(template, { apiKey, baseUrl, model });
+  // This is an explicit local choice, never a capability granted to remote templates.
+  result.model_providers.custom.requires_openai_auth = keepOfficialLogin;
+  return result;
+}
+
+function presetRemovals(template) {
+  return template.remove.filter((parts) => parts.join('.') !== 'model_providers.custom.requires_openai_auth');
+}
+
+function previewPreset(baseUrl, model, template, keepOfficialLogin = false) {
+  const endpoint = normalizeBaseUrl(baseUrl);
+  const selectedModel = validateModel(model);
+  const remove = presetRemovals(template);
+  return formatPreset(preset('sk-••••••••（你的密钥）', endpoint, selectedModel, template, keepOfficialLogin)) +
+    (remove.length ? '\n# 删除指定字段：\n' + remove.map((parts) => '# ' + parts.join('.')).join('\n') : '');
 }
 
 // Exclusive temporary file + fsync + rename keeps the previous file intact on failure.
@@ -101,7 +119,7 @@ class ConfigStore {
     }
     const latest = this.list().find((item) => item.file === target);
     const metadata = latest ? this.loadBackup(latest.id).metadata : null;
-    return { connection, template: metadata?.kind === 'configure' ? metadata.template ?? null : null };
+    return { connection, keepOfficialLogin: parsed.model_providers?.custom?.requires_openai_auth === true, template: metadata?.kind === 'configure' ? metadata.template ?? null : null };
   }
 
   modelCredentials(file, key, baseUrl = BASE_URL) {
@@ -115,7 +133,7 @@ class ConfigStore {
     return { baseUrl: endpoint, apiKey: validateKey(provider.experimental_bearer_token) };
   }
 
-  prepare(file, key, baseUrl = BASE_URL, selectedModel = MODEL, template = bootstrap.templates[0]) {
+  prepare(file, key, baseUrl = BASE_URL, selectedModel = MODEL, template = bootstrap.templates[0], keepOfficialLogin = false) {
     const endpoint = normalizeBaseUrl(baseUrl);
     const model = validateModel(selectedModel);
     const target = this.target(file);
@@ -125,8 +143,8 @@ class ConfigStore {
     const apiKey = validateKey(key || (parsed.model_provider === 'custom' ? parsed.model_providers?.custom?.experimental_bearer_token : null));
     if (parsed.profile) throw new Error('检测到默认 profile。请先选择该 profile 的 .config.toml 文件；旧式内嵌 profile 需先手动整理，避免写入后不生效。');
     if (parsed.model_providers && (typeof parsed.model_providers !== 'object' || Array.isArray(parsed.model_providers))) throw new Error('model_providers 必须是 TOML 表。');
-    const recommended = preset(apiKey, endpoint, model, template);
-    const patch = patchPreset(before?.toString('utf8') ?? '', recommended, template.remove);
+    const recommended = preset(apiKey, endpoint, model, template, keepOfficialLogin);
+    const patch = patchPreset(before?.toString('utf8') ?? '', recommended, presetRemovals(template));
     const after = Buffer.from(patch.text);
     parseConfig(after);
     const id = randomUUID();
@@ -139,8 +157,7 @@ class ConfigStore {
       changes: patch.changes,
       // Preview only our public preset; existing MCP/environment secrets never leave main.
       template: policy,
-      preview: formatPreset(preset('sk-••••••••（你的密钥）', endpoint, model, template)) +
-        (template.remove.length ? '\n# 删除指定字段：\n' + template.remove.map((parts) => '# ' + parts.join('.')).join('\n') : ''),
+      preview: previewPreset(endpoint, model, template, keepOfficialLogin),
     };
   }
 
@@ -190,10 +207,52 @@ class ConfigStore {
     if (!fs.existsSync(this.backupDir)) return [];
     return fs.readdirSync(this.backupDir).flatMap((id) => {
       try {
-        const { metadata } = this.loadBackup(id);
-        return [{ id, file: metadata.target, created: metadata.created, kind: metadata.kind }];
+        const { metadata, bytes } = this.loadBackup(id);
+        let baseUrl = null, keepOfficialLogin = null;
+        try {
+          // Summarize this saved snapshot, never the current file or unredacted credentials.
+          const config = bytes === null ? {} : TOML.parse(backupPreview(bytes));
+          const provider = config.model_providers?.[config.model_provider ?? 'custom'];
+          if (typeof provider?.base_url === 'string') baseUrl = provider.base_url;
+          if (typeof provider?.requires_openai_auth === 'boolean') keepOfficialLogin = provider.requires_openai_auth;
+        } catch { /* Keep unreadable historical details explicit without hiding the backup. */ }
+        return [{ id, file: metadata.target, created: metadata.created, kind: metadata.kind, baseUrl, keepOfficialLogin }];
       } catch { return []; }
     }).sort((a, b) => b.created.localeCompare(a.created));
+  }
+
+  previewBackup(id) {
+    const { metadata, bytes } = this.loadBackup(id);
+    return {
+      id, file: metadata.target, created: metadata.created, kind: metadata.kind,
+      existed: metadata.existed,
+      content: bytes === null ? '' : backupPreview(bytes),
+    };
+  }
+
+  backupForDeletion(id) {
+    this.loadBackup(id);
+    if (fs.lstatSync(this.backupDir).isSymbolicLink()) throw new Error('备份目录不能是符号链接。');
+    return path.join(this.backupDir, id);
+  }
+
+  async deleteBackup(id, trash) {
+    const folder = this.backupForDeletion(id);
+    await trash(folder);
+    return { id };
+  }
+
+  async pruneBackups(trash, newestId) {
+    const backups = this.list();
+    // Always retain the snapshot just created, including when timestamps tie or the clock moves back.
+    const retained = new Set(newestId ? [newestId] : []);
+    for (const backup of backups) {
+      if (retained.size >= BACKUP_LIMIT) break;
+      retained.add(backup.id);
+    }
+    for (const backup of backups) {
+      if (!retained.has(backup.id)) await this.deleteBackup(backup.id, trash);
+    }
   }
 
   inspectRestore(id) {
@@ -222,4 +281,4 @@ class ConfigStore {
   }
 }
 
-module.exports = { ConfigStore, BASE_URL, MODEL, preset, digest, atomicWrite };
+module.exports = { ConfigStore, BASE_URL, MODEL, BACKUP_LIMIT, preset, previewPreset, digest, atomicWrite };

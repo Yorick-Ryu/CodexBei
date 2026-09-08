@@ -44,9 +44,9 @@ function flatten(value, prefix = []) {
 
 function validateTemplate(template) {
   if (/sk-[A-Za-z0-9_-]{12,}/.test(JSON.stringify(template))) fail();
-  if (!exactKeys(template, ['id', 'version', 'clientRange', 'targets', 'set', 'remove']) ||
-    typeof template.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(template.id) || !semver.valid(template.version) || !validRange(template.clientRange) ||
-    !Array.isArray(template.targets) || !template.targets.length || template.targets.length > 10) fail();
+  if (!exactKeys(template, ['id', 'version', 'default', 'targets', 'set', 'remove']) ||
+    typeof template.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(template.id) || !semver.valid(template.version) || typeof template.default !== 'boolean' ||
+    !Array.isArray(template.targets) || (template.default ? template.targets.length !== 0 : !template.targets.length) || template.targets.length > 10) fail();
   for (const target of template.targets) {
     if (!exactKeys(target, ['kind', 'runtimeRange', 'appRange']) || !['cli', 'desktop'].includes(target.kind) ||
       !validRange(target.runtimeRange) || (target.appRange !== undefined && (target.kind !== 'desktop' || !validAppRange(target.appRange)))) fail();
@@ -77,6 +77,7 @@ function validateManifest(manifest) {
   if (!exactKeys(manifest, ['schemaVersion', 'release', 'publishedAt', 'templates']) || manifest.schemaVersion !== 1 ||
     !Number.isSafeInteger(manifest.release) || manifest.release < 1 || typeof manifest.publishedAt !== 'string' ||
     !Number.isFinite(Date.parse(manifest.publishedAt)) || !Array.isArray(manifest.templates) || !manifest.templates.length || manifest.templates.length > 50) fail();
+  if (manifest.templates.filter((template) => template.default).length !== 1) fail();
   const seen = new Set();
   for (const template of manifest.templates) {
     validateTemplate(template);
@@ -93,13 +94,13 @@ function matches(template, installation) {
     (!target.appRange || matchesAppRange(installation.appVersion, target.appRange)));
 }
 
-function selectTemplate(manifest, installations, clientVersion) {
-  if (!installations.length || !semver.valid(clientVersion)) return null;
-  const candidates = manifest.templates.filter((template) => semver.satisfies(clientVersion, template.clientRange) && installations.every((item) => matches(template, item)))
-    .sort((a, b) => semver.rcompare(a.version, b.version));
-  // Ambiguous equal-priority policies need an explicit remote correction, never array-order selection.
+function selectTemplate(manifest, installations) {
+  // A targeted policy always takes precedence over the default, regardless of revision numbers.
+  const candidates = installations.length ? manifest.templates.filter((template) => !template.default && installations.every((item) => matches(template, item)))
+    .sort((a, b) => semver.rcompare(a.version, b.version)) : [];
   if (candidates.length > 1 && semver.eq(candidates[0].version, candidates[1].version)) return null;
-  return candidates[0] ?? null;
+  if (candidates.length) return candidates[0];
+  return manifest.templates.find((template) => template.default) ?? null;
 }
 
 function materialize(template, connection) {
