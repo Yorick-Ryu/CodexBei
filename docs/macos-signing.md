@@ -1,10 +1,10 @@
 # macOS 签名与公证
 
-正式构建入口：`npm run build:mac:release`，默认输出 Apple Silicon 和 Intel 的 DMG / ZIP 到 `dist-release/`；可追加 `-- --arm64` 或 `-- --x64`。
+正式构建入口：`npm run build:mac:release`，通过 Tauri 构建 Apple Silicon 和 Intel 的 DMG / ZIP，输出到独立的 `releases/tauri-时间戳/`；可追加 `-- --arm64` 或 `-- --x64`。
 
 脚本固定使用个人团队 `HYB659G8FH` 的 Developer ID Application 证书，并强制签名、公证。证书、私钥或公证凭据不可用时直接停止，不生成冒充正式版的未签名包。
 
-Electron 的 `*.lproj/locale.pak` 是语言数据，由所属 Framework 的资源签名封印保护，不单独作为可执行文件签名。发布目录与本地测试目录分开，公证期间不要覆盖发布目录中的应用。
+桌面实现只使用 Tauri。公证凭据通过系统钥匙串读取，发布目录与本地测试目录分开；公证期间不要覆盖发布目录中的应用。
 
 检查本机签名身份：
 

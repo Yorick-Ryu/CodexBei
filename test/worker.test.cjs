@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { handle } = require('../worker/handler.cjs');
-const { requestFor } = require('../src/version-request.cjs');
-const { TemplateStore, RESOLVE_URL } = require('../src/template-store.cjs');
-const bootstrap = require('../src/bootstrap-manifest.json');
+const { requestFor } = require('../worker/lib/version-request.cjs');
+const RESOLVE_URL = 'https://codexbei.beiapi.cn/config/v1/resolve';
+const bootstrap = require('../templates/bootstrap.json');
 const cli = [{ kind: 'cli', runtimeVersion: '0.153.4', executable: '/private/path', apiKey: 'private-placeholder' }];
 const desktop = [{ kind: 'desktop', runtimeVersion: '0.152.1', appVersion: '26.901.51231.0' }];
 const request = (body, url = RESOLVE_URL) => new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -32,24 +32,4 @@ test('unknown and preview versions use default, with explicit preview overrides 
   }
   const m = policies(); m.templates[1].targets = [{ kind: 'cli', runtimeRange: '>=0.153.0-alpha.1 <0.153.0' }];
   assert.equal((await (await handle(request(requestFor(targets)), m)).json()).template.id, 'codex-0152');
-});
-test('same-release responses cache independently by version, including the default and offline restart', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbei-filter-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const manager = new TemplateStore({ directory, fetchImpl: (url, options) => handle(new Request(url, options), policies()) });
-  assert.equal(await manager.check(cli), true); assert.equal(await manager.check(desktop), true);
-  assert.equal(manager.resolve(cli).template.id, 'codex-default'); assert.equal(manager.resolve(desktop).template.id, 'codex-0152');
-  const unknown = [{ kind: 'cli', runtimeVersion: '0.999.0' }]; assert.equal(await manager.check(unknown), true); assert.equal(manager.resolve(unknown).template.id, 'codex-default');
-  const cached = fs.readFileSync(path.join(directory, 'resolved-templates.json'), 'utf8'); assert.equal(cached.includes('/private/path'), false); assert.equal(cached.includes('private-placeholder'), false);
-  const restarted = new TemplateStore({ directory, fetchImpl: () => { throw Error(); } });
-  assert.equal(await restarted.check(desktop), false); assert.equal(restarted.resolve(desktop).template.id, 'codex-0152'); assert.equal(restarted.resolve(unknown).template.id, 'codex-default');
-});
-test('client rejects a response matched for another runtime and honors an authoritative no-match', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbei-filter-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  let m = policies();
-  const manager = new TemplateStore({ directory, fetchImpl: () => handle(request(requestFor(desktop)), m) });
-  assert.equal(await manager.check(cli), false); assert.equal(manager.resolve(cli).source, 'bundled');
-  manager.fetch = (url, options) => handle(new Request(url, options), m);
-  assert.equal(await manager.check(cli), true);
-  m.release++; const special = structuredClone(m.templates[0]); special.id = 'cli-special'; special.default = false; special.targets = [{ kind: 'cli', runtimeRange: '0.153.4' }]; m.templates.push(special, { ...structuredClone(special), id: 'ambiguous' });
-  assert.equal(await manager.check(cli), true); assert.equal(manager.resolve(cli), null);
 });

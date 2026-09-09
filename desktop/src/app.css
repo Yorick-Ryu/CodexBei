@@ -1,0 +1,74 @@
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.software-update-entry {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+}
+.software-update-entry:hover { background: transparent; }
+.software-update-dot {
+  position: absolute;
+  top: 0;
+  right: -7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e45151;
+}
+#software-update {
+  inset: var(--window-controls-height) 0 0;
+  width: min(360px, calc(100vw - 64px));
+  max-height: calc(100dvh - 96px);
+  overflow: auto;
+  margin: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 56px #0005;
+}
+#software-update::backdrop {
+  top: var(--window-controls-height);
+  background: #0006;
+  backdrop-filter: blur(2px);
+}
+.software-update-status { height: 36px; line-height: 18px; margin: 12px 0; }
+.software-update-detail { height: 112px; overflow: auto; }
+.software-update-detail p { margin: 0 0 8px; }
+.software-update-detail progress { width: 100%; }
+.software-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.software-update-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.content-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: none;
+  scroll-padding-block: 16px;
+}
+.path-row input {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+.backup-summary {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.backup-summary dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 12px;
+}
+.backup-summary dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+}

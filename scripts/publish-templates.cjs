@@ -2,8 +2,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { validateManifest } = require('../src/template-policy.cjs');
-const { resolveResponse } = require('../src/version-request.cjs');
+const { validateManifest } = require('../worker/lib/template-policy.cjs');
+const { resolveResponse } = require('../worker/lib/version-request.cjs');
+const { validateAppRelease } = require('../worker/updates.cjs');
 const root = path.resolve(__dirname, '..');
 async function main() {
   const args = process.argv.slice(2);
@@ -14,6 +15,7 @@ async function main() {
     if (args[i] === '--token-file') tokenFile = args[++i];
   }
   const manifest = validateManifest(JSON.parse(fs.readFileSync(path.join(root, 'remote/manifest.json'), 'utf8')));
+  validateAppRelease(JSON.parse(fs.readFileSync(path.join(root, 'remote/app-release.json'), 'utf8')));
   console.log(`Validated release ${manifest.release} (${manifest.templates.length} templates)`);
   if (args.includes('--validate-only')) return;
   const env = { ...process.env, WRANGLER_SEND_METRICS: 'false' };

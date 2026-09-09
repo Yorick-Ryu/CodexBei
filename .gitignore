@@ -26,3 +26,7 @@ worker/env.d.ts
 /cache/
 /auth.json
 /config.toml
+
+# Tauri trial build output
+/src-tauri/target/
+/src-tauri/gen/schemas/

@@ -1,5 +1,5 @@
-const { normalizeRequest, resolveResponse } = require('../src/version-request.cjs');
-const { validateManifest } = require('../src/template-policy.cjs');
+const { normalizeRequest, resolveResponse } = require('./lib/version-request.cjs');
+const { validateManifest } = require('./lib/template-policy.cjs');
 const json = (body, status) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 async function handle(request, manifest) {
   const url = new URL(request.url);
