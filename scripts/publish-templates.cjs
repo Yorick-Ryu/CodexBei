@@ -52,7 +52,9 @@ async function main() {
     fs.mkdirSync(path.join(root, '.wrangler'), { recursive: true });
     temporary = fs.mkdtempSync(path.join(root, '.wrangler/deploy-'));
     const file = path.join(temporary, 'wrangler.json');
-    fs.writeFileSync(file, JSON.stringify({ ...config, routes: [], main: path.resolve(root, config.main), $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
+    fs.writeFileSync(file, JSON.stringify({ ...config, routes: [], main: path.resolve(root, config.main),
+      ...(config.assets ? { assets: { ...config.assets, directory: path.resolve(root, config.assets.directory) } } : {}),
+      $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
     configArgs = ['--config', file];
   }
   let result;

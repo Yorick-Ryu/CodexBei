@@ -5,6 +5,8 @@
 检查接口：`https://codexbei.beiapi.cn/updates/v1/{{target}}/{{arch}}/{{current_version}}`。
 Worker 读取 [app-release.json](../remote/app-release.json)。`null` 表示尚未发布更新，返回 204；相同或更低版本、缺少当前平台产物也返回 204。模板更新接口独立保留。
 
+公开下载页：<https://codexbei.beiapi.cn/downloads/>。安装包和更新包通过同一个 Worker 的静态资源托管，版本目录为 `/downloads/<版本>/`，不依赖 R2。线上是否已发布，以更新接口实际响应为准。
+
 ## 签名和打包
 
 - 更新私钥：`~/.codexbei/signing/updater/codexbei.key`（600，仓库外）。必须安全备份并在后续版本持续使用；对应公钥嵌入 `src-tauri/tauri.conf.json`。
@@ -26,12 +28,18 @@ node scripts/finalize-windows-release.cjs <下载目录> <发布目录> <构建�
 ## 后续发布
 
 1. 新功能随首次 0.1.0 分发；后续更新必须同步提升 `package.json`、锁文件、`src-tauri/Cargo.toml`、Cargo 锁文件和 `tauri.conf.json` 的版本并重新构建。不要向同版本推送不同二进制。
-2. 将正式更新产物上传到 HTTPS 下载目录，保留旧版本文件。每个架构都使用各自的包和签名。
+2. 整理包含四个平台产物和 `SHA256SUMS` 的正式发布目录，运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads`。脚本只复制公开安装包、更新包和签名，生成下载页；拒绝覆盖同版本的不同文件。保留 `dist-downloads` 的所有旧版本目录，每次 Worker 部署会重新发布整个静态资源目录；在新机器上必须从已保存的发布目录重新整理所有已发布版本。
 3. 将各平台最终产物及 `.update.json` 放在同一目录，准备更新元数据（只写本地文件，不上传）：
 
    `node scripts/prepare-app-release.cjs <产物目录> <HTTPS下载目录> <更新说明文件> <新JSON文件>`
 
    脚本检查各平台文件的 SHA-256 和签名文件是否仍匹配打包记录，自动合并 Mac / Windows 的平台信息，并拒绝混用不同版本。
-4. 验证所有下载 URL 可用后，将元数据放入 `remote/app-release.json`，执行 `npm run test:worker`、`npm run worker:check`，再按 [远端部署说明](../remote/README.md) 显式发布 Worker。
+4. 先保持旧更新清单不变，按 [远端部署说明](../remote/README.md) 发布静态资源；逐个下载公开文件并核对 SHA-256 后，再将新元数据放入 `remote/app-release.json`。执行 `npm run test:worker`、`npm run worker:check`，然后再次发布 Worker 启用更新。
 
-首次接入时保持清单为 `null`，不会对外发布安装包，也不会向现有用户推送更新。出现问题可将清单回退为 `null` 暂停后续更新提示；这不会降级已经安装的应用。
+出现问题可将清单回退为 `null` 并重新部署，暂停后续更新提示；保留静态资源目录。这不会降级已经安装的应用。
+
+## 本地真实更新测试
+
+用 Tauri 的 `--config` 覆盖文件将测试构建的 `version` 设为 `0.0.1`、`bundle.createUpdaterArtifacts` 设为 `false`，保留正式更新地址和公钥。将生成的 `.app` 复制到独立测试目录后运行，不要从开发模式的裸二进制或 DMG 只读卷测试替换安装。正式源码的版本号保持不变。
+
+确认测试应用显示 0.0.1，等待更新准备好，点击“重启更新”；重启后确认版本、程序文件 SHA-256、代码签名及用户配置未变化。2026-09-09 的真实测试记录保存在本地 `artifacts/updater-live-20260909/e2e-result.json`，0.0.1 测试应用的恢复副本为同目录 `CodexBei-0.0.1-local-test.zip`。

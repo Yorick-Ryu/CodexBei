@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="下载 CodexBei，轻松配置 ChatGPT，随时切换 API 与官方通道。支持 Mac 和 Windows。">
+  <title>下载 CodexBei</title>
+  <link rel="icon" type="image/x-icon" href="{{FAVICON_URL}}">
+  <script src="{{SCRIPT_URL}}"></script>
+  <link rel="stylesheet" href="{{STYLE_URL}}">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="CodexBei 首页"><span class="brand-icon">{{BRAND_ICON}}</span><span>CodexBei</span></a>
+      <fieldset class="theme-switch" aria-label="外观主题">
+        <legend class="sr-only">外观主题</legend>
+        <span class="theme-thumb" aria-hidden="true"></span>
+        <label><input type="radio" name="theme" value="system" aria-label="跟随系统" checked><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="tooltip">跟随系统</span></label>
+        <label><input type="radio" name="theme" value="dark" aria-label="深色"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 13.2A9 9 0 0 1 10.8 3.2a9 9 0 1 0 10 10Z"/></svg><span class="tooltip">深色</span></label>
+        <label><input type="radio" name="theme" value="light" aria-label="浅色"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg><span class="tooltip">浅色</span></label>
+      </fieldset>
+    </header>
+
+    <main>
+      <div class="intro">
+        <span class="release"><span aria-hidden="true"></span>版本 {{VERSION}}</span>
+        <h1>下载 CodexBei</h1>
+        <p>轻松配置 ChatGPT，随时切换 API 与官方通道。</p>
+      </div>
+
+      <section class="downloads" aria-label="选择你的操作系统">
+        <article class="platform" data-platform="mac">
+          <div class="platform-heading"><span class="platform-icon apple" aria-hidden="true">{{APPLE_ICON}}</span><h2>macOS</h2></div>
+          <p class="platform-description">为你的 Mac 准备就绪。</p>
+          <div class="download-control">
+            <a class="download-button" href="{{MAC_APPLE_URL}}" aria-label="下载 Mac 版 · Apple 芯片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3"/></svg>下载 Mac 版</a>
+            <details class="architecture">
+              <summary aria-label="选择 Mac 芯片"><span class="selected-label">Apple 芯片</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+              <div class="architecture-menu" role="group" aria-label="Mac 芯片选项">
+                <button type="button" data-url="{{MAC_APPLE_URL}}" data-size="{{MAC_APPLE_SIZE}}" data-label="Apple 芯片" aria-label="Apple 芯片" aria-pressed="true"><span><strong>Apple 芯片</strong><small>M 系列芯片</small></span><svg class="check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>
+                <button type="button" data-url="{{MAC_INTEL_URL}}" data-size="{{MAC_INTEL_SIZE}}" data-label="Intel 芯片" aria-label="Intel 芯片" aria-pressed="false"><span><strong>Intel 芯片</strong><small>Intel 处理器</small></span><svg class="check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>
+              </div>
+            </details>
+          </div>
+          <p class="package-info">macOS 13+<span>·</span><span class="package-size" aria-live="polite">{{MAC_APPLE_SIZE}}</span></p>
+        </article>
+
+        <article class="platform" data-platform="windows">
+          <div class="platform-heading"><span class="platform-icon windows" aria-hidden="true">{{WINDOWS_ICON}}</span><h2>Windows</h2></div>
+          <p class="platform-description">适用于你的 Windows 电脑。</p>
+          <div class="download-control">
+            <a class="download-button" href="{{WIN_X64_URL}}" aria-label="下载 Windows 版 · x64"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3"/></svg>下载 Windows 版</a>
+            <details class="architecture">
+              <summary aria-label="选择 Windows 架构"><span class="selected-label">x64</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+              <div class="architecture-menu" role="group" aria-label="Windows 架构选项">
+                <button type="button" data-url="{{WIN_X64_URL}}" data-size="{{WIN_X64_SIZE}}" data-label="x64" aria-label="x64" aria-pressed="true"><span><strong>x64</strong><small>大多数 Intel / AMD 电脑</small></span><svg class="check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>
+                <button type="button" data-url="{{WIN_ARM_URL}}" data-size="{{WIN_ARM_SIZE}}" data-label="ARM64" aria-label="ARM64" aria-pressed="false"><span><strong>ARM64</strong><small>Windows on ARM 电脑</small></span><svg class="check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>
+              </div>
+            </details>
+          </div>
+          <p class="package-info">安装程序<span>·</span><span class="package-size" aria-live="polite">{{WIN_X64_SIZE}}</span></p>
+        </article>
+      </section>
+
+      <div class="download-note"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2 6 2.5V10c0 4-6 7-6 7s-6-3-6-7V4.5L10 2Z"/><path d="m7 9 2 2 4-4"/></svg><span>Mac 版已通过 Apple 公证</span><span class="note-divider">·</span><a href="/downloads/{{VERSION}}/SHA256SUMS">文件校验</a></div>
+    </main>
+
+    <footer><div class="beiapi"><span class="beiapi-icon" aria-hidden="true">{{BEIAPI_ICON}}</span><span>小北科研 API</span></div><span>让配置简单一点。</span></footer>
+  </div>
+</body>
+</html>

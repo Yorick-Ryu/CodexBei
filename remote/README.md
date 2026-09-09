@@ -2,6 +2,10 @@
 
 发布源是 [manifest.json](manifest.json)，随 `codexbei-config` Cloudflare Worker 打包发布，不依赖 R2 或 KV。接口为 `POST https://codexbei.beiapi.cn/config/v1/resolve`。发布是否成功以 HTTPS 实际返回的 `release` 为准。
 
+同一个 Worker 还提供应用下载和自动更新，见 [应用自动更新](../docs/auto-update.md)。部署前必须保留完整的 `dist-downloads` 静态资源目录，避免移除已发布安装包。
+
+下载页源码在 [download-page/index.html](download-page/index.html)、[style.css](download-page/style.css) 和 [app.js](download-page/app.js)。运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads` 生成页面，再用 `python3 -m http.server 0 --bind 127.0.0.1 --directory dist-downloads` 本地预览；本地生成不部署。架构默认 Mac Apple 芯片 / Windows x64；外观支持跟随系统、深色、浅色，并在浏览器保存选择。
+
 客户端启动、点击配置、每 4 小时和离开超过 5 分钟后重新聚焦时检查远端。下载失败、超时、格式损坏或倒退版本均保留最近有效缓存；首次离线使用随客户端分发的已验证模板。下载和检查只更新缓存，不修改 Codex。新版本通过「更新配置」按钮提示，点击才备份并写入。
 
 ## 模板维护
@@ -41,7 +45,7 @@ CLI/桌面内核使用 SemVer，如 `0.153.4`，GitHub 标签 `rust-v0.153.4` �
 
 ## 发布
 
-模型列表直接请求 NewAPI 的 `/v1/models?client_version=<Codex 内核版本>`，读取 `models[].slug`，仅显示 `visibility: "list"` 且 `supported_in_api: true` 的条目并保留接口顺序。版本沿用所选安装或手动版本；自动模式优先 CLI，其次桌面版内核，不传桌面 App 构建号或 CodexBei 版本。未知时提示手动选择，不伪造版本。非对话和压缩模型由 NewAPI Codex 接口过滤，客户端不维护额外名单，模型列表不依赖 Worker。Worker 只提供配置模板。
+模型列表直接请求 NewAPI 的 `/v1/models?client_version=<Codex 内核版本>`，读取 `models[].slug`，仅显示 `visibility: "list"` 且 `supported_in_api: true` 的条目并保留接口顺序。版本沿用所选安装或手动版本；自动模式优先 CLI，其次桌面版内核，不传桌面 App 构建号或 CodexBei 版本。未知时提示手动选择，不伪造版本。非对话和压缩模型由 NewAPI Codex 接口过滤，客户端不维护额外名单，模型列表不依赖 Worker。Worker 提供配置模板、应用更新检查和下载。
 
 所需权限：beiapi.cn 所属账户的 Workers Scripts Edit，以及 beiapi.cn 的 Zone/DNS Read（用于核对资源归属）。当前使用 Worker 自定义域名，不使用按路径配置的 Workers Routes。令牌存放在权限为 600 的独立文件，不写入源码。
 

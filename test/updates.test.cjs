@@ -51,3 +51,41 @@ test('release preparation detects changed archives and mixed versions before pub
     assert.throws(() => prepare(dir, 'https://example.com/releases', ''), /Mixed versions/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+test('download staging excludes private files, preserves old releases and refuses same-version replacement', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { createHash } = require('node:crypto');
+  const { stage } = require('../scripts/stage-app-downloads.cjs');
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbei-downloads-'));
+  const source = path.join(root, 'source'), destination = path.join(root, 'public');
+  fs.mkdirSync(source);
+  const targets = {
+    'darwin-aarch64': 'CodexBei.app.tar.gz', 'darwin-x86_64': 'CodexBei-intel.app.tar.gz',
+    'windows-x86_64': 'CodexBei_0.1.0_x64-setup.exe', 'windows-aarch64': 'CodexBei_0.1.0_arm64-setup.exe',
+  };
+  const write = (name, data) => fs.writeFileSync(path.join(source, name), data);
+  const sums = () => write('SHA256SUMS', fs.readdirSync(source).filter(name => name !== 'SHA256SUMS')
+    .map(name => `${hash(fs.readFileSync(path.join(source, name)))}  ${name}\n`).join(''));
+  try {
+    for (const [platform, file] of Object.entries(targets)) {
+      const signature = 'A'.repeat(200);
+      write(file, platform); write(file + '.sig', signature);
+      write(platform + '.update.json', JSON.stringify({ version: '0.1.0', platform, file, signature, sha256: hash(platform) }));
+    }
+    write('CodexBei_0.1.0_aarch64.dmg', 'arm dmg'); write('CodexBei_0.1.0_x64.dmg', 'intel dmg');
+    write('private.key', 'must not publish'); sums();
+    fs.mkdirSync(path.join(destination, 'downloads/0.0.1'), { recursive: true });
+    fs.writeFileSync(path.join(destination, 'downloads/0.0.1/old.exe'), 'old');
+    stage(source, destination);
+    const page = fs.readFileSync(path.join(destination, 'index.html'), 'utf8');
+    assert.equal(page.includes('{{'), false);
+    assert.match(page, /href="\/downloads\/0\.1\.0\/CodexBei_0\.1\.0_x64-setup\.exe"/);
+    assert.equal(fs.existsSync(path.join(destination, 'downloads/0.1.0/private.key')), false);
+    assert.equal(fs.readFileSync(path.join(destination, 'downloads/0.0.1/old.exe'), 'utf8'), 'old');
+    write('CodexBei_0.1.0_aarch64.dmg', 'replaced dmg');
+    assert.throws(() => stage(source, destination), /checksum mismatch/);
+    sums();
+    assert.throws(() => stage(source, destination), /Refusing to replace published version/);
+    assert.equal(fs.readFileSync(path.join(destination, 'downloads/0.1.0/CodexBei_0.1.0_aarch64.dmg'), 'utf8'), 'arm dmg');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
