@@ -79,7 +79,7 @@ test('download staging excludes private files, preserves old releases and refuse
     stage(source, destination);
     const page = fs.readFileSync(path.join(destination, 'index.html'), 'utf8');
     assert.equal(page.includes('{{'), false);
-    assert.match(page, /href="\/downloads\/0\.1\.0\/CodexBei_0\.1\.0_x64-setup\.exe"/);
+    assert.match(page, /href="\/downloads\/latest\/CodexBei_x64-setup\.exe"/);
     assert.equal(fs.existsSync(path.join(destination, 'downloads/0.1.0/private.key')), false);
     assert.equal(fs.readFileSync(path.join(destination, 'downloads/0.0.1/old.exe'), 'utf8'), 'old');
     write('CodexBei_0.1.0_aarch64.dmg', 'replaced dmg');
@@ -87,5 +87,30 @@ test('download staging excludes private files, preserves old releases and refuse
     sums();
     assert.throws(() => stage(source, destination), /Refusing to replace published version/);
     assert.equal(fs.readFileSync(path.join(destination, 'downloads/0.1.0/CodexBei_0.1.0_aarch64.dmg'), 'utf8'), 'arm dmg');
+    const redirectsBefore = fs.readFileSync(path.join(destination, '_redirects'), 'utf8');
+    const aliases = ['CodexBei_aarch64.dmg', 'CodexBei_x64.dmg', 'CodexBei_x64-setup.exe', 'CodexBei_arm64-setup.exe'];
+    for (const name of aliases) {
+      assert.ok(redirectsBefore.includes(`/downloads/latest/${name} /downloads/0.1.0/${name.replace('CodexBei_', 'CodexBei_0.1.0_')} 302`));
+    }
+    // Stage a subsequent release; fixed links must advance while the old binaries stay intact.
+    for (const name of fs.readdirSync(source)) {
+      if (name.endsWith('.update.json')) {
+        const metadata = JSON.parse(fs.readFileSync(path.join(source, name), 'utf8'));
+        metadata.version = '0.2.0';
+        metadata.file = metadata.file.replace('_0.1.0_', '_0.2.0_');
+        write(name, JSON.stringify(metadata));
+      } else if (name.includes('_0.1.0_')) {
+        fs.renameSync(path.join(source, name), path.join(source, name.replace('_0.1.0_', '_0.2.0_')));
+      }
+    }
+    sums();
+    stage(source, destination);
+    const redirectsAfter = fs.readFileSync(path.join(destination, '_redirects'), 'utf8');
+    assert.equal(redirectsAfter.trim().split('\n').length, 4);
+    for (const name of aliases) {
+      assert.ok(redirectsAfter.includes(`/downloads/latest/${name} /downloads/0.2.0/${name.replace('CodexBei_', 'CodexBei_0.2.0_')} 302`));
+    }
+    assert.equal(fs.readFileSync(path.join(destination, 'downloads/0.1.0/CodexBei_0.1.0_aarch64.dmg'), 'utf8'), 'arm dmg');
+
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -58,9 +58,12 @@ function stage(source, destination) {
     APPLE_ICON: svg('remote/download-icons/apple.svg'),
     WINDOWS_ICON: svg('remote/download-icons/windows.svg'),
   };
+  const redirects = [];
   for (const [index, key] of ['MAC_APPLE', 'MAC_INTEL', 'WIN_X64', 'WIN_ARM'].entries()) {
     const name = installers[index][0];
-    values[key + '_URL'] = `/downloads/${version}/${name}`;
+    const latestUrl = `/downloads/latest/${name.replace(`_${version}_`, '_')}`;
+    values[key + '_URL'] = latestUrl;
+    redirects.push(`${latestUrl} /downloads/${version}/${name} 302`);
     values[key + '_SIZE'] = `${(fs.statSync(path.join(directory, name)).size / 1024 / 1024).toFixed(1)} MB`;
   }
   const html = fs.readFileSync(path.join(templateRoot, 'index.html'), 'utf8').replace(/\{\{([A-Z0-9_]+)\}\}/g, (_, name) => {
@@ -69,6 +72,8 @@ function stage(source, destination) {
   });
   fs.writeFileSync(path.join(downloads, 'index.html'), html);
   fs.writeFileSync(path.join(destination, 'index.html'), html);
+  // Rebuild temporary redirects with every release so shared links follow the published version.
+  fs.writeFileSync(path.join(destination, '_redirects'), redirects.join('\n') + '\n');
   fs.writeFileSync(path.join(destination, '_headers'), `/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n/downloads/${version}/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
   console.log(`Staged ${files.length} verified public files for ${version}; previous versions retained.`);
 }
