@@ -1,6 +1,6 @@
 # 应用自动更新
 
-当前 0.1.0 已接入 Tauri 2 Updater。启动 5 秒后及运行期间每 4 小时检查，后台下载并验证签名；准备好后应用名旁出现红点。点击应用名进入“软件更新”，可手动检查或点击“重启更新”。配置、还原等操作进行时禁止安装。下载失败可重试，重启失败不会重复安装。
+当前 0.1.1-alpha.1 已接入 Tauri 2 Updater。启动 5 秒后及运行期间每 4 小时检查，后台下载并验证签名；准备好后应用名旁出现红点。点击应用名进入“软件更新”，可手动检查或点击“重启更新”。配置、还原等操作进行时禁止安装。下载失败可重试，重启失败不会重复安装。
 
 检查接口：`https://codexbei.beiapi.cn/updates/v1/{{target}}/{{arch}}/{{current_version}}`。
 Worker 读取 [app-release.json](../remote/app-release.json)。`null` 表示尚未发布更新，返回 204；相同或更低版本、缺少当前平台产物也返回 204。模板更新接口独立保留。
@@ -27,7 +27,7 @@ node scripts/finalize-windows-release.cjs <下载目录> <发布目录> <构建�
 
 ## 后续发布
 
-1. 新功能随首次 0.1.0 分发；后续更新必须同步提升 `package.json`、锁文件、`src-tauri/Cargo.toml`、Cargo 锁文件和 `tauri.conf.json` 的版本并重新构建。不要向同版本推送不同二进制。
+1. 预发布版本使用 SemVer 的 `0.1.x-alpha.N` / `0.1.x-beta.N`；正式版本去掉预发布后缀。每次构建必须同步提升 `package.json`、锁文件、`src-tauri/Cargo.toml`、Cargo 锁文件和 `tauri.conf.json` 的版本并重新构建。不要向同版本推送不同二进制。
 2. 整理包含四个平台产物和 `SHA256SUMS` 的正式发布目录，运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads`。脚本只复制公开安装包、更新包和签名，生成下载页；拒绝覆盖同版本的不同文件。保留 `dist-downloads` 的所有旧版本目录，每次 Worker 部署会重新发布整个静态资源目录；在新机器上必须从已保存的发布目录重新整理所有已发布版本。
 3. 将各平台最终产物及 `.update.json` 放在同一目录，准备更新元数据（只写本地文件，不上传）：
 

@@ -76,4 +76,5 @@ export const api = {
   restore: (id: string) => invoke<Outcome>("restore", { id }),
   deleteBackup: (id: string) =>
     invoke<{ canceled?: boolean }>("delete_backup", { id }),
+  openChatgptInstaller: () => invoke<void>("open_chatgpt_installer"),
 };

@@ -127,6 +127,7 @@ export function App() {
     return () => clearTimeout(timeout);
   }, [status, statusSuccess, successNoticeId]);
   const [matching, setMatching] = useState<Matching | null>(null);
+  const [waitingForChatgptInstall, setWaitingForChatgptInstall] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [versionPending, setVersionPending] = useState(false);
   const [versionDraft, setVersionDraft] = useState<Matching | null>(null);
@@ -349,6 +350,29 @@ export function App() {
     };
   }, []);
   useEffect(() => {
+    if (!waitingForChatgptInstall) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const info = await api.check(null, true);
+        if (!active) return;
+        setMatching(info);
+        if (info.installations.some((item) => item.kind === "desktop")) {
+          setWaitingForChatgptInstall(false);
+          setStatus("已检测到 ChatGPT，正在刷新配置。");
+        }
+      } catch {
+        // The Store may still be installing or the app may be offline.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [waitingForChatgptInstall]);
+  useEffect(() => {
     let active = true;
     setAvailableModels([]);
     setModelStatus("");
@@ -532,6 +556,27 @@ export function App() {
                       });
                     }}
                   >
+                    {matching && !matching.installations.length ? (
+                      <div className="config-card install-card">
+                        <div className="install-card-icon"><img className={selectedTool.iconClass} src={selectedTool.icon} alt="" /></div>
+                        <h2 className="config-title">未检测到 {selectedTool.name}</h2>
+                        <p className="install-card-message">
+                          请先下载安装 ChatGPT 桌面版，完成后开放配置功能。
+                        </p>
+                        <button
+                          type="button"
+                          className="primary install-card-action"
+                          disabled={busy}
+                          onClick={() => void run(async () => {
+                            await api.openChatgptInstaller();
+                            setWaitingForChatgptInstall(true);
+                            setStatus("已打开安装入口，等待安装完成…");
+                          })}
+                        >
+                          {waitingForChatgptInstall ? "等待安装完成…" : inspection?.platform === "windows" ? "前往 Microsoft Store 安装" : "下载 Mac 安装包"}
+                        </button>
+                      </div>
+                    ) : (
                     <div className="config-card">
                       <div className="provider-row">
                         <div className="provider-info">
@@ -721,6 +766,20 @@ export function App() {
                                     ? matching.installations.map(installationLabel).join(" / ")
                                     : "未检测到已安装版本"}
                                 </span>
+                                {!matching?.installations.length && (inspection?.platform === "windows" || inspection?.platform === "macos") && (
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    disabled={busy}
+                                    onClick={() => void run(async () => {
+                                      await api.openChatgptInstaller();
+                                      setWaitingForChatgptInstall(true);
+                                      setStatus("已打开 Microsoft Store，等待安装完成…");
+                                    })}
+                                  >
+                                    {waitingForChatgptInstall ? "等待安装完成…" : inspection.platform === "windows" ? "前往 Microsoft Store 安装" : "下载 Mac 安装包"}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   id="change-version"
@@ -847,6 +906,7 @@ export function App() {
                         </button>
                       </div>
                     </div>
+                    )}
                   </form>
                 )}
               </section>

@@ -4,13 +4,41 @@
   "account_id": "4e528d4c6e70aee6dd9fec89af0e0522",
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-07",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "triggers": {
+    "crons": [
+      "0 3 * * 0"
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "MAC_MIRROR",
+      "bucket_name": "codexbei-mac-mirror"
+    }
+  ],
   "workers_dev": false,
   "preview_urls": false,
   "assets": {
     "directory": "./dist-downloads",
-    "run_worker_first": ["/config/*", "/updates/*"]
+    "run_worker_first": [
+      "/config/*",
+      "/updates/*"
+    ]
   },
-  "routes": [{ "pattern": "codexbei.beiapi.cn", "custom_domain": true }],
-  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+  "routes": [
+    {
+      "pattern": "codexbei.beiapi.cn",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "vars": {
+    "CHATGPT_MAC_ARM64_URL": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",
+    "CHATGPT_MAC_X64_URL": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
+  }
 }

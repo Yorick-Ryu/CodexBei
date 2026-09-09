@@ -15,6 +15,33 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
+#[tauri::command]
+fn open_chatgpt_installer() -> Result<()> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", "ms-windows-store://pdp/?ProductId=9NT1R1C2HH7J"])
+            .spawn()
+            .map_err(|_| "无法打开 Microsoft Store。".to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        #[cfg(target_arch = "aarch64")]
+        let installer = "https://codexbei.beiapi.cn/mirror/arm64/ChatGPT_aarch64.dmg";
+        #[cfg(target_arch = "x86_64")]
+        let installer = "https://codexbei.beiapi.cn/mirror/x64/ChatGPT_x64.dmg";
+        std::process::Command::new("open")
+            .arg(installer)
+            .spawn()
+            .map_err(|_| "无法打开 ChatGPT 下载页面。".to_string())?;
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        return Err("当前系统暂不支持 ChatGPT 桌面版安装。".into());
+    }
+    Ok(())
+}
+
 struct Incoming {
     pending: Option<Result<Connection>>,
     last: Option<(String, Instant)>,
@@ -345,7 +372,8 @@ pub fn run() {
             backups,
             backup_preview,
             restore,
-            delete_backup
+            delete_backup,
+            open_chatgpt_installer
         ])
         .run(tauri::generate_context!())
         .expect("CodexBei failed to start");

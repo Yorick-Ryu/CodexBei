@@ -102,6 +102,10 @@ async fn command(executable: &Path, args: &[&str]) -> Result<String> {
         .map_err(|_| "无法读取版本。".into())
 }
 pub async fn detect() -> Vec<Installation> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("CODEXBEI_PREVIEW_NO_CHATGPT").is_some() {
+        return Vec::new();
+    }
     #[cfg(not(windows))]
     let home = dirs::home_dir().unwrap_or_default();
     let mut cli = Vec::<PathBuf>::new();
@@ -123,7 +127,7 @@ pub async fn detect() -> Vec<Installation> {
     {
         let found = command(
             Path::new("/usr/bin/mdfind"),
-            &["kMDItemCFBundleIdentifier == \"com.openai.codex\""],
+            &["kMDItemCFBundleIdentifier == \"com.openai.codex\" || kMDItemCFBundleIdentifier == \"com.openai.chatgpt\""],
         )
         .await
         .unwrap_or_default();
@@ -152,7 +156,14 @@ pub async fn detect() -> Vec<Installation> {
             .await
             {
                 if let Ok(info) = serde_json::from_str::<Value>(&raw) {
-                    if info["CFBundleIdentifier"] == "com.openai.codex" {
+                    let bundle_id = info["CFBundleIdentifier"].as_str().unwrap_or_default();
+                    // The current ChatGPT app contains the Codex runtime but
+                    // may use a ChatGPT bundle identifier rather than the
+                    // legacy Codex identifier. The embedded runtime is the
+                    // capability we need to detect.
+                    if bundle_id.starts_with("com.openai.")
+                        && bundle.join("Contents/Resources/codex").is_file()
+                    {
                         let version = info["CFBundleShortVersionString"]
                             .as_str()
                             .filter(|v| app_parts(v).is_some())

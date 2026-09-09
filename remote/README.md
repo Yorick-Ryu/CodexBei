@@ -4,6 +4,10 @@
 
 同一个 Worker 还提供应用下载和自动更新，见 [应用自动更新](../docs/auto-update.md)。部署前必须保留完整的 `dist-downloads` 静态资源目录，避免移除已发布安装包。
 
+## ChatGPT macOS 镜像
+
+Worker 每周日 03:00（UTC）从 `CHATGPT_MAC_ARM64_URL` 和 `CHATGPT_MAC_X64_URL` 下载未经修改的官方 DMG 到 R2，下载地址为 `/mirror/arm64/ChatGPT_aarch64.dmg`、`/mirror/x64/ChatGPT_x64.dmg`，清单为 `/mirror/manifest.json`。这两个上游地址通过 Worker secret/var 配置，不写入仓库；上游地址变化时更新变量即可。手动同步使用 `POST /mirror/sync` 并携带 `Authorization: Bearer <MIRROR_SYNC_TOKEN>`。首次启用前创建 `codexbei-mac-mirror` R2 bucket，并配置 `MIRROR_SYNC_TOKEN` 与两个上游 URL。
+
 下载页源码在 [download-page/index.html](download-page/index.html)、[style.css](download-page/style.css) 和 [app.js](download-page/app.js)。运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads` 生成页面，再用 `python3 -m http.server 0 --bind 127.0.0.1 --directory dist-downloads` 本地预览；本地生成不部署。架构默认 Mac Apple 芯片 / Windows x64；外观支持跟随系统、深色、浅色，并在浏览器保存选择。
 
 客户端启动、点击配置、每 4 小时和离开超过 5 分钟后重新聚焦时检查远端。下载失败、超时、格式损坏或倒退版本均保留最近有效缓存；首次离线使用随客户端分发的已验证模板。下载和检查只更新缓存，不修改 Codex。新版本通过「更新配置」按钮提示，点击才备份并写入。
