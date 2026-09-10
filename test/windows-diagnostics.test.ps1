@@ -18,13 +18,15 @@ Assert ((ConvertTo-NativeArgument 'a"b') -eq '"a\"b"') 'Native arguments must qu
 
 $root = Join-Path ([IO.Path]::GetTempPath()) ('codexbei-diagnostic-test-' + [Guid]::NewGuid())
 [void][IO.Directory]::CreateDirectory($root)
-$names = @('CODEX_HOME', 'LOCALAPPDATA', 'SystemRoot', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY')
+$names = @('CODEX_HOME', 'LOCALAPPDATA', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY')
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
     $env:CODEX_HOME = $root
     $env:LOCALAPPDATA = $root
-    $env:SystemRoot = $root
+    # Keep SystemRoot intact: ARM64 .NET Framework needs it to load System.Web for JSON.
+    $missingTool = Invoke-Bounded (Join-Path $root 'missing-tool.exe') @()
+    Assert ($missingTool.code -eq -1) 'Missing native tools must return a failed probe.'
     $env:HTTPS_PROXY = 'http://private-user:fixture-password@example.invalid:8000'
     $env:HTTP_PROXY = ''
     $env:ALL_PROXY = ''
@@ -38,7 +40,7 @@ try {
     Assert ($raw -notmatch 'fixture-secret|fixture-password|private-user|example.invalid:7890') 'Report leaked private content.'
     Assert ([IO.File]::ReadAllText($envPath) -eq $original) 'Diagnostic changed .env.'
     Assert ($env:NO_PROXY -eq '*') 'Diagnostic loaded dotenv into its own environment.'
-    Assert (@($report.checks | Where-Object status -eq 'warning').Count -gt 0) 'Missing native tools must not be reported as success.'
+    Assert (@($report.checks | Where-Object { $_.name -eq '直连 HTTPS' -and $_.status -eq 'warning' }).Count -eq 1) 'An unreachable endpoint must not be reported as success.'
 } finally {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     Remove-Item -LiteralPath $root -Recurse -Force
