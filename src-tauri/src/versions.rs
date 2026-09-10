@@ -121,7 +121,8 @@ fn windows_runtime_candidates(base: &Path, running: &[PathBuf]) -> Vec<PathBuf> 
         .filter(|candidate| {
             running.iter().any(|path| {
                 path.to_string_lossy()
-                    .eq_ignore_ascii_case(&candidate.to_string_lossy())
+                    .replace('\\', "/")
+                    .eq_ignore_ascii_case(&candidate.to_string_lossy().replace('\\', "/"))
             })
         })
         .cloned()
@@ -443,6 +444,11 @@ mod tests {
         assert!(all.contains(&first) && all.contains(&second));
         assert_eq!(
             windows_runtime_candidates(&base, std::slice::from_ref(&first)),
+            vec![first.clone()]
+        );
+        let running = PathBuf::from(first.to_string_lossy().replace('/', "\\").to_uppercase());
+        assert_eq!(
+            windows_runtime_candidates(&base, &[running]),
             vec![first]
         );
         assert_eq!(
