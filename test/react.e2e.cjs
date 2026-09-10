@@ -25,7 +25,7 @@ async function fixture(options = {}) {
   const context = await browser.newContext({ viewport: { width: 600, height: 460 }, colorScheme: 'dark' });
   await context.addInitScript({ content: mocks + `
     mockWindows('main');
-    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: 'https://api.beiapi.cn/v1', model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: 'macos', testMode: true };
+    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: 'https://api.beiapi.cn/v1', model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     window.fixtureBackups = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'auto' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.153.4' };
     window.fixtureCalls = [];
@@ -38,6 +38,11 @@ async function fixture(options = {}) {
         return window.fixtureUpdate ? { rid: 42, currentVersion: '0.1.0', version: '0.2.0', body: '改进更新流程', rawJson: {} } : null;
       }
       if (cmd === 'plugin:updater|download') {
+        if (window.fixtureManualProgress) {
+          window.fixtureProgressEvent = message => args.onEvent.onmessage(message);
+          await new Promise(resolve => { window.fixtureFinishDownload = resolve; });
+          return 43;
+        }
         await new Promise(resolve => setTimeout(resolve, window.fixtureUpdateDelay || 30));
         if (window.fixtureUpdateDownloadError) throw 'signature mismatch';
         return 43;
@@ -45,6 +50,11 @@ async function fixture(options = {}) {
       if (cmd === 'plugin:updater|install') { if (window.fixtureUpdateInstallError) throw 'permission'; return null; }
       if (cmd === 'plugin:resources|close') return null;
       if (cmd === 'plugin:process|restart') { if (window.fixtureUpdateRestartError) throw 'restart'; return null; }
+      if (cmd === 'windows_diagnostics') {
+        await new Promise(resolve => setTimeout(resolve, 80));
+        if (window.fixtureDiagnosticError) throw '排查未完成';
+        return { schemaVersion: 1, hasDotEnvProxy: true, configurations: [{ source: '当前配置', content: 'model = "gpt-5.6-sol"' }], checks: [{ name: 'Codex .env', status: 'warning', detail: 'HTTPS_PROXY 指向本机端口 7890；端口不可连接。' }, { name: '直连 HTTPS', status: 'ok', detail: 'HTTP 401：接口可达；不代表对话认证成功。' }] };
+      }
       if (cmd === 'check') {
         if (args.selection && window.fixtureVersionDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureVersionDelay));
         if (args.selection?.mode === 'manual') { if (!/^\\d+\\.\\d+\\.\\d+$/.test(args.selection.runtimeVersion)) throw args.selection.kind === 'cli' ? '请输入有效的 CLI 版本。' : '请输入有效的内核版本及应用版本。'; window.fixtureMatching.modelClientVersion = args.selection.runtimeVersion; }
@@ -94,6 +104,15 @@ async function fixture(options = {}) {
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
+async function chooseTheme(page, label) {
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('radio', { name: label, exact: true }).check();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+}
+async function openUpdater(page) {
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+}
+
 test('React: themes, compact layouts, private inputs and configure/history flow', async () => {
   const f = await fixture(); const { page, context } = f;
   try {
@@ -110,7 +129,7 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     await page.waitForFunction(() => document.querySelector('input[name="model-channel"][value="api"]').checked);
     await page.waitForFunction(() => !document.querySelector('main').dataset.channelUpdating);
     for (const scheme of ['dark', 'light']) {
-      await page.getByRole('radio', { name: scheme === 'dark' ? '石墨灰' : '雾白', exact: true }).check();
+      await chooseTheme(page, scheme === 'dark' ? '石墨灰' : '雾白');
       await page.waitForTimeout(160); // Finish theme color transitions before visual capture.
       for (const width of [600, 460]) {
         await page.setViewportSize({ width, height: 460 });
@@ -126,7 +145,7 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     }
     await page.reload();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
-    await page.getByRole('radio', { name: '跟随系统' }).check();
+    await chooseTheme(page, '跟随系统');
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
     await page.setViewportSize({ width: 600, height: 460 });
@@ -299,7 +318,7 @@ test('React: login toggles preserve scroll and historical TOML stays readable in
       assert.ok(dimensions.height >= 120, JSON.stringify(dimensions));
       assert.ok(dimensions.scrollable);
       assert.ok(dimensions.footerBottom <= dimensions.dialogBottom && dimensions.dialogBottom <= dimensions.viewport);
-      assert.equal(await page.locator('.version-dialog-close:focus-visible').count(), 0);
+      assert.equal(await page.locator('.modal-close:focus-visible').count(), 0);
       await page.screenshot({ path: path.join(output, `backup-readable-${width}.png`) });
     }
     await page.locator('#backup-preview-code').hover();
@@ -445,68 +464,56 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
-test('updater: manual checks reserve feedback space and failed signature never enables install', async () => {
+test('updater: inline errors never install unverified downloads', async () => {
   const f = await fixture(); const { page } = f;
   try {
-    await page.getByRole('button', { name: 'CodexBei 软件更新' }).click();
-    const before = await page.locator('#software-update').boundingBox();
-    await page.getByRole('button', { name: '检查更新', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.software-update-status').textContent === '已是最新版本。');
+    await openUpdater(page);
+    const row = page.getByRole('button', { name: '检查更新', exact: true });
+    await row.click();
+    await page.getByText('已是最新版本', { exact: true }).waitFor();
     await page.evaluate(() => window.fixtureUpdateCheckError = true);
-    await page.getByRole('button', { name: '检查更新', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.software-update-status').textContent.includes('无法检查更新'));
-    assert.deepEqual(await page.locator('#software-update').boundingBox(), before);
+    await row.click();
+    await page.getByText('检查失败，点击重试').waitFor();
     await page.evaluate(() => { window.fixtureUpdateCheckError = false; window.fixtureUpdate = true; window.fixtureUpdateDownloadError = true; });
-    await page.getByRole('button', { name: '检查更新', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.software-update-status').textContent.includes('校验失败'));
-    assert.equal(await page.getByRole('button', { name: '重启更新', exact: true }).count(), 0);
+    await row.click();
+    await page.getByText('下载或校验失败，点击重试').waitFor();
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('plugin:updater|install')), false);
-    assert.deepEqual(await page.locator('#software-update').boundingBox(), before);
+    assert.equal(await page.locator('#software-update').count(), 0);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
-test('updater: download survives page navigation; install waits for configuration, then requires a click', async () => {
+test('updater: inline download persists after closing settings; install and restart retries preserve verified package', async () => {
   const f = await fixture(); const { page } = f;
   try {
-    await page.evaluate(() => { window.fixtureUpdate = true; window.fixtureUpdateDelay = 200; });
-    const before = await page.locator('.config-card').boundingBox();
-    await page.getByRole('button', { name: 'CodexBei 软件更新' }).click();
-    await page.getByRole('button', { name: '检查更新', exact: true }).click();
-    await page.getByRole('button', { name: '关闭软件更新' }).click();
-    await page.locator('#open-history').click();
-    await page.locator('#back-to-config').click();
-    await page.waitForFunction(() => !!document.querySelector('.software-update-dot'));
-    assert.deepEqual(await page.locator('.config-card').boundingBox(), before);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('plugin:updater|install')), false);
-    await page.evaluate(() => window.fixtureConfigureDelay = 900);
-    await page.locator('#apply').click();
-    await page.getByRole('button', { name: 'CodexBei 软件更新' }).click();
-    assert.equal(await page.getByRole('button', { name: '重启更新', exact: true }).isDisabled(), true);
-    await page.waitForFunction(() => !document.querySelector('.software-update-actions button').disabled);
-    await page.evaluate(() => window.fixtureUpdateInstallError = true);
-    await page.getByRole('button', { name: '重启更新', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.software-update-status').textContent.includes('安装失败'));
+    await page.evaluate(() => { window.fixtureUpdate = true; window.fixtureUpdateDelay = 500; window.fixtureUpdateInstallError = true; });
+    await openUpdater(page);
+    const row = page.getByRole('button', { name: '检查更新', exact: true });
+    await row.click();
+    await page.getByRole('progressbar', { name: '更新进度' }).waitFor();
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await openUpdater(page);
+    await page.getByText('安装失败，点击重试').waitFor();
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('plugin:process|restart')), false);
     await page.evaluate(() => { window.fixtureUpdateInstallError = false; window.fixtureUpdateRestartError = true; });
-    await page.getByRole('button', { name: '重启更新', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.software-update-status').textContent.includes('更新已安装'));
+    await row.click();
+    await page.getByText('重启失败，点击重试').waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'plugin:updater|download').length), 1);
+    await row.click();
+    await page.getByText('重启失败，点击重试').waitFor();
     const installs = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'plugin:updater|install').length);
-    await page.getByRole('button', { name: '重启更新', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.software-update-actions button').disabled);
+    await row.click();
+    await page.waitForFunction(() => !document.querySelector('.settings-update-row').disabled);
     assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'plugin:updater|install').length), installs);
-    await page.screenshot({ path: path.join(output, 'software-update.png') });
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
-test('updater: startup automatically checks and downloads without opening a dialog', async () => {
+test('updater: background discovery only shows dots until user clicks', async () => {
   const f = await fixture(); const { page } = f;
   try {
     await page.evaluate(() => window.fixtureUpdate = true);
     await page.waitForFunction(() => !!document.querySelector('.software-update-dot'), { timeout: 10000 });
-    assert.equal(await page.locator('#software-update').evaluate(el => el.open), false);
     const calls = await page.evaluate(() => window.fixtureCalls);
-    assert.equal(calls.filter(c => c === 'plugin:updater|check').length, 1);
-    assert.ok(calls.includes('plugin:updater|download'));
+    assert.ok(!calls.includes('plugin:updater|download'));
     assert.ok(!calls.includes('plugin:updater|install'));
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
@@ -520,7 +527,7 @@ test('React: channel routing refreshes preview without fading the form or discar
     await page.locator('#keep-official-login').check();
     await page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('true'));
     for (const theme of ['雾白', '石墨灰']) {
-      await page.getByRole('radio', { name: theme, exact: true }).check();
+      await chooseTheme(page, theme);
       await page.waitForTimeout(160);
       await page.evaluate(() => { window.fixtureChannelDelay = 400; window.fixturePreviewDelay = 200; });
       const appearance = () => page.evaluate(() => ['.config-card', '#key', '.login-option', '#apply', '#open-history'].map(selector => {
@@ -555,7 +562,7 @@ test('React: login checkbox gates providers and its pixels stay stable during ch
   try {
     const checkbox = page.locator('#keep-official-login');
     for (const theme of ['雾白', '石墨灰']) {
-      await page.getByRole('radio', { name: theme, exact: true }).check();
+      await chooseTheme(page, theme);
       await checkbox.uncheck();
       const providers = page.getByRole('radiogroup', { name: '提供商' });
       assert.equal(await providers.getAttribute('title'), null);
@@ -611,7 +618,7 @@ test('React: provider tooltip leaves no painted shadow after pointer exit', asyn
   const f = await fixture(); const { page } = f;
   try {
     for (const theme of ['雾白', '石墨灰']) {
-      await page.getByRole('radio', { name: theme, exact: true }).check();
+      await chooseTheme(page, theme);
       for (const width of [600, 460]) {
         await page.setViewportSize({ width, height: 460 });
         await page.mouse.move(10, 100);
@@ -672,7 +679,7 @@ test('React: login preference refresh keeps apply button pixels stable while blo
   try {
     const apply = page.locator('#apply'), checkbox = page.locator('#keep-official-login');
     for (const theme of ['雾白', '石墨灰']) {
-      await page.getByRole('radio', { name: theme, exact: true }).check();
+      await chooseTheme(page, theme);
       await page.waitForTimeout(160);
       const before = await apply.screenshot();
       await page.evaluate(() => { window.fixturePreviewDelay = 600; });
@@ -720,6 +727,142 @@ test('React: success notice expires after latest switch and never dismisses erro
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('切换失败'));
     await page.waitForTimeout(3200);
     assert.equal(await page.locator('#status').textContent(), '切换失败，请重试。');
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: Windows diagnostics runs on demand, reports without any repair actions and handles failures', async () => {
+  const f = await fixture({ platform: 'windows' }); const { page } = f;
+  try {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '问题排查', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('windows_diagnostics')), false);
+    await page.getByRole('button', { name: '开始排查', exact: true }).click();
+    await page.getByRole('button', { name: '重新排查', exact: true }).waitFor();
+    const report = await page.getByRole('textbox', { name: '脱敏排查报告' }).inputValue();
+    assert.match(report, /7890/);
+    assert.match(report, /401/);
+    assert.match(report, /model = "gpt-5.6-sol"/);
+    assert.equal(report.includes('sk-saved'), false);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('backup_open_dotenv')), false);
+    assert.equal(await page.getByRole('button', { name: '备份并打开 .env', exact: true }).count(), 0);
+    await page.screenshot({ path: path.join(output, 'windows-diagnostics.png') });
+    await page.evaluate(() => { window.fixtureDiagnosticError = true; });
+    await page.getByRole('button', { name: '重新排查', exact: true }).click();
+    await page.getByText('排查未完成', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: '脱敏排查报告' }).count(), 0);
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: shared modal shell matches across dialogs and restores focus on Escape', async () => {
+  const f = await fixture({ platform: 'windows' }); const { page } = f;
+  try {
+    const shell = () => page.locator('dialog[open]').evaluate(el => {
+      const css = getComputedStyle(el), header = getComputedStyle(el.querySelector('.modal-header'));
+      return { fontSize: css.fontSize, fontWeight: css.fontWeight, radius: css.borderRadius, border: css.border, background: css.backgroundColor, shadow: css.boxShadow, headerPadding: header.padding, titleSize: getComputedStyle(el.querySelector('h2')).fontSize };
+    });
+    for (const theme of ['light', 'dark']) {
+      await chooseTheme(page, theme === 'dark' ? '石墨灰' : '雾白');
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      const expected = await shell();
+      await page.screenshot({ path: path.join(output, `modal-settings-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+      assert.equal(await page.getByRole('button', { name: '设置', exact: true }).evaluate(el => el === document.activeElement), true);
+      await openUpdater(page);
+      assert.deepEqual(await shell(), expected);
+      await page.screenshot({ path: path.join(output, `modal-update-${theme}.png`) });
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      if (!(await page.locator('#settings').isVisible())) await page.locator('#toggle-settings').click();
+      await page.locator('#change-version').click();
+      assert.deepEqual(await shell(), expected);
+      await page.screenshot({ path: path.join(output, `modal-version-${theme}.png`) });
+      await page.getByRole('button', { name: '关闭版本选择' }).click();
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await page.getByRole('button', { name: '问题排查', exact: true }).click();
+      assert.deepEqual(await shell(), expected);
+      await page.getByRole('button', { name: '开始排查', exact: true }).count().then(async n => {
+        await page.getByRole('button', { name: n ? '开始排查' : '重新排查', exact: true }).click();
+      });
+      await page.getByRole('button', { name: '重新排查', exact: true }).waitFor();
+      await page.setViewportSize({ width: 460, height: 460 });
+      const bounds = await page.locator('dialog[open]').boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.y >= 32 && bounds.x + bounds.width <= 460 && bounds.y + bounds.height <= 460);
+      await page.screenshot({ path: path.join(output, `modal-diagnostics-small-${theme}.png`) });
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await page.setViewportSize({ width: 600, height: 460 });
+    }
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: settings contains themes and updater on every platform, diagnostics only on Windows', async () => {
+  for (const platform of ['macos', 'windows']) {
+    const f = await fixture({ platform }); const { page } = f;
+    try {
+      assert.equal(await page.locator('.app-header #theme:visible').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'CodexBei 软件更新' }).count(), 0);
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      assert.equal(await page.getByRole('radiogroup', { name: '外观主题' }).isVisible(), true);
+      assert.equal(await page.getByRole('button', { name: '检查更新', exact: true }).isVisible(), true);
+      assert.equal(await page.getByRole('button', { name: '问题排查', exact: true }).count(), platform === 'windows' ? 1 : 0);
+      await page.getByRole('radio', { name: '雾白', exact: true }).check();
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await page.reload();
+      assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  }
+});
+
+
+test('updater: discovery shows stable red dots on settings and update row before download finishes', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    assert.equal(await page.locator('.software-update-dot').count(), 0);
+    const rowBefore = await page.locator('.settings-update-row').boundingBox();
+    const gearBefore = await page.locator('.settings-entry').boundingBox();
+    await page.evaluate(() => { window.fixtureUpdate = true; window.fixtureUpdateDelay = 2000; });
+    await page.getByRole('button', { name: '检查更新', exact: true }).click();
+    await page.getByRole('progressbar', { name: '更新进度' }).waitFor();
+    assert.equal(await page.locator('.settings-entry .software-update-dot').count(), 1);
+    assert.equal(await page.locator('.settings-update-row .software-update-dot').count(), 1);
+    assert.deepEqual(await page.locator('.settings-update-row').boundingBox(), rowBefore);
+    assert.deepEqual(await page.locator('.settings-entry').boundingBox(), gearBefore);
+    await page.screenshot({ path: path.join(output, 'settings-update-dots.png') });
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('updater: percentage changes keep progress ring, status and versions stationary', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.evaluate(() => { window.fixtureUpdate = true; window.fixtureManualProgress = true; });
+    await openUpdater(page);
+    await page.getByRole('button', { name: '检查更新', exact: true }).click();
+    await page.getByRole('progressbar', { name: '更新进度' }).waitFor();
+    const geometry = () => page.locator('.settings-row-tail').evaluate(el =>
+      ['.update-ring', '.settings-update-status', '.update-percentage', '.settings-update-versions'].map(selector => {
+        const r = el.querySelector(selector).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      }));
+    const before = await geometry();
+    await page.evaluate(() => window.fixtureProgressEvent({ event: 'Started', data: { contentLength: 100 } }));
+    let previous = 0;
+    for (const percent of [0, 9, 10, 99, 100]) {
+      await page.evaluate(chunkLength => window.fixtureProgressEvent({ event: 'Progress', data: { chunkLength } }), percent - previous);
+      await page.waitForFunction(expected => document.querySelector('.update-percentage').textContent === expected, `${percent}%`);
+      assert.deepEqual(await geometry(), before);
+      previous = percent;
+    }
+    await page.evaluate(() => window.fixtureFinishDownload());
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

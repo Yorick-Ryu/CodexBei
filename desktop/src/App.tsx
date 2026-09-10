@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -16,14 +15,12 @@ import {
   type Matching,
   type Outcome,
 } from "./api";
-import {
-  applyAppearance,
-  media,
-  savedAppearance,
-  type Appearance,
-} from "./theme";
-import { SoftwareUpdate } from "./SoftwareUpdate";
+import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { VersionPicker } from "./VersionPicker";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, EyeIcon, EyeOffIcon, HistoryIcon, SettingsIcon } from "./icons";
+import { Modal } from "./Modal";
+import { AppSettings } from "./AppSettings";
+import { ThemeSelector } from "./ThemeSelector";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
 import claude from "../assets/agents/claude-code.svg";
@@ -33,60 +30,6 @@ const toolTabs = [
   { id: "claude", name: "Claude Code", icon: claude, iconClass: "", disabled: true },
 ] as const;
 
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {children}
-    </svg>
-  );
-}
-function Theme() {
-  const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
-  useEffect(() => {
-    const update = () => applyAppearance(appearance);
-    update();
-    media.addEventListener("change", update);
-    try {
-      localStorage.setItem("codexbei.appearance", appearance);
-    } catch {
-      /* Keep the preference in memory. */
-    }
-    return () => media.removeEventListener("change", update);
-  }, [appearance]);
-  const icons = [
-    <>
-      <rect x="3" y="4" width="18" height="13" rx="2" />
-      <path d="M8 21h8m-4-4v4" />
-    </>,
-    <path d="M20.2 14.5A8.5 8.5 0 0 1 9.5 3.8a8.5 8.5 0 1 0 10.7 10.7Z" />,
-    <>
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1" />
-    </>,
-  ];
-  return (
-    <div
-      id="theme"
-      className="theme-switch"
-      role="radiogroup"
-      aria-label="外观主题"
-    >
-      {(["system", "dark", "light"] as const).map((value, i) => (
-        <label key={value} title={["跟随系统", "石墨灰", "雾白"][i]}>
-          <input
-            type="radio"
-            name="appearance"
-            value={value}
-            aria-label={["跟随系统", "石墨灰", "雾白"][i]}
-            checked={appearance === value}
-            onChange={() => setAppearance(value)}
-          />
-          <Icon>{icons[i]}</Icon>
-        </label>
-      ))}
-    </div>
-  );
-}
 const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
 const errorText = (error: unknown) =>
@@ -101,8 +44,6 @@ const isKeyError = (message: string) => [
 ].includes(message);
 
 export function App() {
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const [updateReady, setUpdateReady] = useState(false);
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [apiKey, setApiKey] = useState("");
   const loadedKey = useRef<{ value: string; baseUrl: string } | null>(null);
@@ -421,12 +362,6 @@ export function App() {
     if (page === "success") successTitle.current?.focus();
     if (page === "history") historyTitle.current?.focus();
   }, [page]);
-  useEffect(() => {
-    if (selectedBackup && !dialog.current?.open) {
-      dialog.current?.showModal();
-      dialog.current?.focus({ preventScroll: true });
-    }
-  }, [selectedBackup]);
   const showBackup = (id: string) =>
     void run(async () => {
       setSelectedBackup(await api.backupPreview(id));
@@ -448,6 +383,7 @@ export function App() {
   const disabled = busy || !inspection;
   const channelUpdating = channelSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
+  const softwareUpdate = useSoftwareUpdate({ busy, run });
   return (
     <>
       <header className="app-header">
@@ -461,9 +397,7 @@ export function App() {
               aria-label="返回配置"
               onClick={() => setPage("config")}
             >
-              <Icon>
-                <path d="m14 6-6 6 6 6" />
-              </Icon>
+              <ChevronLeftIcon />
             </button>
             <h1 id="history-title" tabIndex={-1} ref={historyTitle}>
               历史备份
@@ -480,12 +414,10 @@ export function App() {
           </div>
         ) : (
           <div className="brand-row" data-tauri-drag-region>
-            <button type="button" className="brand software-update-entry" aria-label="CodexBei 软件更新"
-              title={updateReady ? "更新已准备好，点击重启更新" : "软件更新"} onClick={() => setUpdateOpen(true)}>
+            <div className="brand">
               <img className="logo" src={brand} alt="" />
               CodexBei
-              {updateReady && <span className="software-update-dot" aria-label="有可用更新" />}
-            </button>
+            </div>
             <div className="toolbar-actions">
               <div className="tabs" role="tablist" aria-label="选择工具">
                 {toolTabs.map(tool => (
@@ -504,7 +436,9 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <Theme />
+              <AppSettings baseUrl={baseUrl} theme={<ThemeSelector />} updateAvailable={softwareUpdate.available}
+                isWindows={inspection?.platform === "windows" || (!inspection && /Win/i.test(navigator.platform))}
+                updateRow={softwareUpdate.row} />
             </div>
           </div>
         )}
@@ -521,9 +455,7 @@ export function App() {
                 {page === "success" ? (
                   <div id="success">
                     <div className="success-icon">
-                      <Icon>
-                        <path d="m6 12 4 4 8-8" />
-                      </Icon>
+                      <CheckIcon />
                     </div>
                     <h1 ref={successTitle} id="success-title" tabIndex={-1}>
                       配置完成
@@ -593,11 +525,7 @@ export function App() {
                           aria-controls="settings"
                           onClick={() => setExpanded(value => !value)}
                         >
-                          <Icon>
-                            <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
-                            <circle cx="15" cy="7" r="2" />
-                            <circle cx="9" cy="17" r="2" />
-                          </Icon>
+                          <SettingsIcon />
                           {expanded ? "更少设置" : "更多设置"}
                         </button>
                       </div>
@@ -632,11 +560,7 @@ export function App() {
                               aria-pressed={visibleKey}
                               onClick={() => setVisibleKey((v) => !v)}
                             >
-                              <Icon>
-                                <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" />
-                                <circle cx="12" cy="12" r="3" />
-                                {visibleKey && <path d="m2 2 20 20" />}
-                              </Icon>
+                              {visibleKey ? <EyeOffIcon /> : <EyeIcon />}
                             </button>
                             <button
                               type="button"
@@ -650,9 +574,7 @@ export function App() {
                                 if (isKeyError(status)) setStatus("");
                               }}
                             >
-                              <Icon>
-                                <path d="m6 6 12 12M18 6 6 18" />
-                              </Icon>
+                              <CloseIcon />
                             </button>
                           </div>
                         </div>
@@ -728,7 +650,7 @@ export function App() {
                                   baseUrlInput.current?.focus({ preventScroll: true });
                                 }}
                               >
-                                <Icon><path d="m6 6 12 12M18 6 6 18" /></Icon>
+                                <CloseIcon />
                               </button>
                             </div>
                           </div>
@@ -923,15 +845,11 @@ export function App() {
                 }
               >
                 <span className="summary-label">
-                  <Icon>
-                    <path d="M3 11a9 9 0 1 1 2 7M3 5v6h6m3-4v5l3 2" />
-                  </Icon>
+                  <HistoryIcon />
                   历史备份
                 </span>
                 <span className="summary-hint">查看备份记录</span>
-                <Icon>
-                  <path d="m9 6 6 6-6 6" />
-                </Icon>
+                <ChevronRightIcon />
               </button>
             </div>
           ) : (
@@ -990,8 +908,6 @@ export function App() {
           </p>
         </main>
       </div>
-      <SoftwareUpdate busy={busy} run={run} open={updateOpen}
-        onClose={() => setUpdateOpen(false)} onAvailable={setUpdateReady} />
       <VersionPicker
         open={versionOpen}
         matching={versionDraft || matching}
@@ -999,26 +915,9 @@ export function App() {
         onMatch={acceptVersionMatch}
         onPending={setVersionPending}
       />
-      <dialog
-        id="backup-preview"
-        ref={dialog}
-        aria-labelledby="backup-dialog-title"
-        aria-describedby="backup-preview-note"
-        tabIndex={-1}
-        onClose={() => setSelectedBackup(null)}
-      >
-        <div className="version-dialog-header">
-          <h2 id="backup-dialog-title">历史配置</h2>
-          <button
-            className="version-dialog-close"
-            aria-label="关闭历史配置"
-            onClick={() => dialog.current?.close()}
-          >
-            <Icon>
-              <path d="m6 6 12 12M18 6 6 18" />
-            </Icon>
-          </button>
-        </div>
+      <Modal id="backup-preview" dialogRef={dialog} titleId="backup-dialog-title"
+        descriptionId="backup-preview-note" title="历史配置" size="wide" tall
+        open={!!selectedBackup} onClose={() => setSelectedBackup(null)}>
         {selectedBackup && (
           <>
             <div className="backup-preview-meta">
@@ -1081,7 +980,7 @@ export function App() {
             </div>
           </>
         )}
-      </dialog>
+      </Modal>
     </>
   );
 }

@@ -49,12 +49,19 @@ export type Matching = {
   modelClientVersion: string | null;
 };
 export type Outcome = { canceled?: boolean; warning?: string };
+export type DiagnosticReport = {
+  schemaVersion: number;
+  hasDotEnvProxy: boolean;
+  configurations: { source: string; content: string }[];
+  checks: { name: string; status: "ok" | "warning" | "info"; detail: string }[];
+};
 export type Connection = { apiKey: string; baseUrl: string; model: string };
 export function installationLabel(v: { kind: string; runtimeVersion: string | null; appVersion?: string }) {
   if (v.kind === "cli") return `CLI · ${v.runtimeVersion || "未知"}`;
   return `桌面版${v.appVersion ? ` ${v.appVersion}` : ""} · 内核 ${v.runtimeVersion || "未知"}`;
 }
 export const api = {
+  windowsDiagnostics: (baseUrl: string) => invoke<DiagnosticReport>("windows_diagnostics", { baseUrl }),
   check: (selection: Selection | null = null, force = false) =>
     invoke<Matching>("check", { selection, force }),
   updateTemplate: () => invoke<Matching>("update_template"),

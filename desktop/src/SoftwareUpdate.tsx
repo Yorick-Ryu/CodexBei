@@ -1,140 +1,112 @@
 // @refresh reset
-// Native update resources must be recreated when this module is hot-reloaded.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { ArrowRightIcon } from "./icons";
 
-type Phase = "idle" | "checking" | "downloading" | "ready" | "installing" | "installed" | "error";
+type Phase = "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "installed" | "restarting" | "error";
 
-export function SoftwareUpdate({ busy, run, open, onClose, onAvailable }: {
-  open: boolean;
-  onClose: () => void;
-  onAvailable: (value: boolean) => void;
+export function useSoftwareUpdate({ busy, run }: {
   busy: boolean;
   run: (action: () => Promise<void>, inDialog?: boolean, clearStatus?: boolean) => Promise<void>;
 }) {
   const [version, setVersion] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [message, setMessage] = useState("启动后自动检查更新。");
-  const [notes, setNotes] = useState("");
+  const [message, setMessage] = useState("");
   const [nextVersion, setNextVersion] = useState("");
   const [progress, setProgress] = useState<number>();
-  const dialog = useRef<HTMLDialogElement>(null);
   const update = useRef<Update | null>(null);
   const pending = useRef(false);
   const installed = useRef(false);
   const mounted = useRef(true);
 
   const checkNow = useCallback(async () => {
-    if (pending.current || update.current || installed.current) return;
+    if (pending.current || update.current || installed.current) return null;
     pending.current = true;
     setPhase("checking");
-    setMessage("正在检查更新…");
-    let candidate: Update | null = null;
+    setMessage("");
     try {
-      candidate = await check({ timeout: 15000 });
-      if (!mounted.current) return;
-      if (!candidate) {
-        setPhase("idle");
-        setMessage("已是最新版本。");
-        return;
-      }
-      setNextVersion(candidate.version);
-      setNotes(candidate.body || "");
-      setPhase("downloading");
-      setMessage("正在后台下载更新…");
-      setProgress(undefined);
-      let received = 0;
-      let total = 0;
-      await candidate.download(event => {
-        if (!mounted.current) return;
-        if (event.event === "Started") total = event.data.contentLength || 0;
-        if (event.event === "Progress") received += event.data.chunkLength;
-        if (total) setProgress(Math.min(100, Math.round(received / total * 100)));
-      }, { timeout: 120000 });
-      if (!mounted.current) return;
-      // download resolves only after the plugin verifies the package signature.
+      const candidate = await check({ timeout: 15000 });
+      if (!mounted.current) { await candidate?.close(); return null; }
       update.current = candidate;
-      candidate = null;
-      setPhase("ready");
-      setMessage("更新已准备好，重启后生效。");
+      setNextVersion(candidate?.version || "");
+      setPhase(candidate ? "available" : "idle");
+      setMessage(candidate ? "" : "已是最新版本");
+      return candidate;
     } catch {
-      if (mounted.current) {
-        setPhase("error");
-        setMessage(candidate ? "更新下载或校验失败，请重试。" : "无法检查更新，请检查网络后重试。");
-      }
-    } finally {
-      await candidate?.close().catch(() => {});
-      pending.current = false;
-    }
+      setPhase("error");
+      setMessage("检查失败，点击重试");
+      return null;
+    } finally { pending.current = false; }
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     void getVersion().then(setVersion).catch(() => {});
-    return () => {
-      mounted.current = false;
-      void update.current?.close().catch(() => {});
-    };
-  }, []);
-  useEffect(() => {
     const timer = setTimeout(() => void checkNow(), 5000);
     const interval = setInterval(() => void checkNow(), 4 * 60 * 60 * 1000);
-    return () => { clearTimeout(timer); clearInterval(interval); };
+    return () => {
+      mounted.current = false;
+      clearTimeout(timer); clearInterval(interval);
+      void update.current?.close().catch(() => {});
+    };
   }, [checkNow]);
-  useEffect(() => {
-    if (open && !dialog.current?.open) {
-      dialog.current?.showModal();
-      dialog.current?.focus({ preventScroll: true });
-    } else if (!open) dialog.current?.close();
-  }, [open]);
 
-  const install = () => void run(async () => {
-    if ((!update.current && !installed.current) || pending.current) return;
+  const act = () => void run(async () => {
+    if (pending.current) return;
+    if (phase === "installed") {
+      pending.current = true;
+      setPhase("restarting");
+      try { await relaunch(); }
+      catch { setPhase("installed"); setMessage("重启失败，点击重试"); }
+      finally { pending.current = false; }
+      return;
+    }
+    const candidate = update.current || await checkNow();
+    if (!candidate) return;
     pending.current = true;
-    setPhase("installing");
-    setMessage("正在安装更新…");
+    let verified = phase === "ready";
     try {
-      if (!installed.current) {
-        await update.current!.install();
-        installed.current = true;
-        await update.current!.close().catch(() => {});
-        update.current = null;
+      if (!verified) {
+        setPhase("downloading"); setMessage(""); setProgress(undefined);
+        let received = 0;
+        let total = 0;
+        await candidate.download(event => {
+          if (!mounted.current) return;
+          if (event.event === "Started") total = event.data.contentLength || 0;
+          if (event.event === "Progress") received += event.data.chunkLength;
+          if (total) setProgress(Math.min(100, Math.round(received / total * 100)));
+        }, { timeout: 120000 });
+        verified = true; // The plugin has verified the package signature.
       }
+      setPhase("installing");
+      await candidate.install();
+      installed.current = true;
+      update.current = null;
+      await candidate.close().catch(() => {});
+      setPhase("restarting"); setMessage("");
       await relaunch();
     } catch {
-      setPhase(installed.current ? "installed" : "ready");
-      setMessage(installed.current ? "更新已安装，请重启应用。" : "安装失败，请重试。当前版本仍可使用。");
-    } finally {
-      pending.current = false;
-    }
+      setPhase(installed.current ? "installed" : verified ? "ready" : "error");
+      setMessage(installed.current ? "重启失败，点击重试" : verified ? "安装失败，点击重试" : "下载或校验失败，点击重试");
+      if (!verified) { update.current = null; await candidate.close().catch(() => {}); }
+    } finally { pending.current = false; }
   }, false, false);
 
-  const canInstall = phase === "ready" || phase === "installed";
-  useEffect(() => onAvailable(canInstall), [canInstall, onAvailable]);
-  return <>
-    <dialog id="software-update" ref={dialog} tabIndex={-1} aria-labelledby="software-update-title"
-      onCancel={event => { if (phase === "installing") event.preventDefault(); }} onClose={onClose}>
-      <div className="version-dialog-header">
-        <h2 id="software-update-title">软件更新</h2>
-        <button type="button" className="version-dialog-close" disabled={phase === "installing"}
-          aria-label="关闭软件更新" onClick={onClose}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-      </div>
-      <p className="field-help">CodexBei · 当前版本 {version || "—"}</p>
-      <p className="software-update-status" role="status" aria-live="polite">{message}</p>
-      <div className="software-update-detail">
-        {nextVersion && <p>新版本 {nextVersion}</p>}
-        {phase === "downloading" && <progress max={100} value={progress} aria-label="更新下载进度" />}
-        {notes && <p className="software-update-notes">{notes}</p>}
-      </div>
-      <div className="software-update-actions">
-        <button className={canInstall ? "primary" : "secondary"} disabled={busy || ["checking", "downloading", "installing"].includes(phase)}
-          onClick={canInstall ? install : () => void checkNow()}>
-          {phase === "installing" ? "正在安装…" : canInstall ? "重启更新" : phase === "checking" ? "正在检查…" : phase === "downloading" ? "正在下载…" : "检查更新"}
-        </button>
-      </div>
-    </dialog>
-  </>;
+  const working = ["checking", "downloading", "installing", "restarting"].includes(phase);
+  const status = message || ({ idle: "", checking: "检查中", available: "发现新版本", downloading: "下载中", ready: "待安装", installing: "安装中", installed: "立即重启", restarting: "重启中", error: "重试" }[phase]);
+  const available = !!nextVersion;
+  const row = <button type="button" className="settings-diagnostic-row settings-update-row" aria-label="检查更新" disabled={busy || working} onClick={act} title={nextVersion ? `新版本 ${nextVersion}` : "检查更新"}>
+    <span>检查更新</span>
+    <span className="settings-row-tail">
+      {working && <span className={`update-ring${phase === "downloading" && progress !== undefined ? " update-ring--determinate" : ""}`} role="progressbar" aria-label="更新进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={phase === "downloading" ? progress : undefined} style={{ "--progress": `${progress || 0}%` } as CSSProperties} />}
+      {status && <small className="settings-update-status" role="status" aria-live="polite">{available && <span className="software-update-dot" role="img" aria-label="有新版本" />}<span>{status}{phase === "downloading" && <span className="update-percentage">{progress === undefined ? "\u00a0" : `${progress}%`}</span>}</span></small>}
+      <small className="settings-update-versions" aria-label={nextVersion ? `当前版本 ${version || "未知"}，新版本 ${nextVersion}` : `当前版本 ${version || "未知"}`}>
+        <span title="当前版本">{version ? `v${version}` : "版本未知"}</span>
+        {nextVersion && <><ArrowRightIcon /><span title="新版本">v{nextVersion}</span></>}
+      </small>
+    </span>
+  </button>;
+  return { available, row };
 }

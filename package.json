@@ -8,7 +8,7 @@
     "start": "tauri dev",
     "dev": "tauri dev",
     "dev:react": "vite --config desktop/vite.config.ts",
-    "build:react": "tsc -p desktop/tsconfig.json && vite build --config desktop/vite.config.ts",
+    "build:react": "npm run build:ui-icons && tsc -p desktop/tsconfig.json && vite build --config desktop/vite.config.ts",
     "build": "tauri build",
     "build:mac": "tauri build --bundles app,dmg",
     "build:win": "tauri build --bundles nsis",
@@ -19,11 +19,13 @@
     "test:worker": "node --test test/worker.test.cjs test/updates.test.cjs",
     "test:ui": "npm run build:react && node --test test/react.e2e.cjs",
     "check": "npm run build:react && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-    "worker:check": "wrangler types worker/env.d.ts && tsc -p worker/tsconfig.json && node scripts/publish-templates.cjs"
+    "worker:check": "wrangler types worker/env.d.ts && tsc -p worker/tsconfig.json && node scripts/publish-templates.cjs",
+    "build:ui-icons": "node scripts/build-ui-icons.cjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.11.0",
+    "lucide-react": "1.43.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {

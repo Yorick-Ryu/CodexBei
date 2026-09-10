@@ -101,6 +101,60 @@ async fn command(executable: &Path, args: &[&str]) -> Result<String> {
         .map_err(|_| "读取版本超时。".to_string())?
         .map_err(|_| "无法读取版本。".into())
 }
+// The Windows desktop app can download its runtime outside the app package.
+// Hash directory names are not versions: prefer running runtimes, otherwise
+// retain all candidates so the user can select when the cache is ambiguous.
+#[cfg(any(windows, test))]
+fn windows_runtime_candidates(base: &Path, running: &[PathBuf]) -> Vec<PathBuf> {
+    let root = base.join("OpenAI/Codex/bin");
+    let mut candidates: Vec<_> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path().join("codex.exe"))
+        .filter(|path| path.is_file())
+        .collect();
+    candidates.sort();
+    let active: Vec<_> = candidates
+        .iter()
+        .filter(|candidate| {
+            running.iter().any(|path| {
+                path.to_string_lossy()
+                    .eq_ignore_ascii_case(&candidate.to_string_lossy())
+            })
+        })
+        .cloned()
+        .collect();
+    if active.is_empty() {
+        candidates
+    } else {
+        active
+    }
+}
+
+#[cfg(any(windows, test))]
+fn merge_windows_runtimes(result: &mut Vec<Installation>, runtimes: Vec<Installation>) {
+    if runtimes.len() == 1 {
+        // Only associate a detached runtime with a package when unambiguous.
+        let desktops: Vec<_> = result
+            .iter_mut()
+            .filter(|item| item.kind == "desktop")
+            .collect();
+        if desktops.len() == 1 {
+            let desktop = desktops.into_iter().next().unwrap();
+            if desktop.runtime_version.is_none() {
+                desktop.runtime_version = runtimes[0].runtime_version.clone();
+                return;
+            }
+            if desktop.runtime_version == runtimes[0].runtime_version {
+                return;
+            }
+        }
+    }
+    result.extend(runtimes);
+}
+
 pub async fn detect() -> Vec<Installation> {
     #[cfg(debug_assertions)]
     if std::env::var_os("CODEXBEI_PREVIEW_NO_CHATGPT").is_some() {
@@ -274,6 +328,46 @@ pub async fn detect() -> Vec<Installation> {
             app_version,
         });
     }
+    #[cfg(windows)]
+    if let Some(base) = std::env::var_os("LOCALAPPDATA") {
+        let query = "Get-CimInstance Win32_Process -Filter \"Name = 'codex.exe'\" | Select-Object -ExpandProperty ExecutablePath";
+        let running = command(
+            Path::new("powershell.exe"),
+            &["-NoProfile", "-NonInteractive", "-Command", query],
+        )
+        .await
+        .unwrap_or_default();
+        let running: Vec<_> = running
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        let mut runtimes = Vec::new();
+        for file in windows_runtime_candidates(Path::new(&base), &running)
+            .into_iter()
+            .take(20)
+        {
+            let Some(version) = command(&file, &["--version"])
+                .await
+                .ok()
+                .and_then(|s| parse_version(&s))
+            else {
+                continue;
+            };
+            use sha2::{Digest, Sha256};
+            runtimes.push(Installation {
+                id: format!(
+                    "desktop:{:x}",
+                    Sha256::digest(file.to_string_lossy().as_bytes())
+                ),
+                kind: "desktop".into(),
+                runtime_version: Some(version),
+                app_version: None,
+            });
+        }
+        merge_windows_runtimes(&mut result, runtimes);
+    }
     result
 }
 pub fn select(all: &[Installation], selection: &Selection) -> Result<Vec<Installation>> {
@@ -332,6 +426,62 @@ pub fn client_version(all: &[Installation]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn detects_detached_windows_runtimes_and_prefers_running_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().join("User With Spaces/AppData/Local");
+        assert!(windows_runtime_candidates(&base, &[]).is_empty());
+        let first = base.join("OpenAI/Codex/bin/fd4c151a749f3ab4/codex.exe");
+        let second = base.join("OpenAI/Codex/bin/aaaaaaaa/codex.exe");
+        for file in [&first, &second] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"fixture").unwrap();
+        }
+        std::fs::create_dir_all(base.join("OpenAI/Codex/bin/incomplete")).unwrap();
+        let all = windows_runtime_candidates(&base, &[]);
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&first) && all.contains(&second));
+        assert_eq!(
+            windows_runtime_candidates(&base, std::slice::from_ref(&first)),
+            vec![first]
+        );
+        assert_eq!(
+            windows_runtime_candidates(&base, &[temp.path().join("unrelated/codex.exe")]),
+            all
+        );
+    }
+
+    #[test]
+    fn detached_runtime_fills_unknown_package_without_losing_app_version() {
+        let package = Installation {
+            id: "package".into(),
+            kind: "desktop".into(),
+            runtime_version: None,
+            app_version: Some("26.903.8094.0".into()),
+        };
+        let runtime = Installation {
+            id: "cache".into(),
+            kind: "desktop".into(),
+            runtime_version: Some("0.153.4".into()),
+            app_version: None,
+        };
+        let mut result = vec![package.clone()];
+        merge_windows_runtimes(&mut result, vec![runtime.clone()]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].runtime_version.as_deref(), Some("0.153.4"));
+        assert_eq!(result[0].app_version, package.app_version);
+        let mut ambiguous = vec![package];
+        let mut older = runtime.clone();
+        older.id = "older".into();
+        older.runtime_version = Some("0.152.0".into());
+        merge_windows_runtimes(&mut ambiguous, vec![runtime.clone(), older]);
+        assert_eq!(ambiguous.len(), 3);
+        assert!(ambiguous[0].runtime_version.is_none());
+        let mut standalone = Vec::new();
+        merge_windows_runtimes(&mut standalone, vec![runtime]);
+        assert_eq!(standalone[0].kind, "desktop");
+    }
+
     #[test]
     fn distinguishes_runtime_and_app_versions() {
         assert_eq!(parse_version("codex-cli 0.153.4\n"), Some("0.153.4".into()));

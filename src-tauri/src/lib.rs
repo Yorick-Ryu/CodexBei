@@ -1,4 +1,5 @@
 mod config;
+mod diagnostics;
 mod network;
 mod redact;
 mod templates;
@@ -16,11 +17,25 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 #[tauri::command]
+async fn windows_diagnostics(
+    base_url: String,
+    state: State<'_, AppState>,
+) -> Result<diagnostics::Report> {
+    let file = lock(&state.store)?.selected.clone();
+    diagnostics::run(&base_url, &file).await
+}
+
+#[tauri::command]
 fn open_chatgpt_installer() -> Result<()> {
     #[cfg(windows)]
     {
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", "ms-windows-store://pdp/?ProductId=9NT1R1C2HH7J"])
+            .args([
+                "/C",
+                "start",
+                "",
+                "ms-windows-store://pdp/?ProductId=9NT1R1C2HH7J",
+            ])
             .spawn()
             .map_err(|_| "无法打开 Microsoft Store。".to_string())?;
     }
@@ -373,7 +388,8 @@ pub fn run() {
             backup_preview,
             restore,
             delete_backup,
-            open_chatgpt_installer
+            open_chatgpt_installer,
+            windows_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("CodexBei failed to start");

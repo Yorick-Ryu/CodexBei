@@ -1,3 +1,4 @@
+import { Modal } from "./Modal";
 import { useEffect, useRef, useState } from "react";
 import { api, installationLabel, type Matching, type Selection } from "./api";
 export function VersionPicker({
@@ -13,7 +14,6 @@ export function VersionPicker({
   onMatch: (value: Matching) => void;
   onPending: (value: boolean) => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState("auto");
   const [kind, setKind] = useState<"cli" | "desktop">("cli");
   const [runtime, setRuntime] = useState("");
@@ -34,13 +34,6 @@ export function VersionPicker({
       setApp(s.appVersion || "");
     }
   }, [matching]);
-  useEffect(() => {
-    if (open && !dialog.current?.open) {
-      dialog.current?.showModal();
-      dialog.current?.focus({ preventScroll: true });
-    }
-    else if (!open) dialog.current?.close();
-  }, [open]);
   useEffect(() => () => clearTimeout(timer.current), []);
   const request = (
     nextMode: string,
@@ -87,24 +80,8 @@ export function VersionPicker({
     );
   };
   return (
-    <dialog
-      id="version-choice"
-      ref={dialog}
-      aria-labelledby="version-dialog-title"
-      tabIndex={-1}
-      onClose={onClose}
-    >
-      <div className="version-dialog-header">
-        <h2 id="version-dialog-title">选择 ChatGPT 版本</h2>
-        <button
-          type="button"
-          className="version-dialog-close"
-          aria-label="关闭版本选择"
-          onClick={onClose}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-      </div>
+    <Modal id="version-choice" titleId="version-dialog-title" title="选择 ChatGPT 版本"
+      open={open} onClose={onClose} closeLabel="关闭版本选择">
       <label htmlFor="installation">使用的 ChatGPT</label>
       <select
         id="installation"
@@ -185,6 +162,6 @@ export function VersionPicker({
               ? "暂无匹配模板，请选择其他版本。"
               : "版本已匹配。")}
       </p>
-    </dialog>
+    </Modal>
   );
 }

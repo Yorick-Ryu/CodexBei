@@ -28,6 +28,7 @@ npm run check             # TypeScript / Vite / Rust Clippy
 - 写入前备份、冲突检测、原子替换、还原前再次备份；最近 10 份备份保留，旧备份移至废纸篓/回收站，历史内容经过脱敏。
 - `codexbei://configure/codex` 网站唤起与自动配置、单实例、防重复和过期链接处理。
 - 系统/深浅主题，默认 600 × 560、最小 460 × 460。
+- Windows 右上角设置内提供“问题排查”，生成包含脱敏当前配置的只读检测报告；独立脚本与检查范围见 [Windows 问题排查](docs/windows-diagnostics.md)。
 
 配置默认位于 `$CODEX_HOME/config.toml` 或 `~/.codex/config.toml`，可使用原生文件选择器选择 `config.toml` 或 `*.config.toml`。应用缓存与备份位于系统本地数据目录下的 `CodexBei/`。TOML 合并保留无关配置语义，部分排版会规范化；备份保存原始字节。
 
