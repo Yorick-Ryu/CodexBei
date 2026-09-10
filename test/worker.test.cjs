@@ -33,3 +33,9 @@ test('unknown and preview versions use default, with explicit preview overrides 
   const m = policies(); m.templates[1].targets = [{ kind: 'cli', runtimeRange: '>=0.153.0-alpha.1 <0.153.0' }];
   assert.equal((await (await handle(request(requestFor(targets)), m)).json()).template.id, 'codex-0152');
 });
+
+test('templates cannot delete existing user configuration', async () => {
+  const manifest = structuredClone(bootstrap);
+  manifest.templates[0].remove = [['preferred_auth_method']];
+  assert.equal((await handle(request(requestFor(cli)), manifest)).status, 503);
+});

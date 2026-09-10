@@ -8,7 +8,7 @@ const { validateAppRelease } = require('../worker/updates.cjs');
 const root = path.resolve(__dirname, '..');
 async function main() {
   const args = process.argv.slice(2);
-  const allowed = new Set(['--validate-only', '--token-file', '--apply']);
+  const allowed = new Set(['--validate-only', '--token-file', '--apply', '--preserve-triggers']);
   let tokenFile, attachDomain = false;
   for (let i = 0; i < args.length; i++) {
     if (!allowed.has(args[i])) throw Error('Unknown argument');
@@ -52,7 +52,7 @@ async function main() {
     fs.mkdirSync(path.join(root, '.wrangler'), { recursive: true });
     temporary = fs.mkdtempSync(path.join(root, '.wrangler/deploy-'));
     const file = path.join(temporary, 'wrangler.json');
-    fs.writeFileSync(file, JSON.stringify({ ...config, routes: [], main: path.resolve(root, config.main),
+    fs.writeFileSync(file, JSON.stringify({ ...config, ...(args.includes('--preserve-triggers') ? { triggers: undefined } : {}), routes: [], main: path.resolve(root, config.main),
       ...(config.assets ? { assets: { ...config.assets, directory: path.resolve(root, config.assets.directory) } } : {}),
       $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
     configArgs = ['--config', file];

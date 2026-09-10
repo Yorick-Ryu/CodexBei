@@ -2,6 +2,7 @@ mod config;
 mod diagnostics;
 mod editor;
 mod network;
+mod providers;
 mod redact;
 mod templates;
 mod versions;
@@ -172,12 +173,13 @@ async fn preview(
     model_channel: String,
     state: State<'_, AppState>,
 ) -> Result<String> {
-    config::preview(
+    let template = state.service.lock().await.current()?;
+    lock(&state.store)?.preview(
         &base_url,
         &model,
         keep_official_login,
         &model_channel,
-        &state.service.lock().await.current()?,
+        &template,
     )
 }
 fn prune_result(store: &Store, mut result: Value) -> Value {

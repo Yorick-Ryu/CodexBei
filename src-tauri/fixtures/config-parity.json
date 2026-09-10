@@ -1,16 +1,15 @@
 {
-  "templateDigest": "56e3d298d04093ea9609cff867929275750f377e2b66d2c2f3d3a961caebca01",
+  "templateDigest": "e8603f716653d90cbbf01361e0d820ce47b08c8c32d7aa72b4fd40e205226d7e",
   "cases": [
     {
       "before": "",
       "expected": {
-        "model_provider": "custom",
+        "model_provider": "example",
         "model": "gpt-6-astra",
         "model_reasoning_effort": "high",
         "disable_response_storage": true,
-        "preferred_auth_method": "apikey",
         "model_providers": {
-          "custom": {
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",
@@ -25,20 +24,20 @@
       }
     },
     {
-      "before": "# My settings\r\nmodel=\"old\" # keep\r\n[mcp_servers.example]\r\ncommand=\"node\"\r\n",
+      "before": "preferred_auth_method = \"apikey\"\r\n# My settings\r\nmodel=\"old\" # keep\r\n[mcp_servers.example]\r\ncommand=\"node\"\r\n",
       "expected": {
-        "model": "gpt-6-astra",
-        "model_provider": "custom",
-        "model_reasoning_effort": "high",
-        "disable_response_storage": true,
         "preferred_auth_method": "apikey",
+        "model": "gpt-6-astra",
         "mcp_servers": {
           "example": {
             "command": "node"
           }
         },
+        "model_provider": "example",
+        "model_reasoning_effort": "high",
+        "disable_response_storage": true,
         "model_providers": {
-          "custom": {
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",
@@ -57,6 +56,12 @@
       "expected": {
         "model_providers": {
           "custom": {
+            "name": "Old"
+          },
+          "other": {
+            "name": "Other"
+          },
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",
@@ -66,16 +71,12 @@
             "http_headers": {
               "x-openai-actor-authorization": "https://example.com/v1"
             }
-          },
-          "other": {
-            "name": "Other"
           }
         },
-        "model_provider": "custom",
+        "model_provider": "example",
         "model": "gpt-6-astra",
         "model_reasoning_effort": "high",
-        "disable_response_storage": true,
-        "preferred_auth_method": "apikey"
+        "disable_response_storage": true
       }
     },
     {
@@ -83,6 +84,16 @@
       "expected": {
         "model_providers": {
           "custom": {
+            "name": "Old",
+            "env_key": "OLD",
+            "auth": {
+              "mode": "oauth"
+            }
+          },
+          "other": {
+            "name": "Other"
+          },
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",
@@ -92,53 +103,54 @@
             "http_headers": {
               "x-openai-actor-authorization": "https://example.com/v1"
             }
-          },
-          "other": {
-            "name": "Other"
           }
         },
-        "model_provider": "custom",
+        "model_provider": "example",
         "model": "gpt-6-astra",
         "model_reasoning_effort": "high",
-        "disable_response_storage": true,
-        "preferred_auth_method": "apikey"
+        "disable_response_storage": true
       }
     },
     {
       "before": "[model_providers.custom]\nhttp_headers = { Authorization = \"fixture\", X-API-Key = \"retain\", X-OpenAI-Actor-Authorization = \"fixture\" }\nenv_http_headers = { authorization = \"ENV\", x-openai-actor-authorization = \"ENV\", Other = \"KEEP\" }\nauth = { mode = \"oauth\" }\n",
       "expected": {
-        "model_provider": "custom",
-        "model": "gpt-6-astra",
-        "model_reasoning_effort": "high",
-        "disable_response_storage": true,
-        "preferred_auth_method": "apikey",
         "model_providers": {
           "custom": {
             "http_headers": {
+              "Authorization": "fixture",
               "X-API-Key": "retain",
-              "x-openai-actor-authorization": "https://example.com/v1"
+              "X-OpenAI-Actor-Authorization": "fixture"
             },
             "env_http_headers": {
+              "authorization": "ENV",
+              "x-openai-actor-authorization": "ENV",
               "Other": "KEEP"
             },
+            "auth": {
+              "mode": "oauth"
+            }
+          },
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",
             "requires_openai_auth": false,
             "supports_websockets": true,
-            "experimental_bearer_token": "sk-trial-fixture-0123456789"
+            "experimental_bearer_token": "sk-trial-fixture-0123456789",
+            "http_headers": {
+              "x-openai-actor-authorization": "https://example.com/v1"
+            }
           }
-        }
+        },
+        "model_provider": "example",
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "high",
+        "disable_response_storage": true
       }
     },
     {
       "before": "[projects.\"/tmp/test\"]\ntrust_level=\"trusted\"\n[[agents.workers]]\nname=\"demo\"\n",
       "expected": {
-        "model_provider": "custom",
-        "model": "gpt-6-astra",
-        "model_reasoning_effort": "high",
-        "disable_response_storage": true,
-        "preferred_auth_method": "apikey",
         "projects": {
           "/tmp/test": {
             "trust_level": "trusted"
@@ -151,8 +163,12 @@
             }
           ]
         },
+        "model_provider": "example",
+        "model": "gpt-6-astra",
+        "model_reasoning_effort": "high",
+        "disable_response_storage": true,
         "model_providers": {
-          "custom": {
+          "example": {
             "name": "OpenAI",
             "base_url": "https://example.com/v1",
             "wire_api": "responses",

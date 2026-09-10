@@ -83,24 +83,6 @@ fn allowed(name: &str, value: &Value) -> bool {
         _ => false,
     }
 }
-fn removable(name: &str) -> bool {
-    [
-        "model_reasoning_effort",
-        "model_reasoning_summary",
-        "disable_response_storage",
-        "preferred_auth_method",
-        "model_providers.custom.name",
-        "model_providers.custom.wire_api",
-        "model_providers.custom.supports_websockets",
-        "model_providers.custom.requires_openai_auth",
-        "model_providers.custom.request_max_retries",
-        "model_providers.custom.stream_max_retries",
-        "model_providers.custom.stream_idle_timeout_ms",
-        "model_providers.custom.env_key",
-        "model_providers.custom.env_key_instructions",
-    ]
-    .contains(&name)
-}
 pub fn validate(template: &Value) -> Result<()> {
     if !exact(
         template,
@@ -176,26 +158,8 @@ pub fn validate(template: &Value) -> Result<()> {
     let remove = template["remove"]
         .as_array()
         .ok_or_else(|| ERROR.to_string())?;
-    if remove.len() > 32 {
+    if !remove.is_empty() {
         return fail();
-    }
-    let mut seen = HashSet::new();
-    for path in remove {
-        let parts = path.as_array().ok_or_else(|| ERROR.to_string())?;
-        if parts.iter().any(|p| {
-            !p.as_str()
-                .is_some_and(|s| !s.is_empty() && !s.contains('.'))
-        }) {
-            return fail();
-        }
-        let name = parts
-            .iter()
-            .map(|p| p.as_str().unwrap())
-            .collect::<Vec<_>>()
-            .join(".");
-        if !removable(&name) || names.contains(&name) || !seen.insert(name) {
-            return fail();
-        }
     }
     Ok(())
 }
@@ -548,6 +512,9 @@ mod tests {
     fn enforces_template_allowlist_and_bindings() {
         let mut t = template();
         validate(&t).unwrap();
+        let mut deletion = t.clone();
+        deletion["remove"] = json!([["preferred_auth_method"]]);
+        assert!(validate(&deletion).is_err());
         t["set"]["mcp_servers"] = json!({"evil":{"command":"sh"}});
         assert!(validate(&t).is_err());
         let mut t = template();
@@ -580,9 +547,9 @@ mod tests {
         let entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
         Service::insert(&mut s.selected, entry.clone());
         for (version, available) in [
-            ("1.0.0", false),
-            ("0.9.0", false),
-            ("1.0.1", true),
+            ("1.0.2", false),
+            ("1.0.1", false),
+            ("1.0.3", true),
             ("1.10.0", true),
         ] {
             let mut latest = entry.clone();
@@ -596,17 +563,17 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
         let request = s.request().unwrap();
-        let entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
+        let entry = json!({"schemaVersion":1,"release":3,"request":request,"template":template()});
         s.accept(entry.clone(), &request).unwrap();
         let mut older = entry.clone();
-        older["release"] = json!(1);
+        older["release"] = json!(2);
         assert!(s.accept(older, &request).is_err());
         let mut changed = entry.clone();
-        changed["release"] = json!(3);
+        changed["release"] = json!(4);
         changed["template"]["set"]["model_reasoning_effort"] = json!("low");
         assert!(s.accept(changed, &request).is_err());
         let mut absent = entry;
-        absent["release"] = json!(3);
+        absent["release"] = json!(4);
         absent["template"] = Value::Null;
         s.accept(absent, &request).unwrap();
         assert!(s.current().is_err());

@@ -1,8 +1,8 @@
 :root {
   color-scheme: dark;
-  --window-controls-height: 32px;
-  --title-row-height: 48px;
-  --app-header-height: calc(var(--window-controls-height) + var(--title-row-height) + 1px);
+  --window-controls-height: 0px;
+  --title-row-height: 32px;
+  --app-header-height: calc(var(--title-row-height) + 1px);
   --feedback-height: 18px;
   --config-status-gap: 64px;
   --radius-small: 6px;
@@ -72,6 +72,36 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Keep the desktop chrome fixed while letting users copy useful content.
+   WebKit needs the prefixed property in the macOS Tauri webview. */
+input,
+textarea,
+[contenteditable="true"],
+pre,
+code,
+[role="alert"],
+#status > span,
+.field-feedback,
+.version-status,
+.diagnostic-intro,
+#version-info,
+.preview-version,
+.backup-detail,
+#backup-preview-date,
+#backup-preview-path,
+.backup-preview-url {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Actions inside copyable messages still behave like native controls. */
+button,
+select,
+summary {
+  -webkit-user-select: none;
+  user-select: none;
 }
 html,
 body {
@@ -126,25 +156,6 @@ summary:focus-visible {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
-.toolbar {
-  position: relative;
-  z-index: 10;
-  background: var(--bg);
-  height: var(--window-controls-height);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 24px;
-  -webkit-app-region: drag;
-  user-select: none;
-}
-body[data-platform="darwin"] .toolbar {
-  padding-left: 92px;
-}
-.toolbar button {
-  -webkit-app-region: no-drag;
-}
 .brand-row {
   display: flex;
   align-items: center;
@@ -152,20 +163,30 @@ body[data-platform="darwin"] .toolbar {
   gap: 16px;
   width: 100%;
   height: var(--title-row-height);
-  padding: 4px 16px 12px;
+  padding: 0 16px;
+  -webkit-app-region: drag;
   user-select: none;
+}
+body[data-platform="darwin"] {
+  --window-controls-height: 32px;
+}
+body[data-platform="darwin"] .brand-row {
+  padding-left: 84px;
+}
+.brand-row button {
+  -webkit-app-region: no-drag;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 550;
   letter-spacing: -0.2px;
 }
 .logo {
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   object-fit: contain;
 }
@@ -177,8 +198,8 @@ main.config-main {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding-top: 16px;
-  padding-bottom: calc(16px + var(--app-header-height) - var(--config-status-gap) - var(--feedback-height));
+  padding-top: max(16px, calc(var(--config-status-gap) + var(--feedback-height) - var(--app-header-height)));
+  padding-bottom: max(0px, calc(16px + var(--app-header-height) - var(--config-status-gap) - var(--feedback-height)));
 }
 #configuration-page {
   position: relative;
@@ -656,26 +677,15 @@ pre {
   overflow-wrap: anywhere;
   line-height: 1.7;
 }
-#status {
-  flex-shrink: 0;
-  height: var(--feedback-height);
-  font-size: 12px;
-  line-height: var(--feedback-height);
-  color: var(--success);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 12px 0 0;
-}
-main.config-main > #status {
-  margin-top: var(--config-status-gap);
-}
-#status .text-button {
-  padding-block: 0;
-}
-#status.error {
-  color: var(--danger);
-}
+/* Float above the form without changing its layout or intercepting clicks outside the notice. */
+.status-region { position: fixed; z-index: 50; inset: auto 16px 14px; pointer-events: none; }
+#status { pointer-events: auto; box-shadow: 0 4px 16px #0003; display: flex; align-items: flex-start; gap: 12px; max-height: 120px; overflow: auto; margin: 0 auto; padding: 7px 10px; max-width: 560px; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: 12px; line-height: 1.6; }
+#status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#status.success { background: var(--success-bg); border-color: var(--success-border); color: var(--success); }
+#status .text-button { padding-block: 0; }
+.status-close { display: grid; place-items: center; flex: 0 0 22px; height: 22px; padding: 3px; background: transparent; border-radius: 4px; color: inherit; }
+.status-close:hover { background: var(--hover); }
+.file-error { height: auto; min-height: var(--feedback-height); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .history-page-header {
   justify-content: flex-start;
   gap: 10px;
@@ -1284,3 +1294,30 @@ main[data-channel-updating] select:disabled {
 
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .settings-theme-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 8px; }
+
+/* Compact connection view: the input provides the form's visual boundary. */
+.app-header { border-bottom-color: color-mix(in srgb, var(--border) 45%, transparent); }
+.tabs { height: 26px; gap: 4px; }
+.tabs button { padding-inline: 9px; font-size: 11px; border-radius: 6px; }
+.tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--hover) 50%, transparent); font-weight: 500; }
+.tabs .agent-icon { width: 16px; height: 16px; }
+.tabs button:disabled .agent-icon { filter: grayscale(1); opacity: .65; }
+.tabs span { font-size: 9px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; }
+.toolbar-actions { gap: 10px; }
+.settings-entry { width: 26px; height: 26px; color: var(--muted); }
+main.config-main { padding: 24px 28px; }
+#configuration-page { width: 100%; max-width: 480px; margin: auto; }
+.config-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.provider-row { padding: 0; align-items: flex-start; }
+.provider-info .config-title { font-size: 21px; font-weight: 550; letter-spacing: -.5px; }
+.provider-info .config-title img { width: 26px; height: 26px; flex-shrink: 0; }
+.settings-toggle { margin-top: 4px; font-size: 11px; color: var(--muted); }
+.credential-field { padding: 28px 0 0; }
+.settings-body { padding-inline: 0; }
+.action-row { padding: 8px 0 0; }
+#success { padding-top: 28px; }
+@media (max-width: 500px) {
+  main.config-main { padding: 24px; }
+  .brand-row { gap: 8px; }
+  .toolbar-actions { gap: 4px; }
+}

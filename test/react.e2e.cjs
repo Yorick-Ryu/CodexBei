@@ -147,7 +147,7 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
           const card = el.getBoundingClientRect();
           return { top: card.top, bottom: innerHeight - card.bottom, headerBottom: document.querySelector('.app-header').getBoundingClientRect().bottom };
         });
-        assert.ok(Math.abs(cardSpacing.top - cardSpacing.bottom) <= 1, JSON.stringify(cardSpacing));
+        assert.ok(Math.abs(cardSpacing.top - cardSpacing.headerBottom - cardSpacing.bottom) <= 1, JSON.stringify(cardSpacing));
         assert.ok(cardSpacing.top >= cardSpacing.headerBottom + 16, JSON.stringify(cardSpacing));
         await page.screenshot({ path: path.join(output, `${scheme}-${width}.png`) });
       }
@@ -326,7 +326,7 @@ test('React: login toggles preserve scroll and historical TOML stays readable in
       });
       assert.ok(dimensions.height >= 120, JSON.stringify(dimensions));
       assert.ok(dimensions.scrollable);
-      assert.ok(dimensions.footerBottom <= dimensions.dialogBottom && dimensions.dialogBottom <= dimensions.viewport);
+      assert.ok(dimensions.footerBottom <= dimensions.dialogBottom && dimensions.dialogBottom <= dimensions.viewport, JSON.stringify(dimensions));
       assert.equal(await page.locator('.modal-close:focus-visible').count(), 0);
       await page.screenshot({ path: path.join(output, `backup-readable-${width}.png`) });
     }
@@ -376,7 +376,7 @@ test('React: configuration preview scrolls internally and chains to its parent a
       await page.mouse.wheel(0, -100);
       await page.waitForFunction(y => document.querySelector('.content-scroll').scrollTop < y, top.outer);
       assert.equal(await page.evaluate(() => scrollY), 0);
-      assert.equal(await page.locator('.toolbar').evaluate(el => el.getBoundingClientRect().top), 0);
+      assert.equal(await page.locator('.app-header').evaluate(el => el.getBoundingClientRect().top), 0);
     }
     await page.evaluate(() => { window.fixturePreviewExtra = ''; });
     await page.locator('#keep-official-login').uncheck();
@@ -424,7 +424,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
     await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
     const layout = () => page.evaluate(() => {
       const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, height: r.height }; };
-      return ['.config-card', '#key', '#model', '#base-url', '#target', '#status'].map(rect);
+      return ['.config-card', '#key', '#model', '#base-url', '#target'].map(rect);
     });
     for (const width of [600, 460]) {
       await page.setViewportSize({ width, height: 560 });
@@ -459,6 +459,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
     await page.waitForFunction(message => document.getElementById('status').textContent === message, globalError);
     assert.ok(!(await page.locator('#key-help').textContent()).includes('网络'));
     assert.deepEqual(await layout(), beforeError);
+    assert.equal(await page.locator('.status-region').evaluate(el => getComputedStyle(el).position), 'fixed');
     await page.evaluate(() => {
       window.fixtureBackups = [{ id: 'stable', file: '/isolated/config/config.toml', created: '2026-09-08T06:00:00Z', kind: 'configure', existed: true, baseUrl: 'https://example.com/v1', keepOfficialLogin: false, content: 'model = "gpt-6-astra"\n'.repeat(40) }];
       window.fixtureDialogError = '配置已改变，请刷新后重试。';

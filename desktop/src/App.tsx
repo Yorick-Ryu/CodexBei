@@ -57,6 +57,11 @@ export function App() {
   const [previewChannel, setPreviewChannel] = useState<string>();
   const [loginPreviewPending, setLoginPreviewPending] = useState(false);
   const [status, setStatus] = useState("");
+  const [fileError, setFileError] = useState("");
+  const fileErrorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (fileError) fileErrorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [fileError]);
   const [statusSuccess, setStatusSuccess] = useState(false);
   const [successNoticeId, setSuccessNoticeId] = useState(0);
   useEffect(() => {
@@ -173,6 +178,14 @@ export function App() {
     },
     [],
   );
+  const runFileAction = (action: () => Promise<void>) => void run(async () => {
+    setFileError("");
+    try {
+      await action();
+    } catch (error) {
+      setFileError(errorText(error));
+    }
+  });
   const switchChannel = (channel: "api" | "official") => {
     if (!keep) return;
     void run(async () => {
@@ -387,7 +400,6 @@ export function App() {
   return (
     <>
       <header className="app-header">
-        <div className="toolbar" data-tauri-drag-region />
         {page === "history" ? (
           <div className="brand-row history-page-header" data-tauri-drag-region>
             <button
@@ -464,9 +476,7 @@ export function App() {
                       配置完成
                     </h1>
                     <p>
-                      {inspection?.testMode
-                        ? "已写入隔离测试目录。"
-                        : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
+                      请彻底退出并重新打开 ChatGPT，即可开始使用。
                     </p>
                     <button
                       className="primary"
@@ -517,7 +527,7 @@ export function App() {
                         <div className="provider-info">
                           <h2 className="config-title">
                             <img className={selectedTool.iconClass} src={selectedTool.icon} alt="" />
-                            {selectedTool.name} 配置
+                            配置 {selectedTool.name}
                           </h2>
                         </div>
                         <button
@@ -549,7 +559,7 @@ export function App() {
                             spellCheck={false}
                             required
                             disabled={disabled}
-                            aria-describedby={keyError || inspection?.testMode ? "key-help" : undefined}
+                            aria-describedby={keyError ? "key-help" : undefined}
                             aria-invalid={!!keyError}
                             aria-errormessage={keyError ? "key-help" : undefined}
                           />
@@ -582,7 +592,7 @@ export function App() {
                           </div>
                         </div>
                         <p id="key-help" className={`field-feedback${keyError ? " error" : ""}`} role="status" aria-live="polite">
-                          {keyError || (inspection?.testMode ? "当前使用隔离测试目录。" : "")}
+                          {keyError || ""}
                         </p>
                       </div>
                       <div id="settings" hidden={!expanded}>
@@ -662,6 +672,7 @@ export function App() {
                           <div className="path-row">
                             <input
                               id="target"
+                              aria-describedby={fileError ? "file-error" : undefined}
                               value={inspection?.file || ""}
                               title={inspection?.file}
                               readOnly
@@ -671,7 +682,7 @@ export function App() {
                               type="button"
                               className="secondary"
                               disabled={busy}
-                              onClick={() => void run(() => api.openConfigFile())}
+                              onClick={() => runFileAction(() => api.openConfigFile())}
                             >
                               打开
                             </button>
@@ -681,7 +692,7 @@ export function App() {
                               className="secondary"
                               disabled={busy}
                               onClick={() =>
-                                void run(async () => {
+                                runFileAction(async () => {
                                   acceptInspection(await api.choose());
                                   setVisibleKey(false);
                                 })
@@ -690,7 +701,7 @@ export function App() {
                               更改
                             </button>
                           </div>
-                          <p className="field-feedback" aria-hidden="true" />
+                          <p id="file-error" ref={fileErrorRef} className="field-feedback error file-error" role="alert">{fileError}</p>
                           <p className="preview-heading">配置预览</p>
                           <div id="preview" aria-busy={previewPending}>
                             <div className="preview-meta">
@@ -735,9 +746,12 @@ export function App() {
                               )}
                               <div className="template-version-row">
                                 <p id="preview-version" className="preview-version">
-                                  配置模板：当前 {matching?.template ? `v${matching.template.version}` : "未获取"}
-                                  {" · 最新 "}{matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}
-                                  {matching?.offline ? "（缓存）" : ""}
+                                  {matching?.offline ? (
+                                    <>本地模板 {matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新</>
+                                  ) : (
+                                    <>配置模板：当前 {matching?.template ? `v${matching.template.version}` : "未获取"}
+                                      {" · 最新 "}{matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}</>
+                                  )}
                                 </p>
                                 <button
                                   type="button"
@@ -885,21 +899,22 @@ export function App() {
               </div>
             </section>
           )}
-          <p
-            id="status"
-            className={statusSuccess ? undefined : "error"}
-            role="status"
-            aria-live="polite"
-            title={footerStatus || undefined}
-          >
+        </main>
+      </div>
+      <div className="status-region" hidden={!footerStatus && !(matching?.needsSelection || (versionPending && !versionOpen))}>
+        <div id="status" className={statusSuccess ? "success" : "error"}
+          role={statusSuccess ? "status" : "alert"}>
+          <span>
             {footerStatus || ((matching?.needsSelection || (versionPending && !versionOpen)) && (
               <>
                 {versionPending && !versionOpen ? "请完成版本匹配。" : "没有匹配的配置模板。"}{" "}
                 <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
               </>
             ))}
-          </p>
-        </main>
+          </span>
+          {footerStatus && <button type="button" className="status-close" aria-label="关闭提示"
+            onClick={() => { setStatus(""); setStatusSuccess(false); }}><CloseIcon /></button>}
+        </div>
       </div>
       <VersionPicker
         open={versionOpen}

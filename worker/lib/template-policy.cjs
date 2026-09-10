@@ -22,7 +22,6 @@ const rules = {
   'model_providers.custom.stream_max_retries': (v) => Number.isInteger(v) && v >= 0 && v <= 10,
   'model_providers.custom.stream_idle_timeout_ms': (v) => Number.isInteger(v) && v >= 1000 && v <= 600000,
 };
-const deleteOnly = ['model_providers.custom.env_key', 'model_providers.custom.env_key_instructions'];
 const fail = () => { throw new Error('远端配置格式无效，已保留现有配置。'); };
 const record = (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 const exactKeys = (value, keys) => record(value) && Object.keys(value).every((key) => keys.includes(key));
@@ -60,15 +59,8 @@ function validateTemplate(template) {
     else if (!Object.hasOwn(rules, name) || !rules[name](field.value)) fail();
   }
   for (const name of ['model_provider', ...Object.keys(bindings)]) if (!names.includes(name)) fail();
-  if (!Array.isArray(template.remove) || template.remove.length > 32) fail();
-  const removed = new Set();
-  for (const parts of template.remove) {
-    if (!Array.isArray(parts) || parts.some((p) => typeof p !== 'string' || p.includes('.'))) fail();
-    const name = parts.join('.');
-    // Only exact managed leaves may be removed; never delete a whole table or model/key/URL binding.
-    if ((!Object.hasOwn(rules, name) && !deleteOnly.includes(name)) || name === 'model_provider' || names.includes(name) || removed.has(name)) fail();
-    removed.add(name);
-  }
+  // Templates only add or replace fields; deletion instructions are not accepted.
+  if (!Array.isArray(template.remove) || template.remove.length !== 0) fail();
   return template;
 }
 

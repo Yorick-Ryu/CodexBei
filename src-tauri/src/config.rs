@@ -1,3 +1,4 @@
+use crate::providers;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
@@ -258,7 +259,7 @@ fn merge(destination: &mut Item, source: &Json) -> Result<()> {
     }
     Ok(())
 }
-fn preset(connection: &Connection, keep: bool, template: &Json) -> Json {
+fn preset(connection: &Connection, keep: bool, template: &Json, provider: &str) -> Json {
     let mut fields = template["set"].clone();
     fields["model"] = json!(connection.model);
     let custom = &mut fields["model_providers"]["custom"];
@@ -266,6 +267,9 @@ fn preset(connection: &Connection, keep: bool, template: &Json) -> Json {
     custom["experimental_bearer_token"] = json!(connection.api_key);
     custom["http_headers"]["x-openai-actor-authorization"] = json!(connection.base_url);
     custom["requires_openai_auth"] = json!(keep);
+    let provider_fields = custom.take();
+    fields["model_providers"] = json!({ provider: provider_fields });
+    fields["model_provider"] = json!(provider);
     fields
 }
 pub fn preview(
@@ -281,12 +285,13 @@ pub fn preview(
         api_key: "（已隐藏）".into(),
     };
     let mut doc = DocumentMut::new();
+    let provider_id = providers::for_write(&DocumentMut::new(), &c.base_url)?;
     let provider = match channel {
-        "api" => "custom",
+        "api" => provider_id.as_str(),
         "official" => "openai",
         _ => return Err(err("未知的模型通道。")),
     };
-    merge(doc.as_item_mut(), &preset(&c, keep, template))?;
+    merge(doc.as_item_mut(), &preset(&c, keep, template, &provider_id))?;
     merge(doc.as_item_mut(), &json!({ "model_provider": provider }))?;
     Ok(doc.to_string())
 }
@@ -296,66 +301,8 @@ fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> 
     if doc.get("profile").is_some() {
         return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
     }
-    if let Some(custom) = doc
-        .get_mut("model_providers")
-        .and_then(Item::as_table_like_mut)
-        .and_then(|t| t.get_mut("custom"))
-    {
-        let custom = custom
-            .as_table_like_mut()
-            .ok_or_else(|| err("custom 必须是 TOML 表。"))?;
-        custom.remove("env_key");
-        custom.remove("env_key_instructions");
-        custom.remove("auth");
-        for section in ["http_headers", "env_http_headers"] {
-            if let Some(headers) = custom.get_mut(section) {
-                let table = headers
-                    .as_table_like_mut()
-                    .ok_or_else(|| err("请求头必须是 TOML 表。"))?;
-                let names: Vec<String> = table
-                    .iter()
-                    .filter(|(k, _)| {
-                        k.eq_ignore_ascii_case("authorization")
-                            || (k.eq_ignore_ascii_case("x-openai-actor-authorization")
-                                && (section == "env_http_headers"
-                                    || *k != "x-openai-actor-authorization"))
-                    })
-                    .map(|(k, _)| k.to_owned())
-                    .collect();
-                for name in names {
-                    table.remove(&name);
-                }
-            }
-        }
-    }
-    for removal in template["remove"].as_array().unwrap() {
-        let parts: Vec<&str> = removal
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap())
-            .collect();
-        if parts.join(".") == "model_providers.custom.requires_openai_auth" {
-            continue;
-        }
-        if item(&doc, &parts).is_some_and(|v| {
-            v.as_value()
-                .is_none_or(|v| v.is_inline_table() || v.is_array())
-        }) {
-            return Err(err("待移除字段不是标量，已停止修改。"));
-        }
-        fn remove(item: &mut Item, path: &[&str]) {
-            if let Some(table) = item.as_table_like_mut() {
-                if path.len() == 1 {
-                    table.remove(path[0]);
-                } else if let Some(next) = table.get_mut(path[0]) {
-                    remove(next, &path[1..]);
-                }
-            }
-        }
-        remove(doc.as_item_mut(), &parts);
-    }
-    merge(doc.as_item_mut(), &preset(c, keep, template))?;
+    let provider = providers::for_write(&doc, &c.base_url)?;
+    merge(doc.as_item_mut(), &preset(c, keep, template, &provider))?;
     let after = doc.to_string().into_bytes();
     document(Some(&after))?;
     Ok(after)
@@ -460,11 +407,61 @@ impl Store {
         }
         Ok(file)
     }
+    fn provider_selection_path(&self) -> PathBuf {
+        self.root.join(format!(
+            "provider-{}.json",
+            digest(Some(self.selected.to_string_lossy().as_bytes()))
+        ))
+    }
+    fn api_provider(&self, doc: &DocumentMut) -> Result<Option<String>> {
+        let remembered: Option<String> = read(&self.provider_selection_path())?
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        Ok(providers::active(doc, remembered.as_deref()))
+    }
+    fn saved_provider(&self, doc: &DocumentMut, base_url: &str) -> Result<Option<String>> {
+        if let Some(provider) = self.api_provider(doc)? {
+            if providers::base(doc, &provider).as_deref() == Some(base_url) {
+                return Ok(Some(provider));
+            }
+        }
+        Ok(providers::for_read(doc, base_url))
+    }
+    fn remember_provider(&self, provider: &str) -> Result<()> {
+        atomic_write(
+            &self.provider_selection_path(),
+            &serde_json::to_vec(provider).unwrap(),
+            0o600,
+        )
+    }
+    pub fn preview(
+        &self,
+        base_url: &str,
+        model: &str,
+        keep: bool,
+        channel: &str,
+        template: &Json,
+    ) -> Result<String> {
+        let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
+        let base_url = endpoint(base_url)?;
+        let provider = providers::for_write(&doc, &base_url)?;
+        let shown = preview(&base_url, model, keep, channel, template)?;
+        let mut value: Json = toml_edit::de::from_str(&shown).map_err(|_| err("配置预览无效。"))?;
+        let default = providers::name(&base_url)?;
+        let fields = value["model_providers"][&default].take();
+        value["model_providers"] = json!({ &provider: fields });
+        if channel == "api" {
+            value["model_provider"] = json!(provider);
+        }
+        let mut result = DocumentMut::new();
+        merge(result.as_item_mut(), &value)?;
+        Ok(result.to_string())
+    }
     pub fn inspect(&self) -> Result<Json> {
         let file = self.target(&self.selected)?;
         let bytes = read(&file)?;
         let doc = document(bytes.as_deref())?;
-        let custom = ["model_providers", "custom"];
+        let provider = self.api_provider(&doc)?;
+        let custom = ["model_providers", provider.as_deref().unwrap_or("")];
         let base = item(&doc, &[custom[0], custom[1], "base_url"])
             .and_then(Item::as_str)
             .and_then(|v| endpoint(v).ok());
@@ -475,7 +472,9 @@ impl Store {
         let has_key = item(&doc, &[custom[0], custom[1], "experimental_bearer_token"])
             .and_then(Item::as_str)
             .is_some_and(|v| key(v).is_ok());
-        let model_channel = if doc.get("model_provider").and_then(Item::as_str) == Some("custom") {
+        let model_channel = if provider.is_some()
+            && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref()
+        {
             "api"
         } else {
             "official"
@@ -491,7 +490,10 @@ impl Store {
         let before = read(&file)?;
         if c.api_key.is_empty() {
             let doc = document(before.as_deref())?;
-            let saved = item(&doc, &["model_providers", "custom", "base_url"])
+            let provider = self
+                .saved_provider(&doc, &c.base_url)?
+                .ok_or_else(|| err("API 地址已更改或没有可复用密钥，请填写对应密钥。"))?;
+            let saved = item(&doc, &["model_providers", &provider, "base_url"])
                 .and_then(Item::as_str)
                 .and_then(|v| endpoint(v).ok());
             if saved.as_deref() != Some(c.base_url.as_str()) {
@@ -499,7 +501,7 @@ impl Store {
             }
             c.api_key = item(
                 &doc,
-                &["model_providers", "custom", "experimental_bearer_token"],
+                &["model_providers", &provider, "experimental_bearer_token"],
             )
             .and_then(Item::as_str)
             .unwrap_or_default()
@@ -588,6 +590,10 @@ impl Store {
         if digest(read(&plan.file)?.as_deref()) != digest(plan.before.as_deref()) {
             return Err(err(CHANGED));
         }
+        let generated = document(Some(&plan.after))?;
+        if let Some(provider) = generated.get("model_provider").and_then(Item::as_str) {
+            self.remember_provider(provider)?;
+        }
         atomic_write(&plan.file, &plan.after, 0o600)?;
         if digest(read(&plan.file)?.as_deref()) != digest(Some(&plan.after)) {
             return Err(err("写入后校验失败，请从备份还原。"));
@@ -595,24 +601,27 @@ impl Store {
         Ok(json!({ "file": plan.file, "backupId": backup.id }))
     }
     pub fn switch_channel(&mut self, channel: &str) -> Result<Json> {
-        let provider = match channel {
-            "api" => "custom",
-            "official" => "openai",
-            _ => return Err(err("模型通道无效。")),
-        };
         let file = self.target(&self.selected)?;
         let before = read(&file)?;
         let mut doc = document(before.as_deref())?;
+        let api_provider = self.api_provider(&doc)?;
+        let provider = match channel {
+            "api" => api_provider
+                .as_deref()
+                .ok_or_else(|| err("请先完成 API 密钥配置。"))?,
+            "official" => "openai",
+            _ => return Err(err("模型通道无效。")),
+        };
         if doc.get("profile").is_some() {
             return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
         }
         if channel == "api" {
-            let valid_base = item(&doc, &["model_providers", "custom", "base_url"])
+            let valid_base = item(&doc, &["model_providers", provider, "base_url"])
                 .and_then(Item::as_str)
                 .is_some_and(|value| endpoint(value).is_ok());
             let valid_key = item(
                 &doc,
-                &["model_providers", "custom", "experimental_bearer_token"],
+                &["model_providers", provider, "experimental_bearer_token"],
             )
             .and_then(Item::as_str)
             .is_some_and(|value| key(value).is_ok());
@@ -635,6 +644,9 @@ impl Store {
         }
         if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
             return Err(err(CHANGED));
+        }
+        if let Some(api_provider) = api_provider.as_deref() {
+            self.remember_provider(api_provider)?;
         }
         atomic_write(&file, &after, 0o600)?;
         if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
@@ -729,7 +741,10 @@ impl Store {
         let base_url = endpoint(base_url)?;
         let api_key = if api_key.is_empty() {
             let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
-            if item(&doc, &["model_providers", "custom", "base_url"])
+            let provider = self
+                .saved_provider(&doc, &base_url)?
+                .ok_or_else(|| err("请输入此地址对应的密钥。"))?;
+            if item(&doc, &["model_providers", &provider, "base_url"])
                 .and_then(Item::as_str)
                 .and_then(|v| endpoint(v).ok())
                 .as_deref()
@@ -739,7 +754,7 @@ impl Store {
             }
             key(item(
                 &doc,
-                &["model_providers", "custom", "experimental_bearer_token"],
+                &["model_providers", &provider, "experimental_bearer_token"],
             )
             .and_then(Item::as_str)
             .unwrap_or_default())?
@@ -881,11 +896,14 @@ mod tests {
             &doc,
             &["model_providers", "custom", "http_headers", "Authorization"]
         )
-        .is_none());
-        assert!(item(&doc, &["model_providers", "custom", "env_key"]).is_none());
+        .is_some());
+        assert!(item(&doc, &["model_providers", "custom", "env_key"]).is_some());
         assert_eq!(
-            item(&doc, &["model_providers", "custom", "requires_openai_auth"])
-                .and_then(Item::as_bool),
+            item(
+                &doc,
+                &["model_providers", "example", "requires_openai_auth"]
+            )
+            .and_then(Item::as_bool),
             Some(true)
         );
     }
@@ -925,20 +943,55 @@ mod tests {
         assert!(s.backup_preview(bid).is_err());
     }
     #[test]
-    fn preview_reflects_selected_channel_and_retains_masked_custom_provider() {
-        for (channel, provider) in [("api", "custom"), ("official", "openai")] {
-            let shown = preview("https://example.com/v1", "gpt-6-astra", true, channel, &template()).unwrap();
+    fn preview_reflects_selected_channel_and_retains_masked_domain_provider() {
+        for (channel, provider) in [("api", "example"), ("official", "openai")] {
+            let shown = preview(
+                "https://example.com/v1",
+                "gpt-6-astra",
+                true,
+                channel,
+                &template(),
+            )
+            .unwrap();
             let doc = shown.parse::<DocumentMut>().unwrap();
             assert_eq!(doc["model_provider"].as_str(), Some(provider));
-            assert_eq!(item(&doc, &["model_providers", "custom", "experimental_bearer_token"]).and_then(Item::as_str), Some("（已隐藏）"));
-            assert_eq!(item(&doc, &["model_providers", "custom", "requires_openai_auth"]).and_then(Item::as_bool), Some(true));
+            assert_eq!(
+                item(
+                    &doc,
+                    &["model_providers", "example", "experimental_bearer_token"]
+                )
+                .and_then(Item::as_str),
+                Some("（已隐藏）")
+            );
+            assert_eq!(
+                item(
+                    &doc,
+                    &["model_providers", "example", "requires_openai_auth"]
+                )
+                .and_then(Item::as_bool),
+                Some(true)
+            );
         }
-        assert!(preview("https://example.com/v1", "gpt-6-astra", true, "invalid", &template()).is_err());
+        assert!(preview(
+            "https://example.com/v1",
+            "gpt-6-astra",
+            true,
+            "invalid",
+            &template()
+        )
+        .is_err());
     }
 
     #[test]
     fn preview_and_new_configuration_keep_headers_inline() {
-        let shown = preview("https://example.com/v1", "gpt-6-astra", false, "api", &template()).unwrap();
+        let shown = preview(
+            "https://example.com/v1",
+            "gpt-6-astra",
+            false,
+            "api",
+            &template(),
+        )
+        .unwrap();
         assert!(shown.contains("http_headers = {"));
         assert!(!shown.contains("[model_providers.custom.http_headers]"));
         assert!(!shown.contains("[model_providers]\n"));
@@ -988,11 +1041,15 @@ mod tests {
         changed.api_key.clear();
         changed.base_url = "https://another.example/v1".into();
         assert!(s.prepare(changed, false, &template()).is_err());
-        assert!(
-            !preview("https://example.com", "gpt-6-astra", false, "api", &template())
-                .unwrap()
-                .contains("sk-")
-        );
+        assert!(!preview(
+            "https://example.com",
+            "gpt-6-astra",
+            false,
+            "api",
+            &template()
+        )
+        .unwrap()
+        .contains("sk-"));
     }
     #[test]
     fn switches_model_channel_immediately_without_backups_or_losing_credentials() {
@@ -1009,7 +1066,10 @@ mod tests {
         let switched = s.switch_channel("official").unwrap();
         assert_eq!(switched["changed"], true);
         assert!(switched.get("backupId").is_none());
-        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), backups);
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
         let official = s.inspect().unwrap();
         assert_eq!(official["modelChannel"], "official");
         assert_eq!(official["hasKey"], true);
@@ -1026,7 +1086,10 @@ mod tests {
         assert_eq!(fs::read(&s.selected).unwrap(), initial_file);
         assert_eq!(s.switch_channel("api").unwrap()["changed"], false);
         assert!(s.switch_channel("invalid").is_err());
-        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), backups);
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
     }
     #[test]
     fn rejects_invalid_toml_profile_and_paths() {
@@ -1086,5 +1149,61 @@ mod tests {
             &t
         )
         .is_err());
+    }
+
+    #[test]
+    fn domain_provider_collision_preserves_existing_auth_and_preview_matches_write() {
+        let (_dir, mut store) = store();
+        let original = "# Keep all providers\n[model_providers.custom]\nenv_key = 'OLD_KEY'\nauth = { command = 'old-auth' }\n[model_providers.example]\nbase_url = 'https://another.com/v1'\nhttp_headers = { Authorization = 'existing' }\n[model_providers.example-2]\nbase_url = 'https://example.com/v1'\nenv_key = 'OTHER_KEY'\n";
+        fs::write(&store.selected, original).unwrap();
+        let before = document(Some(original.as_bytes())).unwrap();
+        let shown = store
+            .preview(
+                &connection().base_url,
+                &connection().model,
+                true,
+                "api",
+                &template(),
+            )
+            .unwrap();
+        let shown = document(Some(shown.as_bytes())).unwrap();
+        assert_eq!(shown["model_provider"].as_str(), Some("example-3"));
+        assert_eq!(
+            shown["model_providers"]["example-3"]["name"].as_str(),
+            Some("OpenAI")
+        );
+        let id = store.prepare(connection(), true, &template()).unwrap();
+        store.apply(&id).unwrap();
+        let after = document(read(&store.selected).unwrap().as_deref()).unwrap();
+        for provider in ["custom", "example", "example-2"] {
+            assert_eq!(
+                before["model_providers"][provider].to_string(),
+                after["model_providers"][provider].to_string()
+            );
+        }
+        assert_eq!(after["model_provider"].as_str(), Some("example-3"));
+        assert_eq!(
+            after["model_providers"]["example-3"]["name"].as_str(),
+            Some("OpenAI")
+        );
+        let id = store.prepare(connection(), true, &template()).unwrap();
+        store.apply(&id).unwrap();
+        store.switch_channel("official").unwrap();
+        let mut reopened = Store::new(store.root.clone(), store.selected.clone()).unwrap();
+        assert_eq!(
+            reopened.inspect().unwrap()["baseUrl"],
+            connection().base_url
+        );
+        assert_eq!(
+            reopened
+                .credentials("", &connection().base_url)
+                .unwrap()
+                .api_key,
+            connection().api_key
+        );
+        reopened.switch_channel("api").unwrap();
+        let result = document(read(&reopened.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(result["model_provider"].as_str(), Some("example-3"));
+        assert!(result["model_providers"].get("example-4").is_none());
     }
 }
