@@ -41,7 +41,7 @@ fn open_chatgpt_installer() -> Result<()> {
                 "/C",
                 "start",
                 "",
-                "ms-windows-store://pdp/?ProductId=9NT1R1C2HH7J",
+                "ms-windows-store://pdp/?ProductId=9PLM9XGG6VKS",
             ])
             .spawn()
             .map_err(|_| "无法打开 Microsoft Store。".to_string())?;

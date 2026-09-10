@@ -708,7 +708,7 @@ export function App() {
                                     onClick={() => void run(async () => {
                                       await api.openChatgptInstaller();
                                       setWaitingForChatgptInstall(true);
-                                      setStatus("已打开 Microsoft Store，等待安装完成…");
+                                      setStatus("已打开安装入口，等待安装完成…");
                                     })}
                                   >
                                     {waitingForChatgptInstall ? "等待安装完成…" : inspection.platform === "windows" ? "前往 Microsoft Store 安装" : "下载 Mac 安装包"}
