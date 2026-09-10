@@ -453,6 +453,13 @@ impl Store {
         self.plans.clear();
         Ok(())
     }
+    pub fn file_for_editor(&self) -> Result<PathBuf> {
+        let file = self.target(&self.selected)?;
+        if !file.is_file() {
+            return Err(err("配置文件尚未创建，请先完成配置。"));
+        }
+        Ok(file)
+    }
     pub fn inspect(&self) -> Result<Json> {
         let file = self.target(&self.selected)?;
         let bytes = read(&file)?;
@@ -789,6 +796,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = Store::new(dir.path().join("data"), dir.path().join("config.toml")).unwrap();
         (dir, s)
+    }
+    #[test]
+    fn editor_uses_selected_existing_file_without_requiring_valid_toml() {
+        let (dir, mut s) = store();
+        assert!(s.file_for_editor().is_err());
+        assert!(!s.selected.exists());
+        let path = dir
+            .path()
+            .join("User With Spaces")
+            .join("custom.config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"invalid [toml").unwrap();
+        s.choose(path.clone()).unwrap();
+        assert_eq!(s.file_for_editor().unwrap(), path.canonicalize().unwrap());
+        assert!(s.inspect().is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"invalid [toml");
+        fs::remove_file(path).unwrap();
+        assert!(s.file_for_editor().is_err());
     }
     #[test]
     fn preserves_configuration_semantics_and_template_digest() {

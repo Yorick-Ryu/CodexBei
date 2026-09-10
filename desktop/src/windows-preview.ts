@@ -48,6 +48,7 @@ mockIPC(async (cmd, raw) => {
   if (cmd === "plugin:process|restart") { await new Promise(resolve => setTimeout(resolve, 1500)); location.replace("/?preview=windows"); return null; }
   if (cmd === "plugin:resources|close" || cmd === "incoming") return null;
   if (cmd === "backups") return [];
+  if (cmd === "open_config_file") throw "当前为界面预览；Windows 应用会使用记事本打开所选配置文件。";
   if (cmd.startsWith("plugin:window|")) return null;
   void args;
   throw "界面预览不执行文件操作。";

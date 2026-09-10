@@ -189,11 +189,6 @@ main.config-main {
 #codex-panel {
   min-width: 0;
 }
-#configuration-page > .history-entry {
-  position: absolute;
-  top: 100%;
-  inset-inline: 0;
-}
 .config-title {
   display: flex;
   align-items: center;
@@ -680,32 +675,6 @@ main.config-main > #status {
 }
 #status.error {
   color: var(--danger);
-}
-.history-entry {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 40px;
-  margin-top: 12px;
-  padding: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: left;
-  border-radius: var(--radius-small);
-}
-.history-entry:hover {
-  color: var(--text);
-}
-.history-chevron {
-  width: 15px;
-  height: 15px;
-  margin-left: auto;
-  color: var(--subtle);
-}
-.history-entry .summary-hint + .history-chevron {
-  margin-left: 0;
 }
 .history-page-header {
   justify-content: flex-start;
@@ -1252,7 +1221,7 @@ main[data-channel-updating] .channel-segments[data-channel]::before {
 
 /* Keep the existing form appearance while a short routing write holds the lock. */
 main[data-channel-updating] :is(.login-option, .channel-segment):has(input:disabled),
-main[data-channel-updating] :is(#choose, #open-history, #refresh-models, #change-version):disabled,
+main[data-channel-updating] :is(#choose, #open-config, #refresh-models, #change-version):disabled,
 main[data-channel-updating][data-has-key="true"] :is(#toggle-key, #clear-key):disabled,
 main[data-channel-updating][data-has-base-url="true"] #clear-base-url:disabled,
 main[data-channel-updating][data-template-update="true"] #update-template:disabled,
@@ -1269,8 +1238,9 @@ main[data-channel-updating] select:disabled {
   opacity: 1;
 }
 
-.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-.diagnostic-report { width: 100%; height: 230px; box-sizing: border-box; resize: vertical; padding: 12px; background: var(--input); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font: inherit; line-height: 1.6; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.diagnostic-intro { height: 3.2em; margin: 0 0 8px; overflow: auto; }
+.diagnostic-copy { display: inline-flex; align-items: center; gap: 6px; }
 
 .settings-entry { position: relative; width: 32px; height: 32px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--text); display: grid; place-items: center; flex-shrink: 0; }
 .settings-entry svg { width: 16px; height: 16px; }

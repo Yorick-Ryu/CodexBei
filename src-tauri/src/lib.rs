@@ -1,5 +1,6 @@
 mod config;
 mod diagnostics;
+mod editor;
 mod network;
 mod redact;
 mod templates;
@@ -15,6 +16,12 @@ use std::{
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+#[tauri::command]
+async fn open_config_file(state: State<'_, AppState>) -> Result<()> {
+    let file = lock(&state.store)?.file_for_editor()?;
+    editor::open(&file).await
+}
 
 #[tauri::command]
 async fn windows_diagnostics(
@@ -379,6 +386,7 @@ pub fn run() {
             check,
             update_template,
             choose,
+            open_config_file,
             preview,
             configure,
             switch_channel,

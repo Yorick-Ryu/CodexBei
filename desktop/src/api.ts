@@ -69,6 +69,7 @@ export const api = {
     invoke<string[]>("models", { apiKey, baseUrl }),
   inspect: () => invoke<Inspection>("inspect"),
   choose: () => invoke<Inspection>("choose"),
+  openConfigFile: () => invoke<void>("open_config_file"),
   preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official") =>
     invoke<string>("preview", { baseUrl, model, keepOfficialLogin, modelChannel }),
   configure: (connection: Connection, keepOfficialLogin: boolean) =>

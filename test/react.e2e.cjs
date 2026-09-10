@@ -65,6 +65,11 @@ async function fixture(options = {}) {
       if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, 30)); if (window.fixtureModelsError) throw window.fixtureModelsError; return ['gpt-6-astra', 'slow-model', 'new-model']; }
       if (cmd === 'inspect' && window.fixtureInitialError) throw '配置不是有效的 TOML，请先修复原文件。';
       if (cmd === 'choose') window.fixtureInitialError = false;
+      if (cmd === 'open_config_file') {
+        if (window.fixtureOpenConfigError) throw window.fixtureOpenConfigError;
+        window.fixtureOpenedFile = window.fixtureState.file;
+        return null;
+      }
       if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState };
       if (cmd === 'preview') {
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
@@ -108,6 +113,10 @@ async function chooseTheme(page, label) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('radio', { name: label, exact: true }).check();
   await page.getByRole('button', { name: '关闭', exact: true }).click();
+}
+async function openHistory(page) {
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '历史备份', exact: true }).click();
 }
 async function openUpdater(page) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
@@ -178,7 +187,7 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     assert.equal(await page.locator('#key').count(), 0);
     await page.screenshot({ path: path.join(output, 'success.png') });
     await page.locator('#done').click(); assert.equal(await page.locator('#key').inputValue(), 'sk-react-fixture-not-a-real-key');
-    await page.locator('#open-history').click(); await page.getByRole('button', { name: '查看', exact: true }).click();
+    await openHistory(page); await page.getByRole('button', { name: '查看', exact: true }).click();
     await page.locator('#backup-preview[open]').waitFor();
     assert.ok((await page.locator('#backup-preview').textContent()).includes('文件不存在'));
     await page.getByRole('button', { name: '还原此配置' }).click();
@@ -303,7 +312,7 @@ test('React: login toggles preserve scroll and historical TOML stays readable in
     await page.evaluate(() => {
       window.fixtureBackups = [{ id: 'readable', file: '/isolated/config/config.toml', created: '2026-09-08T06:00:00Z', kind: 'configure', existed: true, keepOfficialLogin: true, baseUrl: 'https://example.com/v1', content: 'model = "gpt-6-astra"\n[model_providers.custom]\nbase_url = "https://example.com/v1"\nrequires_openai_auth = true\nexperimental_bearer_token = "（已隐藏）"\n' + Array.from({ length: 40 }, (_, i) => `setting_${i} = true`).join('\n') }];
     });
-    await page.locator('#open-history').click();
+    await openHistory(page);
     assert.equal(await page.locator('.backup-login-badge').textContent(), '保留官方登录');
     assert.equal(await page.locator('.backup-detail').textContent(), 'https://example.com/v1');
     await page.getByRole('button', { name: '查看', exact: true }).click();
@@ -454,7 +463,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
       window.fixtureBackups = [{ id: 'stable', file: '/isolated/config/config.toml', created: '2026-09-08T06:00:00Z', kind: 'configure', existed: true, baseUrl: 'https://example.com/v1', keepOfficialLogin: false, content: 'model = "gpt-6-astra"\n'.repeat(40) }];
       window.fixtureDialogError = '配置已改变，请刷新后重试。';
     });
-    await page.locator('#open-history').click();
+    await openHistory(page);
     await page.getByRole('button', { name: '查看', exact: true }).click();
     const dialogLayout = () => page.evaluate(() => ['#backup-preview', '#backup-preview-code', '.backup-preview-footer'].map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, height: r.height }; }));
     const beforeDialogError = await dialogLayout();
@@ -530,7 +539,7 @@ test('React: channel routing refreshes preview without fading the form or discar
       await chooseTheme(page, theme);
       await page.waitForTimeout(160);
       await page.evaluate(() => { window.fixtureChannelDelay = 400; window.fixturePreviewDelay = 200; });
-      const appearance = () => page.evaluate(() => ['.config-card', '#key', '.login-option', '#apply', '#open-history'].map(selector => {
+      const appearance = () => page.evaluate(() => ['.config-card', '#key', '.login-option', '#apply'].map(selector => {
         const el = document.querySelector(selector), style = getComputedStyle(el);
         return [selector, style.backgroundColor, style.opacity, selector === '#apply' ? el.textContent : ''];
       }));
@@ -732,26 +741,57 @@ test('React: success notice expires after latest switch and never dismisses erro
 });
 
 
-test('React: Windows diagnostics runs on demand, reports without any repair actions and handles failures', async () => {
+test('React: Windows diagnostics starts fresh, exposes copy only after completion and reserves feedback space', async () => {
   const f = await fixture({ platform: 'windows' }); const { page } = f;
   try {
-    await page.getByRole('button', { name: '设置', exact: true }).click();
-    await page.getByRole('button', { name: '问题排查', exact: true }).click();
+    const enter = async () => {
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await page.getByRole('button', { name: '问题排查', exact: true }).click();
+    };
+    await enter();
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('windows_diagnostics')), false);
+    assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).count(), 0);
+    const initialLayout = await page.locator('dialog[open]').boundingBox();
     await page.getByRole('button', { name: '开始排查', exact: true }).click();
-    await page.getByRole('button', { name: '重新排查', exact: true }).waitFor();
-    const report = await page.getByRole('textbox', { name: '脱敏排查报告' }).inputValue();
+    await page.getByRole('button', { name: '再次排查', exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: '脱敏排查报告' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '备份并打开 .env', exact: true }).count(), 0);
+    assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
+    await page.evaluate(() => {
+      window.fixtureCopyError = true;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => {
+        if (window.fixtureCopyError) throw new Error('clipboard unavailable');
+        window.fixtureCopiedReport = text;
+      } } });
+    });
+    await page.getByRole('button', { name: '复制报告', exact: true }).click();
+    await page.getByText('复制失败，请重试。', { exact: true }).waitFor();
+    assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
+    await page.evaluate(() => { window.fixtureCopyError = false; });
+    await page.getByRole('button', { name: '复制报告', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.diagnostic-intro').textContent.startsWith('遇到对话'));
+    assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).locator('.lucide-check').count(), 1);
+    await page.getByRole('button', { name: '复制报告', exact: true }).locator('.lucide-copy').waitFor({ timeout: 4000 });
+    assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
+    const report = await page.evaluate(() => window.fixtureCopiedReport);
     assert.match(report, /7890/);
     assert.match(report, /401/);
     assert.match(report, /model = "gpt-5.6-sol"/);
     assert.equal(report.includes('sk-saved'), false);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('backup_open_dotenv')), false);
-    assert.equal(await page.getByRole('button', { name: '备份并打开 .env', exact: true }).count(), 0);
+    assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
+    await page.getByRole('button', { name: '再次排查', exact: true }).click();
+    await page.getByRole('button', { name: '再次排查', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'windows_diagnostics').length), 2);
     await page.screenshot({ path: path.join(output, 'windows-diagnostics.png') });
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await enter();
+    assert.equal(await page.getByRole('button', { name: '开始排查', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).count(), 0);
     await page.evaluate(() => { window.fixtureDiagnosticError = true; });
-    await page.getByRole('button', { name: '重新排查', exact: true }).click();
+    await page.getByRole('button', { name: '开始排查', exact: true }).click();
     await page.getByText('排查未完成', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('textbox', { name: '脱敏排查报告' }).count(), 0);
+    assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
+    assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).count(), 0);
     await page.getByRole('button', { name: '关闭', exact: true }).click();
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
@@ -785,10 +825,10 @@ test('React: shared modal shell matches across dialogs and restores focus on Esc
       await page.getByRole('button', { name: '设置', exact: true }).click();
       await page.getByRole('button', { name: '问题排查', exact: true }).click();
       assert.deepEqual(await shell(), expected);
-      await page.getByRole('button', { name: '开始排查', exact: true }).count().then(async n => {
-        await page.getByRole('button', { name: n ? '开始排查' : '重新排查', exact: true }).click();
-      });
-      await page.getByRole('button', { name: '重新排查', exact: true }).waitFor();
+      if (await page.getByRole('button', { name: '开始排查', exact: true }).count()) {
+        await page.getByRole('button', { name: '开始排查', exact: true }).click();
+      }
+      await page.getByRole('button', { name: '再次排查', exact: true }).waitFor();
       await page.setViewportSize({ width: 460, height: 460 });
       const bounds = await page.locator('dialog[open]').boundingBox();
       assert.ok(bounds.x >= 0 && bounds.y >= 32 && bounds.x + bounds.width <= 460 && bounds.y + bounds.height <= 460);
@@ -810,6 +850,8 @@ test('React: settings contains themes and updater on every platform, diagnostics
       await page.getByRole('button', { name: '设置', exact: true }).click();
       assert.equal(await page.getByRole('radiogroup', { name: '外观主题' }).isVisible(), true);
       assert.equal(await page.getByRole('button', { name: '检查更新', exact: true }).isVisible(), true);
+      assert.equal(await page.getByRole('button', { name: '历史备份', exact: true }).isVisible(), true);
+      assert.equal(await page.locator('main #open-history').count(), 0);
       assert.equal(await page.getByRole('button', { name: '问题排查', exact: true }).count(), platform === 'windows' ? 1 : 0);
       await page.getByRole('radio', { name: '雾白', exact: true }).check();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
@@ -863,6 +905,30 @@ test('updater: percentage changes keep progress ring, status and versions statio
       previous = percent;
     }
     await page.evaluate(() => window.fixtureFinishDownload());
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: open config precedes change and reports editor failures without modifying the form', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.locator('#toggle-settings').click();
+    const open = page.getByRole('button', { name: '打开', exact: true });
+    assert.deepEqual(await page.locator('.path-row button').allTextContents(), ['打开', '更改']);
+    await open.click();
+    await page.waitForFunction(() => window.fixtureOpenedFile === window.fixtureState.file);
+    const path = await page.locator('#target').inputValue();
+    await page.evaluate(() => { window.fixtureOpenConfigError = '配置文件尚未创建，请先完成配置。'; });
+    await open.click();
+    await page.getByText('配置文件尚未创建，请先完成配置。', { exact: true }).waitFor();
+    assert.equal(await page.locator('#target').inputValue(), path);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('choose')), false);
+    await page.setViewportSize({ width: 460, height: 460 });
+    const bounds = await page.locator('.path-row').boundingBox();
+    const right = await page.locator('#choose').boundingBox();
+    assert.ok(right.x + right.width <= bounds.x + bounds.width + 1);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

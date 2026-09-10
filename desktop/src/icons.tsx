@@ -1,5 +1,5 @@
 import {
-  ArrowRight, Check, ChevronLeft, ChevronRight, Eye, EyeOff, History, Monitor, Moon,
+  ArrowRight, Check, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, History, Monitor, Moon,
   Settings, SlidersHorizontal, Sun, X, type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +17,7 @@ export const ArrowRightIcon = appIcon(ArrowRight);
 export const ChevronLeftIcon = appIcon(ChevronLeft);
 export const CheckIcon = appIcon(Check);
 export const CloseIcon = appIcon(X);
+export const CopyIcon = appIcon(Copy);
 export const EyeIcon = appIcon(Eye);
 export const EyeOffIcon = appIcon(EyeOff);
 export const HistoryIcon = appIcon(History);

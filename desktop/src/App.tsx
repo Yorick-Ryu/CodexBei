@@ -17,7 +17,7 @@ import {
 } from "./api";
 import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { VersionPicker } from "./VersionPicker";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, EyeIcon, EyeOffIcon, HistoryIcon, SettingsIcon } from "./icons";
+import { CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
 import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
 import { ThemeSelector } from "./ThemeSelector";
@@ -438,7 +438,10 @@ export function App() {
               </div>
               <AppSettings baseUrl={baseUrl} theme={<ThemeSelector />} updateAvailable={softwareUpdate.available}
                 isWindows={inspection?.platform === "windows" || (!inspection && /Win/i.test(navigator.platform))}
-                updateRow={softwareUpdate.row} />
+                updateRow={softwareUpdate.row} historyBusy={busy} onOpenHistory={() => void run(async () => {
+                  setBackups(await api.backups());
+                  setPage("history");
+                })} />
             </div>
           </div>
         )}
@@ -664,6 +667,15 @@ export function App() {
                               readOnly
                             />
                             <button
+                              id="open-config"
+                              type="button"
+                              className="secondary"
+                              disabled={busy}
+                              onClick={() => void run(() => api.openConfigFile())}
+                            >
+                              打开
+                            </button>
+                            <button
                               id="choose"
                               type="button"
                               className="secondary"
@@ -832,25 +844,6 @@ export function App() {
                   </form>
                 )}
               </section>
-              <button
-                id="open-history"
-                type="button"
-                className="history-entry"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    setBackups(await api.backups());
-                    setPage("history");
-                  })
-                }
-              >
-                <span className="summary-label">
-                  <HistoryIcon />
-                  历史备份
-                </span>
-                <span className="summary-hint">查看备份记录</span>
-                <ChevronRightIcon />
-              </button>
             </div>
           ) : (
             <section id="history-page" aria-labelledby="history-title">
