@@ -633,183 +633,186 @@ export function App() {
                           {keyError || ""}
                         </p>
                       </div>
-                      <div id="settings" hidden={!expanded}>
-                        <div className="settings-body">
-                          <div className="label-row model-label">
-                            <label htmlFor="model">模型</label>
-                            <button
-                              type="button"
-                              id="refresh-models"
-                              className="text-button"
-                              disabled={disabled || modelsLoading}
-                              aria-busy={modelsLoading}
-                              onClick={() => setModelRefresh((v) => v + 1)}
-                            >
-                              {modelsLoading ? "正在获取模型…" : "刷新列表"}
-                            </button>
-                          </div>
-                          <select
-                            id="model"
-                            value={model}
-                            onChange={(e) => {
-                              setPreviewPending(true);
-                              setModel(e.target.value);
-                            }}
-                            disabled={disabled}
-                            required
-                          >
-                            {[...new Set([model, ...availableModels])].map(
-                              (value) => (
-                                <option key={value} value={value}>
-                                  {value}
-                                </option>
-                              ),
-                            )}
-                          </select>
-                          <p
-                            id="models-help"
-                            className="field-feedback"
-                            role="status"
-                            title={!isKeyError(modelStatus) && modelStatus || undefined}
-                          >
-                            {!isKeyError(modelStatus) && modelStatus}
-                          </p>
-                          <label htmlFor="base-url">API 地址</label>
-                          <div className="key-control base-url-control">
-                            <input
-                              id="base-url"
-                              ref={baseUrlInput}
-                              type="url"
-                              value={baseUrl}
-                              onChange={(e) => changeBaseUrl(e.target.value)}
-                              disabled={disabled}
-                              required
-                              autoComplete="off"
-                              spellCheck={false}
-                            />
-                            <div className="key-actions">
+                      <div id="settings" className="settings-collapse" data-expanded={expanded}
+                        aria-hidden={!expanded} ref={element => { if (element) element.inert = !expanded; }}>
+                        <div className="settings-clip">
+                          <div className="settings-body">
+                            <div className="label-row model-label">
+                              <label htmlFor="model">模型</label>
                               <button
-                                id="clear-base-url"
                                 type="button"
-                                className="key-action"
-                                aria-label="清空 API 地址"
-                                title="清空 API 地址"
-                                aria-controls="base-url"
-                                disabled={disabled || !baseUrl}
-                                onClick={() => {
-                                  changeBaseUrl("");
-                                  baseUrlInput.current?.focus({ preventScroll: true });
-                                }}
+                                id="refresh-models"
+                                className="text-button"
+                                disabled={disabled || modelsLoading}
+                                aria-busy={modelsLoading}
+                                onClick={() => setModelRefresh((v) => v + 1)}
                               >
-                                <CloseIcon />
+                                {modelsLoading ? "正在获取模型…" : "刷新列表"}
                               </button>
                             </div>
-                          </div>
-                          <p className="field-feedback" aria-hidden="true" />
-                          <label htmlFor="target">配置文件</label>
-                          <div className="path-row">
-                            <input
-                              id="target"
-                              aria-describedby={fileError ? "file-error" : undefined}
-                              value={inspection?.file || ""}
-                              title={inspection?.file}
-                              readOnly
-                            />
-                            <button
-                              id="open-config"
-                              type="button"
-                              className="secondary"
-                              disabled={busy}
-                              onClick={() => runFileAction(() => api.openConfigFile())}
+                            <select
+                              id="model"
+                              value={model}
+                              onChange={(e) => {
+                                setPreviewPending(true);
+                                setModel(e.target.value);
+                              }}
+                              disabled={disabled}
+                              required
                             >
-                              打开
-                            </button>
-                            <button
-                              id="choose"
-                              type="button"
-                              className="secondary"
-                              disabled={busy}
-                              onClick={() =>
-                                runFileAction(async () => {
-                                  acceptInspection(await api.choose());
-                                  setVisibleKey(false);
-                                })
-                              }
-                            >
-                              更改
-                            </button>
-                          </div>
-                          <p id="file-error" ref={fileErrorRef} className="field-feedback error file-error" role="alert">{fileError}</p>
-                          <p className="preview-heading">配置预览</p>
-                          <div id="preview" aria-busy={previewPending}>
-                            <div className="preview-meta">
-                              <div className="version-row">
-                                <span id="version-info" className="connection">
-                                  {matching?.installations.length
-                                    ? matching.installations.map(installationLabel).join(" / ")
-                                    : "未检测到已安装版本"}
-                                </span>
-                                {missingDesktop && (
-                                  <button
-                                    type="button"
-                                    className="text-button"
-                                    disabled={openingInstaller}
-                                    onClick={() => void openInstaller()}
-                                  >
-                                    {installerLabel}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  id="change-version"
-                                  className="text-button"
-                                  aria-expanded={versionOpen}
-                                  aria-haspopup="dialog"
-                                  disabled={busy}
-                                  onClick={() => setVersionOpen(true)}
-                                >
-                                  选择 ChatGPT 版本
-                                </button>
-                              </div>
-                              {matching && matching.selection.mode !== "auto" && (
-                                <p className="preview-version selected-version">
-                                  当前选择：{matching.selection.mode === "manual"
-                                    ? installationLabel(matching.selection)
-                                    : matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")}
-                                </p>
+                              {[...new Set([model, ...availableModels])].map(
+                                (value) => (
+                                  <option key={value} value={value}>
+                                    {value}
+                                  </option>
+                                ),
                               )}
-                              <div className="template-version-row">
-                                <p id="preview-version" className="preview-version">
-                                  {matching?.offline ? (
-                                    <>本地模板 {matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新</>
-                                  ) : (
-                                    <>配置模板：当前 {matching?.template ? `v${matching.template.version}` : "未获取"}
-                                      {" · 最新 "}{matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}</>
-                                  )}
-                                </p>
+                            </select>
+                            <p
+                              id="models-help"
+                              className="field-feedback"
+                              role="status"
+                              title={!isKeyError(modelStatus) && modelStatus || undefined}
+                            >
+                              {!isKeyError(modelStatus) && modelStatus}
+                            </p>
+                            <label htmlFor="base-url">API 地址</label>
+                            <div className="key-control base-url-control">
+                              <input
+                                id="base-url"
+                                ref={baseUrlInput}
+                                type="url"
+                                value={baseUrl}
+                                onChange={(e) => changeBaseUrl(e.target.value)}
+                                disabled={disabled}
+                                required
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                              <div className="key-actions">
                                 <button
+                                  id="clear-base-url"
                                   type="button"
-                                  id="update-template"
-                                  className="text-button template-update"
-                                  disabled={busy || versionPending || !matching?.templateUpdateAvailable}
-                                  aria-label={matching?.templateUpdateAvailable ? "更新配置模板，有可用更新" : "更新配置模板"}
-                                  title={matching?.templateUpdateAvailable ? "更新配置模板与预览" : "暂无可用的配置模板更新"}
-                                  onClick={() =>
-                                    void run(async () =>
-                                      setMatching(await api.updateTemplate()),
-                                    )
-                                  }
+                                  className="key-action"
+                                  aria-label="清空 API 地址"
+                                  title="清空 API 地址"
+                                  aria-controls="base-url"
+                                  disabled={disabled || !baseUrl}
+                                  onClick={() => {
+                                    changeBaseUrl("");
+                                    baseUrlInput.current?.focus({ preventScroll: true });
+                                  }}
                                 >
-                                  更新配置模板
-                                  {matching?.templateUpdateAvailable && (
-                                    <span className="template-update-dot" aria-hidden="true" />
-                                  )}
+                                  <CloseIcon />
                                 </button>
                               </div>
                             </div>
-                            <pre id="preview-code" aria-label="配置预览">
-                              {previewError || preview}
-                            </pre>
+                            <p className="field-feedback" aria-hidden="true" />
+                            <label htmlFor="target">配置文件</label>
+                            <div className="path-row">
+                              <input
+                                id="target"
+                                aria-describedby={fileError ? "file-error" : undefined}
+                                value={inspection?.file || ""}
+                                title={inspection?.file}
+                                readOnly
+                              />
+                              <button
+                                id="open-config"
+                                type="button"
+                                className="secondary"
+                                disabled={busy}
+                                onClick={() => runFileAction(() => api.openConfigFile())}
+                              >
+                                打开
+                              </button>
+                              <button
+                                id="choose"
+                                type="button"
+                                className="secondary"
+                                disabled={busy}
+                                onClick={() =>
+                                  runFileAction(async () => {
+                                    acceptInspection(await api.choose());
+                                    setVisibleKey(false);
+                                  })
+                                }
+                              >
+                                更改
+                              </button>
+                            </div>
+                            <p id="file-error" ref={fileErrorRef} className="field-feedback error file-error" role="alert">{fileError}</p>
+                            <p className="preview-heading">配置预览</p>
+                            <div id="preview" aria-busy={previewPending}>
+                              <div className="preview-meta">
+                                <div className="version-row">
+                                  <span id="version-info" className="connection">
+                                    {matching?.installations.length
+                                      ? matching.installations.map(installationLabel).join(" / ")
+                                      : "未检测到已安装版本"}
+                                  </span>
+                                  {missingDesktop && (
+                                    <button
+                                      type="button"
+                                      className="text-button"
+                                      disabled={openingInstaller}
+                                      onClick={() => void openInstaller()}
+                                    >
+                                      {installerLabel}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    id="change-version"
+                                    className="text-button"
+                                    aria-expanded={versionOpen}
+                                    aria-haspopup="dialog"
+                                    disabled={busy}
+                                    onClick={() => setVersionOpen(true)}
+                                  >
+                                    选择 ChatGPT 版本
+                                  </button>
+                                </div>
+                                {matching && matching.selection.mode !== "auto" && (
+                                  <p className="preview-version selected-version">
+                                    当前选择：{matching.selection.mode === "manual"
+                                      ? installationLabel(matching.selection)
+                                      : matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")}
+                                  </p>
+                                )}
+                                <div className="template-version-row">
+                                  <p id="preview-version" className="preview-version">
+                                    {matching?.offline ? (
+                                      <>本地模板 {matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新</>
+                                    ) : (
+                                      <>配置模板：当前 {matching?.template ? `v${matching.template.version}` : "未获取"}
+                                        {" · 最新 "}{matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}</>
+                                    )}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    id="update-template"
+                                    className="text-button template-update"
+                                    disabled={busy || versionPending || !matching?.templateUpdateAvailable}
+                                    aria-label={matching?.templateUpdateAvailable ? "更新配置模板，有可用更新" : "更新配置模板"}
+                                    title={matching?.templateUpdateAvailable ? "更新配置模板与预览" : "暂无可用的配置模板更新"}
+                                    onClick={() =>
+                                      void run(async () =>
+                                        setMatching(await api.updateTemplate()),
+                                      )
+                                    }
+                                  >
+                                    更新配置模板
+                                    {matching?.templateUpdateAvailable && (
+                                      <span className="template-update-dot" aria-hidden="true" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                              <pre id="preview-code" aria-label="配置预览">
+                                {previewError || preview}
+                              </pre>
+                            </div>
                           </div>
                         </div>
                       </div>

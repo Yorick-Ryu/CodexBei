@@ -192,7 +192,8 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
           const card = el.getBoundingClientRect();
           return { top: card.top, bottom: innerHeight - card.bottom, headerBottom: document.querySelector('.app-header').getBoundingClientRect().bottom };
         });
-        assert.ok(Math.abs(cardSpacing.top - cardSpacing.headerBottom - cardSpacing.bottom) <= 1, JSON.stringify(cardSpacing));
+        // The compact form sits 16px above the content area's vertical center.
+        assert.ok(Math.abs(cardSpacing.top - cardSpacing.headerBottom - cardSpacing.bottom + 32) <= 1, JSON.stringify(cardSpacing));
         assert.ok(cardSpacing.top >= cardSpacing.headerBottom + 16, JSON.stringify(cardSpacing));
         await page.screenshot({ path: path.join(output, `${scheme}-${width}.png`) });
       }
@@ -439,6 +440,7 @@ test('React: version switching keeps the background layout stable until the dial
   const f = await fixture(); const { page } = f;
   try {
     await page.locator('#toggle-settings').click();
+    await page.locator('#settings').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
     await page.locator('#change-version').click();
     await page.evaluate(() => { window.fixtureVersionDelay = 180; });
     const layout = () => page.evaluate(() => ({
@@ -483,6 +485,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
     }
     await page.locator('#toggle-settings').click();
     await page.locator('#key').fill('invalid');
+    await page.locator('#settings').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
     const beforeError = await layout();
     await page.locator('#apply').click();
     await page.waitForFunction(() => document.getElementById('key-help').textContent.includes('有效'));
