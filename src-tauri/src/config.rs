@@ -301,6 +301,38 @@ fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> 
     if doc.get("profile").is_some() {
         return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
     }
+    if let Some(custom) = doc
+        .get_mut("model_providers")
+        .and_then(Item::as_table_like_mut)
+        .and_then(|t| t.get_mut("custom"))
+    {
+        let custom = custom
+            .as_table_like_mut()
+            .ok_or_else(|| err("custom 必须是 TOML 表。"))?;
+        custom.remove("env_key");
+        custom.remove("env_key_instructions");
+        custom.remove("auth");
+        for section in ["http_headers", "env_http_headers"] {
+            if let Some(headers) = custom.get_mut(section) {
+                let table = headers
+                    .as_table_like_mut()
+                    .ok_or_else(|| err("请求头必须是 TOML 表。"))?;
+                let names: Vec<String> = table
+                    .iter()
+                    .filter(|(k, _)| {
+                        k.eq_ignore_ascii_case("authorization")
+                            || (k.eq_ignore_ascii_case("x-openai-actor-authorization")
+                                && (section == "env_http_headers"
+                                    || *k != "x-openai-actor-authorization"))
+                    })
+                    .map(|(k, _)| k.to_owned())
+                    .collect();
+                for name in names {
+                    table.remove(&name);
+                }
+            }
+        }
+    }
     let provider = providers::for_write(&doc, &c.base_url)?;
     merge(doc.as_item_mut(), &preset(c, keep, template, &provider))?;
     let after = doc.to_string().into_bytes();
@@ -407,16 +439,8 @@ impl Store {
         }
         Ok(file)
     }
-    fn provider_selection_path(&self) -> PathBuf {
-        self.root.join(format!(
-            "provider-{}.json",
-            digest(Some(self.selected.to_string_lossy().as_bytes()))
-        ))
-    }
     fn api_provider(&self, doc: &DocumentMut) -> Result<Option<String>> {
-        let remembered: Option<String> = read(&self.provider_selection_path())?
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-        Ok(providers::active(doc, remembered.as_deref()))
+        Ok(providers::base(doc, "custom").map(|_| "custom".into()))
     }
     fn saved_provider(&self, doc: &DocumentMut, base_url: &str) -> Result<Option<String>> {
         if let Some(provider) = self.api_provider(doc)? {
@@ -425,13 +449,6 @@ impl Store {
             }
         }
         Ok(providers::for_read(doc, base_url))
-    }
-    fn remember_provider(&self, provider: &str) -> Result<()> {
-        atomic_write(
-            &self.provider_selection_path(),
-            &serde_json::to_vec(provider).unwrap(),
-            0o600,
-        )
     }
     pub fn preview(
         &self,
@@ -446,8 +463,7 @@ impl Store {
         let provider = providers::for_write(&doc, &base_url)?;
         let shown = preview(&base_url, model, keep, channel, template)?;
         let mut value: Json = toml_edit::de::from_str(&shown).map_err(|_| err("配置预览无效。"))?;
-        let default = providers::name(&base_url)?;
-        let fields = value["model_providers"][&default].take();
+        let fields = value["model_providers"]["custom"].take();
         value["model_providers"] = json!({ &provider: fields });
         if channel == "api" {
             value["model_provider"] = json!(provider);
@@ -590,10 +606,6 @@ impl Store {
         if digest(read(&plan.file)?.as_deref()) != digest(plan.before.as_deref()) {
             return Err(err(CHANGED));
         }
-        let generated = document(Some(&plan.after))?;
-        if let Some(provider) = generated.get("model_provider").and_then(Item::as_str) {
-            self.remember_provider(provider)?;
-        }
         atomic_write(&plan.file, &plan.after, 0o600)?;
         if digest(read(&plan.file)?.as_deref()) != digest(Some(&plan.after)) {
             return Err(err("写入后校验失败，请从备份还原。"));
@@ -644,9 +656,6 @@ impl Store {
         }
         if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
             return Err(err(CHANGED));
-        }
-        if let Some(api_provider) = api_provider.as_deref() {
-            self.remember_provider(api_provider)?;
         }
         atomic_write(&file, &after, 0o600)?;
         if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
@@ -896,14 +905,11 @@ mod tests {
             &doc,
             &["model_providers", "custom", "http_headers", "Authorization"]
         )
-        .is_some());
-        assert!(item(&doc, &["model_providers", "custom", "env_key"]).is_some());
+        .is_none());
+        assert!(item(&doc, &["model_providers", "custom", "env_key"]).is_none());
         assert_eq!(
-            item(
-                &doc,
-                &["model_providers", "example", "requires_openai_auth"]
-            )
-            .and_then(Item::as_bool),
+            item(&doc, &["model_providers", "custom", "requires_openai_auth"])
+                .and_then(Item::as_bool),
             Some(true)
         );
     }
@@ -943,8 +949,8 @@ mod tests {
         assert!(s.backup_preview(bid).is_err());
     }
     #[test]
-    fn preview_reflects_selected_channel_and_retains_masked_domain_provider() {
-        for (channel, provider) in [("api", "example"), ("official", "openai")] {
+    fn preview_reflects_selected_channel_and_retains_masked_custom_provider() {
+        for (channel, provider) in [("api", "custom"), ("official", "openai")] {
             let shown = preview(
                 "https://example.com/v1",
                 "gpt-6-astra",
@@ -958,17 +964,14 @@ mod tests {
             assert_eq!(
                 item(
                     &doc,
-                    &["model_providers", "example", "experimental_bearer_token"]
+                    &["model_providers", "custom", "experimental_bearer_token"]
                 )
                 .and_then(Item::as_str),
                 Some("（已隐藏）")
             );
             assert_eq!(
-                item(
-                    &doc,
-                    &["model_providers", "example", "requires_openai_auth"]
-                )
-                .and_then(Item::as_bool),
+                item(&doc, &["model_providers", "custom", "requires_openai_auth"])
+                    .and_then(Item::as_bool),
                 Some(true)
             );
         }
@@ -1152,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_provider_collision_preserves_existing_auth_and_preview_matches_write() {
+    fn custom_provider_is_stable_and_preserves_other_providers() {
         let (_dir, mut store) = store();
         let original = "# Keep all providers\n[model_providers.custom]\nenv_key = 'OLD_KEY'\nauth = { command = 'old-auth' }\n[model_providers.example]\nbase_url = 'https://another.com/v1'\nhttp_headers = { Authorization = 'existing' }\n[model_providers.example-2]\nbase_url = 'https://example.com/v1'\nenv_key = 'OTHER_KEY'\n";
         fs::write(&store.selected, original).unwrap();
@@ -1167,23 +1170,23 @@ mod tests {
             )
             .unwrap();
         let shown = document(Some(shown.as_bytes())).unwrap();
-        assert_eq!(shown["model_provider"].as_str(), Some("example-3"));
+        assert_eq!(shown["model_provider"].as_str(), Some("custom"));
         assert_eq!(
-            shown["model_providers"]["example-3"]["name"].as_str(),
+            shown["model_providers"]["custom"]["name"].as_str(),
             Some("OpenAI")
         );
         let id = store.prepare(connection(), true, &template()).unwrap();
         store.apply(&id).unwrap();
         let after = document(read(&store.selected).unwrap().as_deref()).unwrap();
-        for provider in ["custom", "example", "example-2"] {
+        for provider in ["example", "example-2"] {
             assert_eq!(
                 before["model_providers"][provider].to_string(),
                 after["model_providers"][provider].to_string()
             );
         }
-        assert_eq!(after["model_provider"].as_str(), Some("example-3"));
+        assert_eq!(after["model_provider"].as_str(), Some("custom"));
         assert_eq!(
-            after["model_providers"]["example-3"]["name"].as_str(),
+            after["model_providers"]["custom"]["name"].as_str(),
             Some("OpenAI")
         );
         let id = store.prepare(connection(), true, &template()).unwrap();
@@ -1203,7 +1206,7 @@ mod tests {
         );
         reopened.switch_channel("api").unwrap();
         let result = document(read(&reopened.selected).unwrap().as_deref()).unwrap();
-        assert_eq!(result["model_provider"].as_str(), Some("example-3"));
+        assert_eq!(result["model_provider"].as_str(), Some("custom"));
         assert!(result["model_providers"].get("example-4").is_none());
     }
 }
