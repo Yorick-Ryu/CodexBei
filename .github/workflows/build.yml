@@ -39,6 +39,7 @@ jobs:
         with:
           path: src-tauri/target
           key: rust-1.92-${{ matrix.target }}-${{ hashFiles('src-tauri/Cargo.lock') }}-nodebug-v1
+          restore-keys: rust-1.92-${{ matrix.target }}-
       - run: npm run test:worker
       - name: Test diagnostics on Windows PowerShell 5.1
         shell: powershell
