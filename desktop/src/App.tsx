@@ -74,6 +74,28 @@ export function App() {
   }, [status, statusSuccess, successNoticeId]);
   const [matching, setMatching] = useState<Matching | null>(null);
   const [waitingForChatgptInstall, setWaitingForChatgptInstall] = useState(false);
+  const [openingInstaller, setOpeningInstaller] = useState(false);
+  const openingInstallerRef = useRef(false);
+  const [installerError, setInstallerError] = useState("");
+  const [installHintDismissed, setInstallHintDismissed] = useState(() => {
+    try { return localStorage.getItem("codexbei.desktop-install-hint-dismissed") === "true"; }
+    catch { return false; }
+  });
+  const openInstaller = async () => {
+    if (openingInstallerRef.current) return;
+    openingInstallerRef.current = true;
+    setOpeningInstaller(true);
+    setInstallerError("");
+    try {
+      await api.openChatgptInstaller();
+      setWaitingForChatgptInstall(true);
+    } catch (error) {
+      setInstallerError(errorText(error));
+    } finally {
+      openingInstallerRef.current = false;
+      setOpeningInstaller(false);
+    }
+  };
   const [versionOpen, setVersionOpen] = useState(false);
   const [versionPending, setVersionPending] = useState(false);
   const [versionDraft, setVersionDraft] = useState<Matching | null>(null);
@@ -306,17 +328,21 @@ export function App() {
   useEffect(() => {
     if (!waitingForChatgptInstall) return;
     let active = true;
+    let checking = false;
     const poll = async () => {
+      if (checking || busyRef.current || versionOpenRef.current) return;
+      checking = true;
       try {
         const info = await api.check(null, true);
-        if (!active) return;
+        if (!active || busyRef.current || versionOpenRef.current) return;
         setMatching(info);
         if (info.installations.some((item) => item.kind === "desktop")) {
           setWaitingForChatgptInstall(false);
-          setStatus("已检测到 ChatGPT，正在刷新配置。");
         }
       } catch {
         // The Store may still be installing or the app may be offline.
+      } finally {
+        checking = false;
       }
     };
     void poll();
@@ -397,6 +423,22 @@ export function App() {
   const channelUpdating = channelSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
+  const hasCli = !!matching?.installations.some(item => item.kind === "cli");
+  const hasDesktop = !!matching?.installations.some(item => item.kind === "desktop");
+  const missingDesktop = !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
+  const installerLabel = inspection?.platform === "windows" ? "前往商店安装" : "下载桌面版";
+  const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
+  const showInstallHint = page === "config" && missingDesktop && hasCli && !installHintDismissed && !footerStatus && !installerError && !needsVersionNotice;
+  const showNotice = !!(footerStatus || installerError || needsVersionNotice || showInstallHint);
+  const noticeKind = footerStatus ? (statusSuccess ? "success" : "error") : (installerError || needsVersionNotice ? "error" : "info");
+  const closeNotice = () => {
+    if (footerStatus) { setStatus(""); setStatusSuccess(false); }
+    else if (installerError) setInstallerError("");
+    else if (showInstallHint) {
+      setInstallHintDismissed(true);
+      try { localStorage.setItem("codexbei.desktop-install-hint-dismissed", "true"); } catch { /* Keep dismissal for this session. */ }
+    }
+  };
   return (
     <>
       <header className="app-header">
@@ -476,7 +518,7 @@ export function App() {
                       配置完成
                     </h1>
                     <p>
-                      请彻底退出并重新打开 ChatGPT，即可开始使用。
+                      {hasCli && !hasDesktop ? "CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
                     </p>
                     <button
                       className="primary"
@@ -511,14 +553,10 @@ export function App() {
                         <button
                           type="button"
                           className="primary install-card-action"
-                          disabled={busy}
-                          onClick={() => void run(async () => {
-                            await api.openChatgptInstaller();
-                            setWaitingForChatgptInstall(true);
-                            setStatus("已打开安装入口，等待安装完成…");
-                          })}
+                          disabled={openingInstaller}
+                          onClick={() => void openInstaller()}
                         >
-                          {waitingForChatgptInstall ? "等待安装完成…" : inspection?.platform === "windows" ? "前往 Microsoft Store 安装" : "下载 Mac 安装包"}
+                          {inspection?.platform === "windows" ? "前往 Microsoft Store 安装" : "下载桌面版"}
                         </button>
                       </div>
                     ) : (
@@ -711,18 +749,14 @@ export function App() {
                                     ? matching.installations.map(installationLabel).join(" / ")
                                     : "未检测到已安装版本"}
                                 </span>
-                                {!matching?.installations.length && (inspection?.platform === "windows" || inspection?.platform === "macos") && (
+                                {missingDesktop && (
                                   <button
                                     type="button"
                                     className="text-button"
-                                    disabled={busy}
-                                    onClick={() => void run(async () => {
-                                      await api.openChatgptInstaller();
-                                      setWaitingForChatgptInstall(true);
-                                      setStatus("已打开安装入口，等待安装完成…");
-                                    })}
+                                    disabled={openingInstaller}
+                                    onClick={() => void openInstaller()}
                                   >
-                                    {waitingForChatgptInstall ? "等待安装完成…" : inspection.platform === "windows" ? "前往 Microsoft Store 安装" : "下载 Mac 安装包"}
+                                    {installerLabel}
                                   </button>
                                 )}
                                 <button
@@ -901,19 +935,24 @@ export function App() {
           )}
         </main>
       </div>
-      <div className="status-region" hidden={!footerStatus && !(matching?.needsSelection || (versionPending && !versionOpen))}>
-        <div id="status" className={statusSuccess ? "success" : "error"}
-          role={statusSuccess ? "status" : "alert"}>
+      <div className="status-region" hidden={!showNotice}>
+        <div id="status" className={noticeKind} hidden={!showNotice}
+          role={noticeKind === "error" ? "alert" : "status"}>
           <span>
-            {footerStatus || ((matching?.needsSelection || (versionPending && !versionOpen)) && (
+            {footerStatus || installerError || (needsVersionNotice ? (
               <>
                 {versionPending && !versionOpen ? "请完成版本匹配。" : "没有匹配的配置模板。"}{" "}
                 <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
               </>
+            ) : showInstallHint && (
+              <>
+                <span>未检测到桌面版，CLI 可正常配置</span>
+                <button type="button" className="text-button" disabled={openingInstaller} onClick={() => void openInstaller()}>{installerLabel}</button>
+              </>
             ))}
           </span>
-          {footerStatus && <button type="button" className="status-close" aria-label="关闭提示"
-            onClick={() => { setStatus(""); setStatusSuccess(false); }}><CloseIcon /></button>}
+          {(footerStatus || installerError || showInstallHint) && <button type="button" className="status-close" aria-label="关闭提示"
+            onClick={closeNotice}><CloseIcon /></button>}
         </div>
       </div>
       <VersionPicker

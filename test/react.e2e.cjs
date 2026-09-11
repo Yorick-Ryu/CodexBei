@@ -29,6 +29,7 @@ async function fixture(options = {}) {
     window.fixtureBackups = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'auto' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.153.4' };
     window.fixtureCalls = [];
+    if (${!!options.cliOnly}) window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli');
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
     mockIPC(async (cmd, args) => {
       window.fixtureCalls.push(cmd);
@@ -121,6 +122,50 @@ async function openHistory(page) {
 async function openUpdater(page) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
 }
+
+test('React: optional desktop notice closes without moving the form and yields to errors', async () => {
+  const f = await fixture({ cliOnly: true }); const { page } = f;
+  const geometry = () => page.locator('#configure, #key, #apply').evaluateAll(elements => elements.map(el => {
+    const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
+  }));
+  try {
+    for (const scheme of ['dark', 'light']) {
+      await chooseTheme(page, scheme === 'dark' ? '石墨灰' : '雾白');
+      for (const width of [600, 460]) {
+        await page.setViewportSize({ width, height: 460 });
+        assert.ok((await page.locator('#status').textContent()).includes('CLI 可正常配置'));
+        const row = await page.locator('#status > span').evaluate(el => {
+          const text = el.firstElementChild.getBoundingClientRect();
+          const link = el.querySelector('button').getBoundingClientRect();
+          return { textTop: text.top, linkTop: link.top };
+        });
+        assert.ok(Math.abs(row.textTop - row.linkTop) < 3, JSON.stringify(row));
+        await page.screenshot({ path: path.join(output, `install-notice-${scheme}-${width}.png`) });
+      }
+    }
+    await page.locator('#keep-official-login').check();
+    await page.evaluate(() => { window.fixtureChannelError = '模拟通道切换失败'; });
+    const before = await geometry();
+    await page.getByRole('radio', { name: '官方', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('模拟通道切换失败'));
+    assert.equal(await page.locator('#status').getAttribute('role'), 'alert');
+    assert.equal(await page.locator('#status').getByRole('button', { name: '下载桌面版' }).count(), 0);
+    assert.deepEqual(await geometry(), before);
+    await page.getByRole('button', { name: '关闭提示', exact: true }).click();
+    assert.ok((await page.locator('#status').textContent()).includes('CLI 可正常配置'));
+    assert.deepEqual(await geometry(), before);
+    await page.getByRole('button', { name: '关闭提示', exact: true }).click();
+    assert.equal(await page.locator('.status-region').isVisible(), false);
+    assert.deepEqual(await geometry(), before);
+    assert.equal(await page.locator('#apply').isEnabled(), true);
+    await page.reload();
+    await page.waitForFunction(() => !document.getElementById('key').disabled);
+    assert.equal(await page.locator('.status-region').isVisible(), false);
+    await page.locator('#toggle-settings').click();
+    assert.equal(await page.getByRole('button', { name: '下载桌面版', exact: true }).isVisible(), true);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
 
 test('React: themes, compact layouts, private inputs and configure/history flow', async () => {
   const f = await fixture(); const { page, context } = f;
