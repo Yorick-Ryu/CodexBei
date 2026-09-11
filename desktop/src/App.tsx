@@ -443,29 +443,7 @@ export function App() {
     <>
       <header className="app-header">
         {page === "history" ? (
-          <div className="brand-row history-page-header" data-tauri-drag-region>
-            <button
-              id="back-to-config"
-              className="history-back"
-              disabled={busy}
-              aria-label="返回配置"
-              onClick={() => setPage("config")}
-            >
-              <ChevronLeftIcon />
-            </button>
-            <h1 id="history-title" tabIndex={-1} ref={historyTitle}>
-              历史备份
-            </h1>
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => setBackups(await api.backups()))
-              }
-            >
-              刷新
-            </button>
-          </div>
+          <div className="brand-row" data-tauri-drag-region />
         ) : (
           <div className="brand-row" data-tauri-drag-region>
             <div className="brand">
@@ -898,6 +876,29 @@ export function App() {
             </div>
           ) : (
             <section id="history-page" aria-labelledby="history-title">
+              <div className="history-page-header">
+                <button
+                  id="back-to-config"
+                  className="history-back"
+                  disabled={busy}
+                  aria-label="返回配置"
+                  onClick={() => setPage("config")}
+                >
+                  <ChevronLeftIcon />
+                </button>
+                <h1 id="history-title" tabIndex={-1} ref={historyTitle}>
+                  历史备份
+                </h1>
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => setBackups(await api.backups()))
+                  }
+                >
+                  刷新
+                </button>
+              </div>
               <p className="history-description">
                 保留最近 10 份备份，可查看或还原历史配置。
               </p>
