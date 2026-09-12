@@ -423,6 +423,23 @@ impl Service {
             self.selection = selection;
             self.checked = None;
         }
+        if matches!(self.selection, Selection::Auto) {
+            if let Some(installation) = self
+                .installations
+                .iter()
+                .find(|v| v.kind == "desktop" && v.runtime_version.is_some())
+                .or_else(|| {
+                    self.installations
+                        .iter()
+                        .find(|v| v.runtime_version.is_some())
+                })
+            {
+                self.selection = Selection::Installed {
+                    id: installation.id.clone(),
+                };
+                self.checked = None;
+            }
+        }
         let request = self.request()?;
         if Self::find(&self.selected, &request).is_none() {
             let value = Self::find(&self.cached, &request)

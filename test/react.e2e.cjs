@@ -27,9 +27,9 @@ async function fixture(options = {}) {
     mockWindows('main');
     window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: 'https://api.beiapi.cn/v1', model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     window.fixtureBackups = [];
-    window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'auto' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.153.4' };
+    window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
-    if (${!!options.cliOnly}) window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli');
+    if (${!!options.cliOnly}) { window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli'); window.fixtureMatching.selection = { mode: 'installed', id: 'cli' }; window.fixtureMatching.modelClientVersion = '0.153.4'; }
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
     mockIPC(async (cmd, args) => {
       window.fixtureCalls.push(cmd);
@@ -283,6 +283,8 @@ test('React: manual version matching blocks writes until valid, template activat
       window.fixtureMatching.templateUpdateAvailable = true;
     });
     await page.locator('#change-version').click();
+    assert.equal(await page.locator('#installation').inputValue(), 'desktop');
+    assert.equal(await page.locator('#installation option[value="auto"]').count(), 0);
     assert.match(await page.locator('#installation option[value="desktop"]').textContent(), /桌面版 26.901.51231 · 内核 0.154.0/);
     await page.locator('#installation').selectOption('manual');
     await page.locator('#runtime-version').fill('invalid');

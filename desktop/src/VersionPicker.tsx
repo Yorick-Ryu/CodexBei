@@ -14,7 +14,7 @@ export function VersionPicker({
   onMatch: (value: Matching) => void;
   onPending: (value: boolean) => void;
 }) {
-  const [mode, setMode] = useState("auto");
+  const [mode, setMode] = useState("");
   const [kind, setKind] = useState<"cli" | "desktop">("cli");
   const [runtime, setRuntime] = useState("");
   const [app, setApp] = useState("");
@@ -22,12 +22,10 @@ export function VersionPicker({
   const [loading, setLoading] = useState(false);
   const revision = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout>>();
-  const initialized = useRef(false);
   useEffect(() => {
-    if (!matching || initialized.current) return;
-    initialized.current = true;
+    if (!matching) return;
     const s = matching.selection;
-    setMode(s.mode === "installed" ? s.id : s.mode);
+    setMode(s.mode === "installed" ? s.id : s.mode === "manual" ? "manual" : "");
     if (s.mode === "manual") {
       setKind(s.kind);
       setRuntime(s.runtimeVersion);
@@ -48,19 +46,17 @@ export function VersionPicker({
     setLoading(true);
     setError("");
     const selection: Selection =
-      nextMode === "auto"
-        ? { mode: "auto" }
-        : nextMode === "manual"
-          ? {
-              mode: "manual",
-              kind: nextKind,
-              runtimeVersion: nextRuntime.trim(),
-              appVersion:
-                nextKind === "desktop"
-                  ? nextApp.trim() || undefined
-                  : undefined,
-            }
-          : { mode: "installed", id: nextMode };
+      nextMode === "manual"
+        ? {
+            mode: "manual",
+            kind: nextKind,
+            runtimeVersion: nextRuntime.trim(),
+            appVersion:
+              nextKind === "desktop"
+                ? nextApp.trim() || undefined
+                : undefined,
+          }
+        : { mode: "installed", id: nextMode };
     timer.current = setTimeout(
       async () => {
         try {
@@ -91,7 +87,7 @@ export function VersionPicker({
           request(e.target.value);
         }}
       >
-        <option value="auto">自动匹配</option>
+        {mode === "" && <option value="" disabled>{matching ? "未检测到可用版本" : "正在检测版本…"}</option>}
         {matching?.installations.map((v) => (
           <option key={v.id} value={v.id}>
             {installationLabel(v)}
