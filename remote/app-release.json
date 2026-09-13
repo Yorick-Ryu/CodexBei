@@ -1,23 +1,23 @@
 {
-  "version": "0.1.0",
-  "notes": "优化提供商切换与配置界面。支持 API / 官方通道即时切换，改进密钥错误提示、悬浮气泡和状态提示。",
-  "pub_date": "2026-09-09T03:30:05.972Z",
+  "version": "0.1.1",
+  "notes": "CodexBei 0.1.1 正式版\n\n- 未安装桌面版和 CLI 时提供安装引导，安装完成自动进入配置界面。\n- 已有 CLI 可直接配置，桌面版查询失败不再阻断配置；成功识别后停止重复安装检测。\n- 修复新版 Codex CLI 和自定义 npm 安装目录的识别。\n- 改进 Windows 问题排查日志、配置路径显示和微软商店跳转。\n- 优化窗口高度、历史配置界面与提供商配置兼容性。\n\n提供 Windows x64 / ARM64 与 macOS Apple Silicon / Intel 安装包。\nmacOS 安装包已签名并公证；所有自动更新包均附更新签名。\n",
+  "pub_date": "2026-09-13T05:54:28.851Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://codexbei.beiapi.cn/downloads/0.1.0/CodexBei_0.1.0_aarch64-apple-darwin.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUZqSEZBRGtOUndkdlRCai9rWCszMkZFNWFJN1BLTmRhTDA0MG51eDdZa0V2MU1Vdkdsd1gvK2ZucVpBd2JncXBvREp3ZDc1Kzc0VXVCejQ3Y2pmN3cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTIyOTc5CWZpbGU6Q29kZXhCZWlfMC4xLjBfYWFyY2g2NC1hcHBsZS1kYXJ3aW4uYXBwLnRhci5negpGbCt4NkhzMlZ2MFkycFV0TnJpRXdsUEdVRGEwNGxwWnBlNUVIV1JIbisrdVJKUDJkTzE1Ty8wVllZT2RHemFlOXRIdWV1Wm5OaWRlK0FtcktxUi9BZz09Cg=="
+      "url": "https://codexbei.beiapi.cn/downloads/0.1.1/CodexBei_0.1.1_aarch64-apple-darwin.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUZQSTk0VDZFc213WlRqTjRmTlJKY2liU3dlUy9hRnFJUndJVjV3OUpteGtKMGcvdUUwUlpyWi9RaTdVSlNyOUlydnF4VDc2NmRKSC9GeGQrQmxhUUFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5Mjc3NzA4CWZpbGU6Q29kZXhCZWlfMC4xLjFfYWFyY2g2NC1hcHBsZS1kYXJ3aW4uYXBwLnRhci5negpNVzU5WjljZEpBT1dpejIyVDVTNC9ZRlh6aUI0WkhQK0pTV1MvUjdOclBwMVJmVXQ2My8ybmZCbDc1Ky8vSEgzWXg0ZGFWMmJnbUNDeHFaZVJQR21BZz09Cg=="
     },
     "darwin-x86_64": {
-      "url": "https://codexbei.beiapi.cn/downloads/0.1.0/CodexBei_0.1.0_x86_64-apple-darwin.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdVA2aktiRVBTUHJRMS9DSzlzMUVBR1FHSDZzcjZadVFISkgwN1pQSjhPQWxWNWkxT1d4RysydXJ2ZmlZbEFvam9ma3pPOG5Lenpqbi9ESnk1Y2xuVlFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTIzMTM3CWZpbGU6Q29kZXhCZWlfMC4xLjBfeDg2XzY0LWFwcGxlLWRhcndpbi5hcHAudGFyLmd6CmpXT2tteG15U3dLWGNEOXhLSXQ3a0tJQXVjRS9vUWRScHlLSy9mLzVrbDdJaGRSOG1xODRmWDdxNWRnZlB4b1ZjSHN3WERLVmFpY01KWE9lcGxVZENRPT0K"
+      "url": "https://codexbei.beiapi.cn/downloads/0.1.1/CodexBei_0.1.1_x86_64-apple-darwin.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUJXa0U1ckh0Vm5GVUNIdXJkc083MzI0OWhhdHBwUXZLb0ZtMThEVkdLUkgxSm1OWlBGRHdoZFJVVjV3MzI0aUg2UUJRaWpXWmZLa0o3eFBGOHhocXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5Mjc3ODc3CWZpbGU6Q29kZXhCZWlfMC4xLjFfeDg2XzY0LWFwcGxlLWRhcndpbi5hcHAudGFyLmd6CjRETlc5QTBjSWZuVk93U053Y2JadU5pZWo2VWZhZFpuSWdXVStlcnl6RDN4ZDcralNJNmNYMEEwZGtITVBhZWRFQjJrTi9wYzdPWVloWHdYTVVzVEF3PT0K"
     },
     "windows-aarch64": {
-      "url": "https://codexbei.beiapi.cn/downloads/0.1.0/CodexBei_0.1.0_arm64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUlieVFFbUh0cjNSSmRrdXRrSGRZKzhYQi9hREdnd2NWMUpicGVOVkRuUTZnTmJwRHhndjFwckFuSUh5cEhQellSZ3plR1dRWkh1QTZHY2Zab3VOR0EwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTI0MTY1CWZpbGU6Q29kZXhCZWlfMC4xLjBfYXJtNjQtc2V0dXAuZXhlCnMrMlBGZVh4TjcwaURucGhTS01NVGdsTDRBMmd4M0dnS3VOQmtZdDEzRm9NOTZIb3d2d0I5MHM2K1VULzRiY0xVU2I1K0hiTTRaT0dPeEhITXZLRENnPT0K"
+      "url": "https://codexbei.beiapi.cn/downloads/0.1.1/CodexBei_0.1.1_arm64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUk0SmxxREh0ZlhsSVJDaGJiZHRqaW5rbXUzeVlhTGtNeHNyUjlqK0dacWNSeFJJK2h6SnM4dTgrZmZ4UkV4RXZ4cG5JWTd4TEIxL1VDUW9lekg2T1E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5Mjc4ODY4CWZpbGU6Q29kZXhCZWlfMC4xLjFfYXJtNjQtc2V0dXAuZXhlCjlXcUZKQTdJTzFxa2x5WVdvSERjUHJmZmJoaTczUlNhbXJ6NW1yS2xoblZBcTE1STNsSEt5bnkyN3lnSVdjQ3NsZWpESEZSODAzU1NSbFVqWFpZaUJ3PT0K"
     },
     "windows-x86_64": {
-      "url": "https://codexbei.beiapi.cn/downloads/0.1.0/CodexBei_0.1.0_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUNtclB1M0NiRUVyR3VvTVBVUUhoOGFaSnZZd0YvTDduRFFzUXBvOTBhZjFlY21KVmVKK3pxdXczRE5WZHorQmVvTW94ejJSa1lLNTlQZHgwK3B4NUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4OTI0MTY2CWZpbGU6Q29kZXhCZWlfMC4xLjBfeDY0LXNldHVwLmV4ZQpvQUNBWTBmWHhxRXBSSVZFQVBsWE5zc1ZDYStjTXRpelNlWWwrOVFKbTZZYWhaVHVtODl5czF5c09wSDRPYm8wMElsN2E4Z29nM3ZJMzBJWUlsem5Edz09Cg=="
+      "url": "https://codexbei.beiapi.cn/downloads/0.1.1/CodexBei_0.1.1_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTdjRNSkxocUoxdUtMODA4R2hocGtFTVFLVUhCdVFjR0tPcGZnOVRnSUxlOUNHVWlDWE5sbDRjWDJxT3hpd1M4cDBaOHR3eTd1WEtVQWxNVitJTGcvSnNGMVlzSm05bVFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5Mjc4ODY4CWZpbGU6Q29kZXhCZWlfMC4xLjFfeDY0LXNldHVwLmV4ZQpDT083QlEyUGhsSlRzN1pkc0Q4Zm5oLzlqMVF5N1B5NkRycDlSMmpHTVJhUmNjWm9hSTNXdUY3MGtXbS9HMjdWakZMUFhyQ05TY2wyYk9rdkg3azNBZz09Cg=="
     }
   }
 }

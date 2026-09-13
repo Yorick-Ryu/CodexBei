@@ -10,7 +10,7 @@ Worker 每周日 03:00（UTC）从 `CHATGPT_MAC_ARM64_URL` 和 `CHATGPT_MAC_X64_
 
 下载页源码在 [download-page/index.html](download-page/index.html)、[style.css](download-page/style.css) 和 [app.js](download-page/app.js)。运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads` 生成页面，再用 `python3 -m http.server 0 --bind 127.0.0.1 --directory dist-downloads` 本地预览；本地生成不部署。架构默认 Mac Apple 芯片 / Windows x64；外观支持跟随系统、深色、浅色，并在浏览器保存选择。
 
-客户端启动、点击配置、每 4 小时和离开超过 5 分钟后重新聚焦时检查远端。下载失败、超时、格式损坏或倒退版本均保留最近有效缓存；首次离线使用随客户端分发的已验证模板。下载和检查只更新缓存，不修改 Codex。新版本通过「更新配置」按钮提示，点击才备份并写入。
+客户端启动、点击配置和手动更新模板时检查远端。应用安装检测与模板检查独立：启动时识别 CLI／桌面版；两者都未安装且已进入安装流程时，每 10 秒及窗口重新聚焦时重试；本次运行识别到任一应用后停止安装检测，配置、导入和模板更新复用检测结果。下载失败、超时、格式损坏或倒退版本均保留最近有效缓存；首次离线使用随客户端分发的已验证模板。下载和检查只更新缓存，不修改 Codex。新版本通过「更新配置」按钮提示，点击才备份并写入。
 
 ## 模板维护
 
