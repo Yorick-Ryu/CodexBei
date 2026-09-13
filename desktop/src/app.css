@@ -1,0 +1,71 @@
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.software-update-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e45151;
+}
+.software-update-status { height: 36px; line-height: 18px; margin: 12px 0; }
+.software-update-detail { height: 112px; overflow: auto; }
+.software-update-detail p { margin: 0 0 8px; }
+.software-update-detail progress { width: 100%; }
+.software-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.software-update-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.content-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: none;
+  scroll-padding-block: 16px;
+}
+.path-row input {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+.backup-summary {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.backup-summary dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 12px;
+}
+.backup-summary dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.settings-update-status { display: inline-flex; align-items: center; gap: 6px; }
+.settings-update-status .software-update-dot { position: static; flex: 0 0 6px; }
+.update-percentage { display: inline-block; width: calc(3ch + 1em); margin-left: 4px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.settings-entry .software-update-dot { top: 4px; right: 4px; }
+.settings-update-versions { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+.update-ring {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: update-spin 900ms linear infinite;
+}
+.update-ring--determinate {
+  border: 0;
+  background: conic-gradient(var(--text) var(--progress), var(--border) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  animation: none;
+}
+.settings-update-row:disabled { opacity: 1; cursor: default; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-ring { animation: none; } }

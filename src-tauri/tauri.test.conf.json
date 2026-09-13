@@ -1,0 +1,7 @@
+{
+  "productName": "CodexBei Test",
+  "identifier": "cn.beiapi.codexbei.test",
+  "app": { "windows": [{ "label": "main", "title": "CodexBei Test", "width": 600, "height": 460, "minWidth": 460, "minHeight": 460, "visible": false, "titleBarStyle": "Overlay", "hiddenTitle": true }] },
+  "bundle": { "targets": ["app"] },
+  "plugins": { "deep-link": { "desktop": { "schemes": ["codexbei-test"] } } }
+}

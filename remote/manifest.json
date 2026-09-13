@@ -1,18 +1,17 @@
 {
   "schemaVersion": 1,
-  "release": 1,
-  "publishedAt": "2026-09-08T02:15:39.747459Z",
+  "release": 3,
+  "publishedAt": "2026-09-10T14:39:20.749773Z",
   "templates": [
     {
       "id": "codex-default",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "targets": [],
       "set": {
         "model_provider": "custom",
         "model": "$model",
         "model_reasoning_effort": "high",
         "disable_response_storage": true,
-        "preferred_auth_method": "apikey",
         "model_providers": {
           "custom": {
             "name": "OpenAI",

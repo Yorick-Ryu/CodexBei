@@ -2,18 +2,20 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { validateManifest } = require('../src/template-policy.cjs');
-const { resolveResponse } = require('../src/version-request.cjs');
+const { validateManifest } = require('../worker/lib/template-policy.cjs');
+const { resolveResponse } = require('../worker/lib/version-request.cjs');
+const { validateAppRelease } = require('../worker/updates.cjs');
 const root = path.resolve(__dirname, '..');
 async function main() {
   const args = process.argv.slice(2);
-  const allowed = new Set(['--validate-only', '--token-file', '--apply']);
+  const allowed = new Set(['--validate-only', '--token-file', '--apply', '--preserve-triggers']);
   let tokenFile, attachDomain = false;
   for (let i = 0; i < args.length; i++) {
     if (!allowed.has(args[i])) throw Error('Unknown argument');
     if (args[i] === '--token-file') tokenFile = args[++i];
   }
   const manifest = validateManifest(JSON.parse(fs.readFileSync(path.join(root, 'remote/manifest.json'), 'utf8')));
+  validateAppRelease(JSON.parse(fs.readFileSync(path.join(root, 'remote/app-release.json'), 'utf8')));
   console.log(`Validated release ${manifest.release} (${manifest.templates.length} templates)`);
   if (args.includes('--validate-only')) return;
   const env = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
@@ -50,7 +52,9 @@ async function main() {
     fs.mkdirSync(path.join(root, '.wrangler'), { recursive: true });
     temporary = fs.mkdtempSync(path.join(root, '.wrangler/deploy-'));
     const file = path.join(temporary, 'wrangler.json');
-    fs.writeFileSync(file, JSON.stringify({ ...config, routes: [], main: path.resolve(root, config.main), $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
+    fs.writeFileSync(file, JSON.stringify({ ...config, ...(args.includes('--preserve-triggers') ? { triggers: undefined } : {}), routes: [], main: path.resolve(root, config.main),
+      ...(config.assets ? { assets: { ...config.assets, directory: path.resolve(root, config.assets.directory) } } : {}),
+      $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
     configArgs = ['--config', file];
   }
   let result;

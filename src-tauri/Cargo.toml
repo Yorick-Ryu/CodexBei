@@ -1,0 +1,44 @@
+[package]
+name = "codexbei-desktop"
+version = "0.1.1-alpha.16"
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+name = "codexbei_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+toml_edit = { version = "0.22", features = ["serde"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+node-semver = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1"
+tokio = { version = "1", features = ["sync", "process", "io-util", "time"] }
+dirs = "6"
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+trash = "5"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,79 +1,45 @@
 {
   "name": "codexbei",
-  "version": "0.1.0",
+  "version": "0.1.1-alpha.16",
   "private": true,
   "description": "CodexBei 桌面配置助手",
   "author": "BeiAPI",
-  "main": "src/main.cjs",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test test/*.test.cjs",
-    "test:ui": "node --test test/desktop.e2e.cjs",
-    "build:mac": "electron-builder --mac dmg zip",
+    "start": "tauri dev",
+    "dev": "tauri dev",
+    "dev:react": "vite --config desktop/vite.config.ts",
+    "build:react": "npm run build:ui-icons && tsc -p desktop/tsconfig.json && vite build --config desktop/vite.config.ts",
+    "build": "tauri build",
+    "build:mac": "tauri build --bundles app,dmg",
+    "build:win": "tauri build --bundles nsis",
     "build:mac:release": "node scripts/build-mac-release.cjs",
-    "build:win": "electron-builder --win nsis",
-    "build:dir": "electron-builder --dir",
     "build:icons": "node scripts/build-icons.cjs",
-    "worker:check": "wrangler types worker/env.d.ts && tsc -p worker/tsconfig.json && node scripts/publish-templates.cjs"
+    "test": "npm run test:rust && npm run test:worker",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:worker": "node --test test/worker.test.cjs test/updates.test.cjs",
+    "test:ui": "npm run build:react && node --test test/react.e2e.cjs",
+    "check": "npm run build:react && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "worker:check": "wrangler types worker/env.d.ts && tsc -p worker/tsconfig.json && node scripts/publish-templates.cjs",
+    "build:ui-icons": "node scripts/build-ui-icons.cjs"
   },
   "dependencies": {
-    "@iarna/toml": "2.2.5",
-    "semver": "^7.8.5",
-    "toml-eslint-parser": "1.0.3"
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
+    "lucide-react": "1.43.0",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260907.1",
-    "electron": "44.2.0",
-    "electron-builder": "26.15.3",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.2.0",
     "playwright-core": "1.58.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^7.0.2",
+    "vite": "^7.3.6",
     "wrangler": "^4.129.1"
-  },
-  "build": {
-    "appId": "cn.beiapi.codexbei",
-    "productName": "CodexBei",
-    "artifactName": "CodexBei-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "src/**",
-      "package.json"
-    ],
-    "protocols": [
-      {
-        "name": "CodexBei",
-        "schemes": [
-          "codexbei"
-        ]
-      }
-    ],
-    "mac": {
-      "electronLanguages": ["en", "zh_CN"],
-      "category": "public.app-category.developer-tools",
-      "hardenedRuntime": true,
-      "signIgnore": ["\\.lproj/locale\\.pak$"],
-      "icon": "build/icon.icns"
-    },
-    "win": {
-      "electronLanguages": ["en-US", "zh-CN"],
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "installerLanguages": ["en_US", "zh_CN"],
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "publish": null
   }
 }
