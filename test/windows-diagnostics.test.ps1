@@ -12,8 +12,11 @@ Assert ((Get-LoopbackPort "'http://127.0.0.1:7890'") -eq 7890) 'Quoted local pro
 Assert ($null -eq (Get-LoopbackPort 'http://user:password@example.com:7890')) 'Remote credentials must not be exposed or probed.'
 Assert ($null -eq (Get-LoopbackPort 'http://127.0.0.1:99999')) 'Invalid ports must not be probed.'
 Assert ($null -eq (Get-LoopbackPort '${PROXY_URL}')) 'Do not evaluate dotenv expressions.'
-Assert ((Get-HttpFinding '401') -match '不代表对话认证成功') '401 must not be presented as authenticated conversation success.'
-Assert ((Get-HttpFinding '000') -match '未收到 HTTP') 'Failed HTTP probe must be reported.'
+Assert ((Get-HttpFinding '401') -eq 'HTTP 401') 'Report the actual unauthenticated HTTP result.'
+Assert ((Get-HttpFinding '000') -eq 'HTTP 000') 'Failed HTTP probe must be reported.'
+Assert ((Format-HttpResult '401|127.0.0.1|0.001|0.002|0.003|0.004|0.005' 0 5) -match 'HTTP 401; curl_exit=0; ip=127.0.0.1; dns=0.001s') 'HTTP metrics must be included.'
+Assert ((Format-HttpResult '' -1 8000) -eq 'HTTP 000; curl_exit=-1; elapsed=8000ms') 'Failed probes must retain exit and duration.'
+Assert ((Get-ProxyDisplay 'http://user:password@proxy.local:7890') -eq 'http://REDACTED@proxy.local:7890') 'Keep proxy destination and mask credentials.'
 Assert ((ConvertTo-NativeArgument 'a"b') -eq '"a\"b"') 'Native arguments must quote embedded quotes.'
 
 $root = Join-Path ([IO.Path]::GetTempPath()) ('codexbei-diagnostic-test-' + [Guid]::NewGuid())
@@ -37,7 +40,7 @@ try {
     $raw = & $script -BaseUrl 'https://example.invalid/v1' -ConfigPath (Join-Path $root 'config.toml')
     $report = $raw | ConvertFrom-Json
     Assert $report.hasDotEnvProxy 'The report must detect .env overrides.'
-    Assert ($raw -notmatch 'fixture-secret|fixture-password|private-user|example.invalid:7890') 'Report leaked private content.'
+    Assert ($raw -notmatch 'fixture-secret|fixture-password|private-user') 'Report leaked private content.'
     Assert ([IO.File]::ReadAllText($envPath) -eq $original) 'Diagnostic changed .env.'
     Assert ($env:NO_PROXY -eq '*') 'Diagnostic loaded dotenv into its own environment.'
     Assert (@($report.checks | Where-Object { $_.name -eq '直连 HTTPS' -and $_.status -eq 'warning' }).Count -eq 1) 'An unreachable endpoint must not be reported as success.'

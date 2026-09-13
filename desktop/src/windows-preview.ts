@@ -19,13 +19,12 @@ mockIPC(async (cmd, raw) => {
     await new Promise(resolve => setTimeout(resolve, 650));
     return {
       schemaVersion: 1, hasDotEnvProxy: true,
-      configurations: [{ source: "当前配置（示例）", content: 'model = "gpt-5.6-sol"\nmodel_provider = "custom"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nexperimental_bearer_token = "（已隐藏）"\nsupports_websockets = false\nhttp_headers = "（已隐藏）"' }], checks: [
+      configurations: [{ source: "当前配置（示例）", content: 'model = "gpt-5.6-sol"\nmodel_provider = "custom"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nexperimental_bearer_token = "（已隐藏）"\nsupports_websockets = false\nhttp_headers = { Authorization = "（已隐藏）", "x-client" = "codex" }' }], checks: [
         { name: "示例报告", status: "info", detail: "这是 Windows 界面热预览，未检测当前电脑。" },
-        { name: "Codex .env", status: "warning", detail: "HTTPS_PROXY 指向本机端口 7890；端口不可连接。" },
-        { name: "启动时覆盖代理", status: "warning", detail: "Codex 启动时会读取 .env，并可能覆盖终端代理变量。" },
-        { name: "Windows 手动代理", status: "info", detail: "未启用；残留地址不代表代理启用。" },
-        { name: "直连 HTTPS", status: "ok", detail: "HTTP 401：接口可达；未携带密钥，不代表对话认证成功。" },
-        { name: "内核版本", status: "ok", detail: "内核可启动：0.153.4。" },
+        { name: "Codex .env", status: "warning", detail: "HTTPS_PROXY=http://127.0.0.1:7890; port=7890; tcp=UNREACHABLE" },
+        { name: "Windows 手动代理", status: "info", detail: "ProxyEnable=0" },
+        { name: "直连 HTTPS", status: "ok", detail: "GET https://api.beiapi.cn/v1/models; auth=NONE; HTTP 401; curl_exit=0; total=0.58s" },
+        { name: "内核版本", status: "ok", detail: "version=0.153.4; exit=0" },
       ],
     };
   }

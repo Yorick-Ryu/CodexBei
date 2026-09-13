@@ -57,7 +57,7 @@ export type DiagnosticReport = {
 };
 export type Connection = { apiKey: string; baseUrl: string; model: string };
 export function installationLabel(v: { kind: string; runtimeVersion: string | null; appVersion?: string }) {
-  if (v.kind === "cli") return `CLI · ${v.runtimeVersion || "未知"}`;
+  if (v.kind === "cli") return `Codex CLI · ${v.runtimeVersion || "未知"}`;
   return `桌面版${v.appVersion ? ` ${v.appVersion}` : ""} · 内核 ${v.runtimeVersion || "未知"}`;
 }
 export const api = {

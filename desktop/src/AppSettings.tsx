@@ -18,6 +18,8 @@ export function AppSettings({ baseUrl, theme, isWindows, updateAvailable, update
   const [report, setReport] = useState<DiagnosticReport | null>(null);
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
+  const logRef = useRef<HTMLPreElement>(null);
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = 0; }, [report, busy]);
   const copyTimer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => () => clearTimeout(copyTimer.current), []);
   const resetCopied = () => {
@@ -47,19 +49,17 @@ export function AppSettings({ baseUrl, theme, isWindows, updateAvailable, update
     finally { if (current === request.current) setBusy(false); }
   };
   const text = report ? [
-    "CodexBei 问题排查报告",
-    "检测结果",
-    ...report.checks.map(row => `[${{ ok: "通过", warning: "需检查", info: "说明" }[row.status]}] ${row.name}：${row.detail}`),
-    "当前配置信息（已脱敏；来自磁盘已保存文件，不包含未保存的修改）",
-    ...(report.configurations || []).map(config => `${config.source}\n\n${config.content}`),
-  ].join("\n\n") : "";
+    ...report.checks.map(row => `[${{ ok: "OK", warning: "WARN", info: "INFO" }[row.status] || row.status}] ${row.name} | ${row.detail}`),
+    ...(report.configurations || []).map(config => `\n[CONFIG] ${config.source}\n${config.content}`),
+  ].join("\n") : "";
   return <>
     <button type="button" className="settings-entry" aria-label="设置" title={updateAvailable ? "设置 · 有新版本" : "设置"} onClick={() => { setSection("settings"); setOpen(true); }}>
       <GearIcon />
       {updateAvailable && <span className="software-update-dot" role="img" aria-label="有新版本" />}
     </button>
     <Modal open={open} onClose={() => setOpen(false)} closeLabel="关闭"
-      title={section === "settings" ? "设置" : "问题排查"}>
+      title={section === "settings" ? "设置" : "问题排查"}
+      size={section === "diagnostics" ? "wide" : "default"}>
       <div hidden={section !== "settings"}>
         <div className="settings-list">
           <div className="settings-theme-row"><span>外观主题</span>{theme}</div>
@@ -73,7 +73,9 @@ export function AppSettings({ baseUrl, theme, isWindows, updateAvailable, update
         </div>
       </div>
       {section === "diagnostics" && <>
-      <p className="diagnostic-intro" role="status" aria-live="polite">{message || "遇到对话一直重连、无法对话或回复慢？排查后可复制报告，发给客服协助处理。"}</p>
+      <p className="diagnostic-intro">遇到对话一直重连、无法对话或回复慢？排查后可复制报告，发给客服协助处理。</p>
+      <pre ref={logRef} className="diagnostic-log" aria-label="排查日志" tabIndex={0}>{text || (busy ? "[RUN] 正在排查…" : message ? "[ERROR] 排查未完成" : "等待排查")}</pre>
+      <p className="diagnostic-feedback" role="status" aria-live="polite">{message}</p>
       <div className="diagnostic-actions">
         <button type="button" className="primary" disabled={busy} onClick={() => void run()}>{busy ? "正在排查…" : report ? "再次排查" : "开始排查"}</button>
         {report && <button type="button" className="secondary diagnostic-copy" title={copied ? "已复制" : "复制报告"} onClick={async () => {

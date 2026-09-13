@@ -18,92 +18,10 @@ struct Configuration {
     content: String,
 }
 
-// Support reports are stricter than the local backup preview: comments, arbitrary
-// strings, paths, headers and command arguments must never leave the backend.
+// Preserve the configuration and its formatting; redact credential values only.
 #[cfg(any(windows, test))]
 fn report_config(bytes: &[u8]) -> Result<String> {
-    use serde_json::Value;
-    let safe = crate::redact::preview(bytes)?;
-    let mut config: Value =
-        toml_edit::de::from_str(&safe).map_err(|_| "配置无法解析，未附加原文。".to_string())?;
-    fn scrub(value: &mut Value, key: &str) {
-        if [
-            "projects",
-            "mcp_servers",
-            "marketplaces",
-            "plugins",
-            "http_headers",
-            "env_http_headers",
-            "auth",
-            "shell_environment_policy",
-        ]
-        .contains(&key)
-        {
-            *value = Value::String("（已隐藏：路径、凭证或自定义内容）".into());
-            return;
-        }
-        match value {
-            Value::Object(map) => {
-                let mut cleaned = serde_json::Map::new();
-                for (name, mut child) in std::mem::take(map) {
-                    if !name
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
-                        || name.starts_with("sk-")
-                        || name.len() > 80
-                    {
-                        cleaned.insert(
-                            format!("hidden_entry_{}", cleaned.len()),
-                            Value::String("（已隐藏）".into()),
-                        );
-                    } else {
-                        scrub(&mut child, &name);
-                        cleaned.insert(name, child);
-                    }
-                }
-                *map = cleaned;
-            }
-            Value::String(text) if key == "base_url" => {
-                *text = url::Url::parse(text)
-                    .ok()
-                    .filter(|u| u.scheme() == "https" || u.scheme() == "http")
-                    .map(|u| {
-                        let path = if matches!(u.path(), "" | "/" | "/v1" | "/v1/") {
-                            u.path()
-                        } else {
-                            "/（路径已隐藏）"
-                        };
-                        format!("{}{path}", u.origin().ascii_serialization())
-                    })
-                    .unwrap_or_else(|| "（已隐藏或地址无效）".into());
-            }
-            Value::String(text)
-                if [
-                    "model",
-                    "model_provider",
-                    "model_reasoning_effort",
-                    "model_reasoning_summary",
-                    "model_verbosity",
-                    "wire_api",
-                    "preferred_auth_method",
-                    "sandbox",
-                    "sandbox_mode",
-                    "approval_policy",
-                    "localeOverride",
-                    "followUpQueueMode",
-                ]
-                .contains(&key)
-                    && text.len() < 100
-                    && !text.starts_with("sk-")
-                    && text
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c)) => {}
-            Value::Bool(_) | Value::Number(_) => {}
-            _ => *value = Value::String("（已隐藏）".into()),
-        }
-    }
-    scrub(&mut config, "");
-    toml_edit::ser::to_string_pretty(&config).map_err(|_| "无法生成脱敏配置，未附加原文。".into())
+    crate::redact::preview(bytes)
 }
 
 #[cfg(windows)]
@@ -135,6 +53,24 @@ struct Check {
     detail: String,
 }
 
+#[cfg(windows)]
+fn prepare_script(source: &str) -> Result<tempfile::TempPath> {
+    use std::io::Write;
+    let mut script = tempfile::Builder::new()
+        .prefix("codexbei-diagnostics-")
+        .suffix(".ps1")
+        .tempfile()
+        .map_err(|_| "无法准备排查脚本。".to_string())?;
+    // Windows PowerShell 5.1 needs a BOM to decode Chinese source correctly.
+    script
+        .write_all(b"\xef\xbb\xbf")
+        .and_then(|_| script.write_all(source.trim_start_matches('\u{feff}').as_bytes()))
+        .map_err(|_| "无法准备排查脚本。".to_string())?;
+    // PowerShell cannot open the script while a writable handle is held on
+    // Windows. Close the file but retain automatic cleanup of its path.
+    Ok(script.into_temp_path())
+}
+
 pub async fn run(base_url: &str, config_path: &Path) -> Result<Report> {
     let base_url = crate::config::endpoint(base_url)?;
     #[cfg(not(windows))]
@@ -144,20 +80,10 @@ pub async fn run(base_url: &str, config_path: &Path) -> Result<Report> {
     }
     #[cfg(windows)]
     {
-        use std::io::Write;
         use std::process::Stdio;
         use tokio::io::AsyncReadExt;
-        let mut script = tempfile::Builder::new()
-            .prefix("codexbei-diagnostics-")
-            .suffix(".ps1")
-            .tempfile()
-            .map_err(|_| "无法准备排查脚本。".to_string())?;
         let source = include_str!("../../scripts/windows-diagnostics.ps1");
-        // Windows PowerShell 5.1 needs a BOM to decode Chinese source correctly.
-        script
-            .write_all(b"\xef\xbb\xbf")
-            .and_then(|_| script.write_all(source.trim_start_matches('\u{feff}').as_bytes()))
-            .map_err(|_| "无法准备排查脚本。".to_string())?;
+        let script = prepare_script(source)?;
         let powershell = std::env::var_os("SystemRoot")
             .map(std::path::PathBuf::from)
             .ok_or_else(|| "无法定位 Windows 系统目录。".to_string())?
@@ -170,7 +96,7 @@ pub async fn run(base_url: &str, config_path: &Path) -> Result<Report> {
                 "Bypass",
                 "-File",
             ])
-            .arg(script.path())
+            .arg(&script)
             .arg("-BaseUrl")
             .arg(base_url)
             .arg("-ConfigPath")
@@ -225,8 +151,48 @@ pub async fn run(base_url: &str, config_path: &Path) -> Result<Report> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     #[test]
-    fn support_config_preserves_settings_but_removes_secrets_and_paths() {
+    fn native_diagnostics_returns_report_for_isolated_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.toml");
+        std::fs::write(&config, "model = \"diagnostic-test\"\n").unwrap();
+        let report = tauri::async_runtime::block_on(run("https://api.beiapi.cn/v1", &config))
+            .unwrap_or_else(|error| panic!("Native diagnostics failed: {error}"));
+        assert_eq!(report.schema_version, 1);
+        assert!(!report.checks.is_empty());
+        assert!(report.configurations[0].content.contains("diagnostic-test"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_reads_prepared_script_and_temp_path_is_cleaned_up() {
+        use std::os::windows::process::CommandExt;
+        let script = prepare_script("[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\nWrite-Output '排查成功'").unwrap();
+        let path = script.to_path_buf();
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script)
+            .creation_flags(0x08000000)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "PowerShell could not read the prepared script"
+        );
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "排查成功");
+        drop(script);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn support_config_preserves_context_and_only_redacts_credentials() {
         let input = br#"# private-comment
 model = "gpt-5.6-sol"
 model_provider = "custom"
@@ -243,11 +209,14 @@ trust_level = "trusted"
 args = ["private-argument"]
 "#;
         let result = report_config(input).unwrap();
-        for hidden in ["private-", "PRIVATE", "password", "user:"] {
+        for hidden in ["sk-private-key", "private-header", "private-query", "user:password"] {
             assert!(!result.contains(hidden), "leaked {hidden}");
         }
         assert!(result.contains("gpt-5.6-sol"));
-        assert!(result.contains("https://example.com/v1"));
+        for retained in ["private-comment", "private-note", "PRIVATE", "private-argument", "private-other", "projects", "mcp_servers"] {
+            assert!(result.contains(retained), "lost diagnostic context: {retained}");
+        }
+        assert!(result.contains("example.com/v1"));
         assert!(result.contains("supports_websockets = false"));
         assert!(report_config(b"secret invalid TOML").is_err());
     }

@@ -30,6 +30,7 @@ async function fixture(options = {}) {
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
     if (${!!options.cliOnly}) { window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli'); window.fixtureMatching.selection = { mode: 'installed', id: 'cli' }; window.fixtureMatching.modelClientVersion = '0.153.4'; }
+    if (${!!options.noInstallations}) window.fixtureMatching.installations = [];
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
     mockIPC(async (cmd, args) => {
       window.fixtureCalls.push(cmd);
@@ -52,13 +53,13 @@ async function fixture(options = {}) {
       if (cmd === 'plugin:resources|close') return null;
       if (cmd === 'plugin:process|restart') { if (window.fixtureUpdateRestartError) throw 'restart'; return null; }
       if (cmd === 'windows_diagnostics') {
-        await new Promise(resolve => setTimeout(resolve, 80));
+        await new Promise(resolve => setTimeout(resolve, window.fixtureDiagnosticDelay || 80));
         if (window.fixtureDiagnosticError) throw '排查未完成';
-        return { schemaVersion: 1, hasDotEnvProxy: true, configurations: [{ source: '当前配置', content: 'model = "gpt-5.6-sol"' }], checks: [{ name: 'Codex .env', status: 'warning', detail: 'HTTPS_PROXY 指向本机端口 7890；端口不可连接。' }, { name: '直连 HTTPS', status: 'ok', detail: 'HTTP 401：接口可达；不代表对话认证成功。' }] };
+        return { schemaVersion: 1, hasDotEnvProxy: true, configurations: [{ source: '当前配置', content: 'model = "gpt-5.6-sol"' }], checks: [{ name: 'Codex .env', status: 'warning', detail: 'HTTPS_PROXY=http://127.0.0.1:7890; port=7890; tcp=UNREACHABLE' }, { name: '直连 HTTPS', status: 'ok', detail: 'GET https://api.beiapi.cn/v1/models; auth=NONE; HTTP 401; curl_exit=0; total=0.58s' }] };
       }
       if (cmd === 'check') {
         if (args.selection && window.fixtureVersionDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureVersionDelay));
-        if (args.selection?.mode === 'manual') { if (!/^\\d+\\.\\d+\\.\\d+$/.test(args.selection.runtimeVersion)) throw args.selection.kind === 'cli' ? '请输入有效的 CLI 版本。' : '请输入有效的内核版本及应用版本。'; window.fixtureMatching.modelClientVersion = args.selection.runtimeVersion; }
+        if (args.selection?.mode === 'manual') { if (!/^\\d+\\.\\d+\\.\\d+$/.test(args.selection.runtimeVersion)) throw args.selection.kind === 'cli' ? '请输入有效的 Codex CLI 版本。' : '请输入有效的内核版本及应用版本。'; window.fixtureMatching.modelClientVersion = args.selection.runtimeVersion; }
         if (args.selection) window.fixtureMatching.selection = args.selection;
         return { ...window.fixtureMatching };
       }
@@ -66,6 +67,7 @@ async function fixture(options = {}) {
       if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, 30)); if (window.fixtureModelsError) throw window.fixtureModelsError; return ['gpt-6-astra', 'slow-model', 'new-model']; }
       if (cmd === 'inspect' && window.fixtureInitialError) throw '配置不是有效的 TOML，请先修复原文件。';
       if (cmd === 'choose') window.fixtureInitialError = false;
+      if (cmd === 'open_chatgpt_installer') return null;
       if (cmd === 'open_config_file') {
         if (window.fixtureOpenConfigError) throw window.fixtureOpenConfigError;
         window.fixtureOpenedFile = window.fixtureState.file;
@@ -105,7 +107,8 @@ async function fixture(options = {}) {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  if (options.initialError) await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('status').textContent.includes('TOML'));
+  if (options.noInstallations) await page.getByRole('button', { name: '前往 Microsoft Store 安装', exact: true }).waitFor();
+  else if (options.initialError) await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('status').textContent.includes('TOML'));
   else await page.waitForFunction(() => document.getElementById('key')?.disabled === false && document.getElementById('preview-code')?.textContent);
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
@@ -133,7 +136,7 @@ test('React: optional desktop notice closes without moving the form and yields t
       await chooseTheme(page, scheme === 'dark' ? '石墨灰' : '雾白');
       for (const width of [600, 460]) {
         await page.setViewportSize({ width, height: 460 });
-        assert.ok((await page.locator('#status').textContent()).includes('CLI 可正常配置'));
+        assert.ok((await page.locator('#status').textContent()).includes('Codex CLI 可正常配置'));
         const row = await page.locator('#status > span').evaluate(el => {
           const text = el.firstElementChild.getBoundingClientRect();
           const link = el.querySelector('button').getBoundingClientRect();
@@ -152,7 +155,7 @@ test('React: optional desktop notice closes without moving the form and yields t
     assert.equal(await page.locator('#status').getByRole('button', { name: '下载桌面版' }).count(), 0);
     assert.deepEqual(await geometry(), before);
     await page.getByRole('button', { name: '关闭提示', exact: true }).click();
-    assert.ok((await page.locator('#status').textContent()).includes('CLI 可正常配置'));
+    assert.ok((await page.locator('#status').textContent()).includes('Codex CLI 可正常配置'));
     assert.deepEqual(await geometry(), before);
     await page.getByRole('button', { name: '关闭提示', exact: true }).click();
     assert.equal(await page.locator('.status-region').isVisible(), false);
@@ -332,7 +335,7 @@ test('React: login toggles preserve scroll and historical TOML stays readable in
     await page.locator('#keep-official-login').check();
     await page.waitForFunction(() => !document.getElementById('apply').disabled);
     await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
-    assert.match(await page.locator('#version-info').textContent(), /CLI · 0.153.4.*桌面版 26.901.51231 · 内核 0.154.0/);
+    assert.match(await page.locator('#version-info').textContent(), /Codex CLI · 0.153.4.*桌面版 26.901.51231 · 内核 0.154.0/);
     for (const width of [600, 460]) {
       await page.setViewportSize({ width, height: 460 });
       await page.locator('#keep-official-login').scrollIntoViewIfNeeded();
@@ -792,7 +795,7 @@ test('React: success notice expires after latest switch and never dismisses erro
 });
 
 
-test('React: Windows diagnostics starts fresh, exposes copy only after completion and reserves feedback space', async () => {
+test('React: Windows diagnostics starts fresh, shows result logs and copies the same report', async () => {
   const f = await fixture({ platform: 'windows' }); const { page } = f;
   try {
     const enter = async () => {
@@ -802,10 +805,24 @@ test('React: Windows diagnostics starts fresh, exposes copy only after completio
     await enter();
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('windows_diagnostics')), false);
     assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).count(), 0);
+    assert.equal(await page.getByLabel('排查日志').innerText(), '等待排查');
+    assert.match(await page.locator('.diagnostic-intro').innerText(), /排查后可复制报告/);
+    await page.screenshot({ path: path.join(output, 'windows-diagnostics-waiting.png') });
+    await page.evaluate(() => { window.fixtureDiagnosticDelay = 500; });
     const initialLayout = await page.locator('dialog[open]').boundingBox();
     await page.getByRole('button', { name: '开始排查', exact: true }).click();
+    assert.equal(await page.getByLabel('排查日志').innerText(), '[RUN] 正在排查…');
     await page.getByRole('button', { name: '再次排查', exact: true }).waitFor();
-    assert.equal(await page.getByRole('textbox', { name: '脱敏排查报告' }).count(), 0);
+    assert.match(await page.getByLabel('排查日志').innerText(), /401/);
+    assert.match(await page.getByLabel('排查日志').innerText(), /model =/);
+    await page.setViewportSize({ width: 600, height: 700 });
+    const dialogBounds = await page.locator('dialog[open]').boundingBox();
+    const logBounds = await page.getByLabel('排查日志').boundingBox();
+    const actionsBounds = await page.locator('.diagnostic-actions').boundingBox();
+    assert.ok(logBounds.height <= 200, 'Keep the diagnostic log compact even in a tall window.');
+    assert.ok(dialogBounds.y + dialogBounds.height - actionsBounds.y - actionsBounds.height <= 24, 'No unused space below the actions.');
+    await page.screenshot({ path: path.join(output, 'windows-diagnostics-filled.png') });
+    await page.setViewportSize({ width: 600, height: 460 });
     assert.equal(await page.getByRole('button', { name: '备份并打开 .env', exact: true }).count(), 0);
     assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
     await page.evaluate(() => {
@@ -820,11 +837,12 @@ test('React: Windows diagnostics starts fresh, exposes copy only after completio
     assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
     await page.evaluate(() => { window.fixtureCopyError = false; });
     await page.getByRole('button', { name: '复制报告', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.diagnostic-intro').textContent.startsWith('遇到对话'));
+    await page.waitForFunction(() => document.querySelector('.diagnostic-feedback').textContent === '');
     assert.equal(await page.getByRole('button', { name: '复制报告', exact: true }).locator('.lucide-check').count(), 1);
     await page.getByRole('button', { name: '复制报告', exact: true }).locator('.lucide-copy').waitFor({ timeout: 4000 });
     assert.deepEqual(await page.locator('dialog[open]').boundingBox(), initialLayout);
     const report = await page.evaluate(() => window.fixtureCopiedReport);
+    assert.equal(report, await page.getByLabel('排查日志').innerText());
     assert.match(report, /7890/);
     assert.match(report, /401/);
     assert.match(report, /model = "gpt-5.6-sol"/);
@@ -882,7 +900,8 @@ test('React: shared modal shell matches across dialogs and restores focus on Esc
       await page.getByRole('button', { name: '再次排查', exact: true }).waitFor();
       await page.setViewportSize({ width: 460, height: 460 });
       const bounds = await page.locator('dialog[open]').boundingBox();
-      assert.ok(bounds.x >= 0 && bounds.y >= 32 && bounds.x + bounds.width <= 460 && bounds.y + bounds.height <= 460);
+      const controlsHeight = await page.evaluate(() => parseFloat(getComputedStyle(document.body).getPropertyValue('--window-controls-height')) || 0);
+      assert.ok(bounds.x >= 0 && bounds.y >= controlsHeight && bounds.x + bounds.width <= 460 && bounds.y + bounds.height <= 460, JSON.stringify(bounds));
       await page.screenshot({ path: path.join(output, `modal-diagnostics-small-${theme}.png`) });
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await page.setViewportSize({ width: 600, height: 460 });
@@ -983,3 +1002,41 @@ test('React: open config precedes change and reports editor failures without mod
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
+
+for (const cliOnly of [false, true]) {
+  test(`React: installed ${cliOnly ? 'CLI' : 'desktop'} does not recheck on focus or optional install`, async () => {
+    const f = await fixture({ platform: 'windows', cliOnly }); const { page } = f;
+    try {
+      await page.clock.install();
+      const count = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length);
+      if (cliOnly) await page.getByRole('button', { name: '前往商店安装', exact: true }).first().click();
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.clock.fastForward(30_000);
+      assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length), count);
+      assert.equal(await page.locator('#key').isEnabled(), true);
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  });
+}
+
+for (const kind of ['desktop', 'cli']) {
+  test(`React: installation guide stops polling when ${kind} appears`, async () => {
+    const f = await fixture({ platform: 'windows', noInstallations: true }); const { page } = f;
+    try {
+      await page.clock.install();
+      await page.getByRole('button', { name: '前往 Microsoft Store 安装', exact: true }).click();
+      await page.evaluate(kind => {
+        window.fixtureMatching.installations = [{ id: kind, kind, runtimeVersion: '0.153.4' }];
+        window.fixtureMatching.selection = { mode: 'installed', id: kind };
+        window.dispatchEvent(new Event('focus'));
+      }, kind);
+      await page.clock.fastForward(10_000);
+      await page.locator('#key').waitFor();
+      const count = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.clock.fastForward(30_000);
+      assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length), count);
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  });
+}

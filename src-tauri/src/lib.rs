@@ -1,6 +1,7 @@
 mod config;
 mod diagnostics;
 mod editor;
+mod matching;
 mod network;
 mod providers;
 mod redact;
@@ -37,7 +38,10 @@ async fn windows_diagnostics(
 fn open_chatgpt_installer() -> Result<()> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+
         std::process::Command::new("cmd")
+            .creation_flags(0x08000000)
             .args([
                 "/C",
                 "start",
@@ -73,7 +77,7 @@ struct Incoming {
 struct AppState {
     store: Mutex<Store>,
     incoming: Mutex<Incoming>,
-    service: tokio::sync::Mutex<templates::Service>,
+    service: tokio::sync::Mutex<matching::Service>,
     test_mode: bool,
 }
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
@@ -243,7 +247,7 @@ async fn models(
     let (client, version) = {
         let service = state.service.lock().await;
         (
-            service.client.clone(),
+            service.client().clone(),
             versions::client_version(&service.targets()?)
                 .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?,
         )
@@ -358,7 +362,7 @@ pub fn run() {
                 .into());
             }
             let service =
-                templates::Service::new(root.join("cache")).map_err(std::io::Error::other)?;
+                matching::Service::new(root.join("cache")).map_err(std::io::Error::other)?;
             let store = Store::new(root, file).map_err(std::io::Error::other)?;
             app.manage(AppState {
                 store: Mutex::new(store),

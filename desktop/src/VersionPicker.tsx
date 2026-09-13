@@ -107,10 +107,10 @@ export function VersionPicker({
               request(mode, value);
             }}
           >
-            <option value="cli">CLI</option>
+            <option value="cli">Codex CLI</option>
             <option value="desktop">ChatGPT 桌面版</option>
           </select>
-          <label htmlFor="runtime-version">{kind === "cli" ? "CLI 版本" : "内核版本"}</label>
+          <label htmlFor="runtime-version">{kind === "cli" ? "Codex CLI 版本" : "内核版本"}</label>
           <input
             id="runtime-version"
             value={runtime}

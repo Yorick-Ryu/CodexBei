@@ -64,9 +64,21 @@ function Test-Loopback([int]$Port, [string]$Value) {
     return $false
 }
 function Get-HttpFinding([string]$Code) {
-    if ($Code -eq '401') { return 'HTTP 401：接口可达；未携带密钥，这是预期结果，不代表对话认证成功。' }
-    if ($Code -match '^[1-5][0-9]{2}$') { return "HTTP ${Code}：收到 HTTP 响应；不代表模型对话成功。" }
-    return '未收到 HTTP 响应；检查网络、DNS、证书或代理。'
+    if ($Code -match '^[1-5][0-9]{2}$') { return "HTTP $Code" }
+    return 'HTTP 000'
+}
+function Format-HttpResult([string]$Text, [int]$ExitCode, [long]$Elapsed) {
+    $parts = $Text.Trim() -split '\|'
+    if ($parts.Count -eq 7 -and $parts[0] -match '^\d{3}$' -and $parts[1] -match '^[0-9a-fA-F:.]*$' -and @($parts[2..6] | Where-Object { $_ -notmatch '^\d+(?:\.\d+)?$' }).Count -eq 0) {
+        return "$(Get-HttpFinding $parts[0]); curl_exit=$ExitCode; ip=$($parts[1]); dns=$($parts[2])s; connect=$($parts[3])s; tls=$($parts[4])s; first_byte=$($parts[5])s; total=$($parts[6])s"
+    }
+    return "HTTP 000; curl_exit=$ExitCode; elapsed=${Elapsed}ms"
+}
+function Get-ProxyDisplay([string]$Value) {
+    $safe = $Value -replace '(?i)(://)[^/@\s]+@', '$1REDACTED@'
+    $safe = $safe -replace '(?i)([?&](?:api[_-]?key|token|password|secret)=)[^&#\s]+', '$1REDACTED'
+    $safe = $safe -replace '\bsk-[A-Za-z0-9_-]+', 'REDACTED'
+    return $safe
 }
 if ($LibraryOnly) { return }
 
@@ -77,21 +89,21 @@ function Add-Check([string]$Name, [string]$Status, [string]$Detail) {
 $ports = @{}
 function Inspect-Proxy([string]$Source, [string]$Name, [string]$Value) {
     if ($Name -eq 'NO_PROXY') {
-        Add-Check $Source 'info' 'NO_PROXY 绕过列表已设置（值已隐藏）；.env 中的同名变量可能覆盖终端设置。'
+        Add-Check $Source 'info' "NO_PROXY=$(Get-ProxyDisplay $Value)"
         return
     }
     if (-not $Value -or $Value -in @('""', "''")) {
-        Add-Check $Source 'info' "$Name 为空。"
+        Add-Check $Source 'info' "$Name=EMPTY"
         return
     }
     $port = Get-LoopbackPort $Value
-    $detail = "$Name 已设置（值已隐藏）。"
+    $detail = "$Name=$(Get-ProxyDisplay $Value)"
     if ($null -ne $port) {
         $cacheKey = $Value.Trim()
         if (-not $ports.ContainsKey($cacheKey)) { $ports[$cacheKey] = Test-Loopback $port $Value }
-        $detail = "$Name 指向本机端口 $port；"
-        if ($ports[$cacheKey]) { $detail += '端口可连接，但尚未验证代理协议。' }
-        else { $detail += '端口不可连接；若 Codex 使用此代理，会导致连接失败。' }
+        $detail = "$Name=$(Get-ProxyDisplay $Value); port=$port; "
+        if ($ports[$cacheKey]) { $detail += 'tcp=CONNECTED' }
+        else { $detail += 'tcp=UNREACHABLE' }
     }
     Add-Check $Source 'warning' $detail
 }
@@ -105,17 +117,15 @@ try {
         $definitions = @(Get-ProxyDefinitions ([IO.File]::ReadAllText($dotEnv)))
         $hasDotEnvProxy = $definitions.Count -gt 0
         foreach ($entry in ($definitions | Select-Object -First 24)) { Inspect-Proxy 'Codex .env' $entry.name $entry.value }
-        if ($definitions.Count -gt 24) { Add-Check 'Codex .env' 'warning' '代理赋值超过 24 项，仅检测前 24 项，请手动检查重复或冲突设置。' }
-        if ($hasDotEnvProxy) {
-            Add-Check '启动时覆盖代理' 'warning' 'Codex 启动时会读取 CODEX_HOME 下的 .env，并可能覆盖终端代理变量。请核查这些代理行；不要分享整个文件。'
-        } else { Add-Check 'Codex .env' 'ok' '未发现代理变量赋值。' }
-    } else { Add-Check 'Codex .env' 'info' '文件不存在。' }
-} catch { Add-Check 'Codex .env' 'warning' '无法完整读取；请检查文件权限、大小和编码。' }
+        if ($definitions.Count -gt 24) { Add-Check 'Codex .env' 'warning' 'entries>24; scanned=24' }
+        if (-not $hasDotEnvProxy) { Add-Check 'Codex .env' 'ok' 'proxy_entries=0' }
+    } else { Add-Check 'Codex .env' 'info' 'NOT_FOUND' }
+} catch { Add-Check 'Codex .env' 'warning' 'READ_FAILED' }
 if ($ConfigPath) {
-    if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) { Add-Check '所选配置文件' 'ok' '文件存在；配置预览不等于内核实际加载的配置。' }
-    else { Add-Check '所选配置文件' 'warning' '文件不存在。' }
+    if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) { Add-Check '所选配置文件' 'ok' 'EXISTS' }
+    else { Add-Check '所选配置文件' 'warning' 'NOT_FOUND' }
     if ([IO.Path]::GetFullPath($ConfigPath) -ne [IO.Path]::GetFullPath((Join-Path $homeDir 'config.toml'))) {
-        Add-Check '配置位置' 'warning' '所选文件与当前进程 CODEX_HOME 下的默认配置不同；桌面端可能使用另一份配置。.env 按 CODEX_HOME 检查。'
+        Add-Check '配置位置' 'warning' "selected=$ConfigPath; default=$(Join-Path $homeDir 'config.toml')"
     }
 }
 foreach ($scope in @('Process', 'User', 'Machine')) {
@@ -124,19 +134,19 @@ foreach ($scope in @('Process', 'User', 'Machine')) {
         $value = [Environment]::GetEnvironmentVariable($name, $scope)
         if ($value) { $count++; Inspect-Proxy "环境变量：$scope" $name $value }
     }
-    if (-not $count) { Add-Check "环境变量：$scope" 'info' '未设置代理变量。' }
+    if (-not $count) { Add-Check "环境变量：$scope" 'info' 'HTTP_PROXY=UNSET; HTTPS_PROXY=UNSET; ALL_PROXY=UNSET; NO_PROXY=UNSET' }
 }
 try {
     $settings = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
     if ($settings.ProxyEnable -eq 1) {
-        Add-Check 'Windows 手动代理' 'warning' '已启用；请检查代理软件是否运行。'
-    } else { Add-Check 'Windows 手动代理' 'info' '未启用；ProxyServer 的残留地址不代表代理已启用。' }
-    if ($settings.AutoConfigURL) { Add-Check '自动代理脚本' 'warning' '已配置 PAC 地址（已隐藏）；自动代理可能与手动开关不同。' }
-} catch { Add-Check 'Windows 手动代理' 'warning' '读取失败。' }
+        Add-Check 'Windows 手动代理' 'warning' "ProxyEnable=1; ProxyServer=$(Get-ProxyDisplay $settings.ProxyServer)"
+    } else { Add-Check 'Windows 手动代理' 'info' "ProxyEnable=0; ProxyServer=$(Get-ProxyDisplay $settings.ProxyServer)" }
+    if ($settings.AutoConfigURL) { Add-Check '自动代理脚本' 'warning' "AutoConfigURL=$(Get-ProxyDisplay $settings.AutoConfigURL)" }
+} catch { Add-Check 'Windows 手动代理' 'warning' 'READ_FAILED' }
 $winhttp = Invoke-Bounded (Join-Path $env:SystemRoot 'System32/netsh.exe') @('winhttp', 'show', 'proxy')
 if ($winhttp.code -eq 0 -and $winhttp.text -match 'Direct access|直接访问') {
-    Add-Check 'WinHTTP' 'info' '默认代理设置为直接访问；不能据此排除环境变量或 PAC。'
-} else { Add-Check 'WinHTTP' 'warning' '存在代理设置或无法识别输出；请在终端运行 netsh winhttp show proxy 检查。' }
+    Add-Check 'WinHTTP' 'info' 'mode=DIRECT; exit=0'
+} else { Add-Check 'WinHTTP' 'warning' "mode=PROXY_OR_UNKNOWN; exit=$($winhttp.code)" }
 
 # Probe unauthenticated HTTPS only. Do not send keys, prompts, or requests to models.
 try {
@@ -145,17 +155,16 @@ try {
     $target = $uri.AbsoluteUri.TrimEnd('/') + '/models'
     $curl = Join-Path $env:SystemRoot 'System32/curl.exe'
     foreach ($mode in @('直连 HTTPS', 'curl 默认连接')) {
-        $arguments = @('-q', '--connect-timeout', '4', '--max-time', '6', '-sS', '-o', 'NUL', '-w', '%{http_code}')
+        $arguments = @('-q', '--connect-timeout', '4', '--max-time', '6', '-sS', '-o', 'NUL', '-w', '%{http_code}|%{remote_ip}|%{time_namelookup}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}')
         if ($mode -eq '直连 HTTPS') { $arguments += @('--noproxy', '*') }
         $timer = [Diagnostics.Stopwatch]::StartNew()
         $probe = Invoke-Bounded $curl ($arguments + @($target)) 8
         $timer.Stop()
-        $code = $probe.text.Trim()
+        $code = ($probe.text.Trim() -split '\|')[0]
         $status = if ($probe.code -eq 0 -and $code -match '^[1-5][0-9]{2}$') { 'ok' } else { 'warning' }
-        Add-Check $mode $status ((Get-HttpFinding $code) + (" 耗时 {0} ms。" -f $timer.ElapsedMilliseconds))
+        Add-Check $mode $status ("GET $target; auth=NONE; " + (Format-HttpResult $probe.text $probe.code $timer.ElapsedMilliseconds))
     }
-    Add-Check '连接测试范围' 'info' 'curl 默认连接不等于 Codex 连接；本测试不加载 .env，不验证密钥、模型、WebSocket 或完整对话；耗时不代表模型生成速度。'
-} catch { Add-Check 'HTTPS 测试' 'warning' 'API 地址无效或检测不可用；只接受不含凭证、查询参数和片段的 HTTPS 地址。' }
+} catch { Add-Check 'HTTPS 测试' 'warning' 'INVALID_URL_OR_PROBE_FAILED' }
 
 $candidates = New-Object 'System.Collections.Generic.List[string]'
 if ($env:LOCALAPPDATA) {
@@ -175,7 +184,7 @@ try {
             $candidates.Add((Join-Path $_.InstallLocation 'app/resources/codex.exe'))
             $candidates.Add((Join-Path $_.InstallLocation 'resources/codex.exe'))
         }
-} catch { Add-Check '商店版内核路径' 'info' '无法读取商店安装目录，继续检查普通安装目录。' }
+} catch { Add-Check '商店版内核路径' 'info' 'APPX_QUERY_FAILED' }
 $native = Get-Command codex.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($native) { $candidates.Add($native.Source) }
 $found = $false
@@ -183,12 +192,11 @@ foreach ($file in @($candidates | Select-Object -Unique | Where-Object { Test-Pa
     $result = Invoke-Bounded $file @('--version') 3
     if ($result.code -eq 0 -and $result.text -match '^codex(?:-cli)?\s+(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\s*$') {
         $found = $true
-        Add-Check '内核版本' 'ok' "内核可启动：$($Matches[1])。版本检测成功不代表网络可用。"
+        Add-Check '内核版本' 'ok' "path=$file; version=$($Matches[1]); exit=$($result.code)"
         break
     }
 }
-if (-not $found) { Add-Check '内核版本' 'warning' '常见安装路径中未找到可读取版本的内核；可手动运行 codex.exe --version。' }
-Add-Check '下一步' 'info' '修正代理后，完全退出并重新打开 Codex，再新建对话。若仍失败，关闭 WebSocket 和无限重试做对照；技能描述缩短提示不属于连接故障。'
+if (-not $found) { Add-Check '内核版本' 'warning' 'NO_READABLE_VERSION' }
 [pscustomobject]@{
     schemaVersion = 1
     hasDotEnvProxy = $hasDotEnvProxy

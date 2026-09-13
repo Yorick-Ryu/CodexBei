@@ -43,6 +43,13 @@ const isKeyError = (message: string) => [
   "无法获取模型，请检查密钥及访问权限。",
 ].includes(message);
 
+// Strip Windows verbatim prefixes for display only; keep the original path for I/O.
+const displayPath = (path = "") => {
+  if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
+  if (/^\\\\\?\\[A-Za-z]:\\/.test(path)) return path.slice(4);
+  return path;
+};
+
 export function App() {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -88,7 +95,7 @@ export function App() {
     setInstallerError("");
     try {
       await api.openChatgptInstaller();
-      setWaitingForChatgptInstall(true);
+      setWaitingForChatgptInstall(matching?.installations.length === 0);
     } catch (error) {
       setInstallerError(errorText(error));
     } finally {
@@ -307,25 +314,6 @@ export function App() {
     };
   }, [baseUrl, model, keep, matching?.template?.digest, inspection?.modelChannel]);
   useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      if (!busyRef.current && !versionOpenRef.current)
-        void api
-          .check()
-          .then((info) => {
-            if (active && !versionOpenRef.current) setMatching(info);
-          })
-          .catch(() => {});
-    };
-    window.addEventListener("focus", refresh);
-    const interval = setInterval(refresh, 4 * 60 * 60 * 1000);
-    return () => {
-      active = false;
-      window.removeEventListener("focus", refresh);
-      clearInterval(interval);
-    };
-  }, []);
-  useEffect(() => {
     if (!waitingForChatgptInstall) return;
     let active = true;
     let checking = false;
@@ -336,7 +324,7 @@ export function App() {
         const info = await api.check(null, true);
         if (!active || busyRef.current || versionOpenRef.current) return;
         setMatching(info);
-        if (info.installations.some((item) => item.kind === "desktop")) {
+        if (info.installations.length > 0) {
           setWaitingForChatgptInstall(false);
         }
       } catch {
@@ -346,10 +334,13 @@ export function App() {
       }
     };
     void poll();
+    const onFocus = () => void poll();
+    window.addEventListener("focus", onFocus);
     const timer = window.setInterval(() => void poll(), 10_000);
     return () => {
       active = false;
       window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
     };
   }, [waitingForChatgptInstall]);
   useEffect(() => {
@@ -441,7 +432,7 @@ export function App() {
   };
   return (
     <>
-      <header className="app-header">
+      <header className="app-header" data-history={page === "history" || undefined}>
         {page === "history" ? (
           <div className="brand-row" data-tauri-drag-region />
         ) : (
@@ -496,7 +487,7 @@ export function App() {
                       配置完成
                     </h1>
                     <p>
-                      {hasCli && !hasDesktop ? "CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
+                      {hasCli && !hasDesktop ? "Codex CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
                     </p>
                     <button
                       className="primary"
@@ -691,8 +682,8 @@ export function App() {
                               <input
                                 id="target"
                                 aria-describedby={fileError ? "file-error" : undefined}
-                                value={inspection?.file || ""}
-                                title={inspection?.file}
+                                value={displayPath(inspection?.file)}
+                                title={displayPath(inspection?.file)}
                                 readOnly
                               />
                               <button
@@ -950,7 +941,7 @@ export function App() {
               </>
             ) : showInstallHint && (
               <>
-                <span>未检测到桌面版，CLI 可正常配置</span>
+                <span>未检测到桌面版，Codex CLI 可正常配置</span>
                 <button type="button" className="text-button" disabled={openingInstaller} onClick={() => void openInstaller()}>{installerLabel}</button>
               </>
             ))}
@@ -978,9 +969,9 @@ export function App() {
               <p
                 id="backup-preview-path"
                 className="field-help"
-                title={selectedBackup.file}
+                title={displayPath(selectedBackup.file)}
               >
-                {selectedBackup.file}
+                {displayPath(selectedBackup.file)}
               </p>
             </div>
             <div className="backup-preview-summary">

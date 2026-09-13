@@ -71,6 +71,13 @@ pub fn parse_version(output: &str) -> Option<String> {
     valid_version(value).then(|| value.to_owned())
 }
 async fn command(executable: &Path, args: &[&str]) -> Result<String> {
+    command_with_timeout(executable, args, Duration::from_secs(4)).await
+}
+async fn command_with_timeout(
+    executable: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String> {
     let mut command = tokio::process::Command::new(executable);
     command
         .args(args)
@@ -81,7 +88,7 @@ async fn command(executable: &Path, args: &[&str]) -> Result<String> {
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     let mut child = command.spawn().map_err(|_| "无法读取版本。".to_string())?;
-    let result = tokio::time::timeout(Duration::from_secs(4), async {
+    let result = tokio::time::timeout(timeout, async {
         let mut bytes = Vec::new();
         child
             .stdout
@@ -101,6 +108,26 @@ async fn command(executable: &Path, args: &[&str]) -> Result<String> {
         .map_err(|_| "读取版本超时。".to_string())?
         .map_err(|_| "无法读取版本。".into())
 }
+#[cfg(any(windows, test))]
+fn windows_npm_candidates(prefix: &Path) -> Vec<PathBuf> {
+    let package = prefix.join("node_modules/@openai/codex");
+    let mut candidates = vec![prefix.join("codex.exe")];
+    for triplet in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
+        for directory in ["codex", "bin"] {
+            candidates.push(package.join(format!("vendor/{triplet}/{directory}/codex.exe")));
+            for name in ["codex-win32-x64", "codex-win32-arm64"] {
+                candidates.push(package.join(format!(
+                    "node_modules/@openai/{name}/vendor/{triplet}/{directory}/codex.exe"
+                )));
+                candidates.push(prefix.join(format!(
+                    "node_modules/@openai/{name}/vendor/{triplet}/{directory}/codex.exe"
+                )));
+            }
+        }
+    }
+    candidates
+}
+
 // The Windows desktop app can download its runtime outside the app package.
 // Hash directory names are not versions: prefer running runtimes, otherwise
 // retain all candidates so the user can select when the cache is ambiguous.
@@ -136,6 +163,9 @@ fn windows_runtime_candidates(base: &Path, running: &[PathBuf]) -> Vec<PathBuf> 
 
 #[cfg(any(windows, test))]
 fn merge_windows_runtimes(result: &mut Vec<Installation>, runtimes: Vec<Installation>) {
+    if !result.iter().any(|item| item.kind == "desktop") {
+        return;
+    }
     if runtimes.len() == 1 {
         // Only associate a detached runtime with a package when unambiguous.
         let desktops: Vec<_> = result
@@ -156,15 +186,20 @@ fn merge_windows_runtimes(result: &mut Vec<Installation>, runtimes: Vec<Installa
     result.extend(runtimes);
 }
 
-pub async fn detect() -> Vec<Installation> {
+async fn detect() -> Result<Vec<Installation>> {
     #[cfg(debug_assertions)]
     if std::env::var_os("CODEXBEI_PREVIEW_NO_CHATGPT").is_some() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     #[cfg(not(windows))]
     let home = dirs::home_dir().unwrap_or_default();
     let mut cli = Vec::<PathBuf>::new();
+    #[cfg(not(windows))]
     let mut apps = Vec::<(PathBuf, Option<String>)>::new();
+    #[cfg(windows)]
+    let apps = Vec::<(PathBuf, Option<String>)>::new();
+    #[cfg(windows)]
+    let mut registered_apps = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
         cli.extend(
             std::env::split_paths(&path)
@@ -231,48 +266,33 @@ pub async fn detect() -> Vec<Installation> {
     }
     #[cfg(windows)]
     {
-        if let Some(base) = std::env::var_os("APPDATA") {
-            let base = PathBuf::from(base).join("npm");
-            cli.push(base.join("codex.exe"));
-            let package = base.join("node_modules/@openai/codex");
-            for triplet in ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"] {
-                cli.push(package.join(format!("vendor/{triplet}/codex/codex.exe")));
-                for name in ["codex-win32-x64", "codex-win32-arm64"] {
-                    cli.push(package.join(format!(
-                        "node_modules/@openai/{name}/vendor/{triplet}/codex/codex.exe"
-                    )));
+        if let Some(path) = std::env::var_os("PATH") {
+            for prefix in std::env::split_paths(&path).filter(|p| p.is_absolute()) {
+                if prefix.join("codex.cmd").is_file() || prefix.join("codex.ps1").is_file() {
+                    cli.extend(windows_npm_candidates(&prefix));
                 }
             }
+        }
+        if let Some(base) = std::env::var_os("APPDATA") {
+            let base = PathBuf::from(base).join("npm");
+            cli.extend(windows_npm_candidates(&base));
         }
         if let Some(base) = std::env::var_os("LOCALAPPDATA") {
             let base = PathBuf::from(base);
             cli.push(base.join("Microsoft/WinGet/Links/codex.exe"));
             for name in ["Codex", "ChatGPT"] {
-                apps.push((
-                    base.join(format!("Programs/{name}/resources/codex.exe")),
-                    None,
-                ));
-            }
-        }
-        let query = "@(Get-AppxPackage | Where-Object { $_.Name -in @('OpenAI.Codex','OpenAI.ChatGPT') } | Select-Object InstallLocation,Version) | ConvertTo-Json -Compress";
-        if let Ok(raw) = command(
-            Path::new("powershell.exe"),
-            &["-NoProfile", "-NonInteractive", "-Command", query],
-        )
-        .await
-        {
-            if let Ok(values) = serde_json::from_str::<Value>(&raw) {
-                let packages = values.as_array().cloned().unwrap_or_else(|| vec![values]);
-                for package in packages {
-                    if let Some(location) = package["InstallLocation"].as_str() {
-                        let version = package["Version"]
-                            .as_str()
-                            .filter(|v| app_parts(v).is_some())
-                            .map(str::to_owned);
-                        for sub in ["app/resources/codex.exe", "resources/codex.exe"] {
-                            apps.push((PathBuf::from(location).join(sub), version.clone()));
-                        }
-                    }
+                let directory = base.join(format!("Programs/{name}"));
+                if directory.join(format!("{name}.exe")).is_file() {
+                    let runtime = directory.join("resources/codex.exe");
+                    registered_apps.push(Installation {
+                        id: format!("desktop:{}", directory.to_string_lossy()),
+                        kind: "desktop".into(),
+                        runtime_version: command(&runtime, &["--version"])
+                            .await
+                            .ok()
+                            .and_then(|s| parse_version(&s)),
+                        app_version: None,
+                    });
                 }
             }
         }
@@ -307,6 +327,63 @@ pub async fn detect() -> Vec<Installation> {
             app_version: None,
         });
     }
+    #[cfg(windows)]
+    {
+        let package_result: Result<()> = async {
+        let query = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ConvertTo-Json -InputObject @(Get-AppxPackage -ErrorAction Stop | Where-Object { $_.Name -in @('OpenAI.Codex','OpenAI.ChatGPT') } | Select-Object PackageFamilyName,InstallLocation,Version,@{Name='Status';Expression={$_.Status.ToString()}}) -Compress";
+        let raw = command_with_timeout(
+            Path::new("powershell.exe"),
+            &["-NoProfile", "-NonInteractive", "-Command", query],
+            Duration::from_secs(5),
+        )
+        .await
+        .map_err(|_| "无法检测 Windows 应用安装状态，请重试。".to_string())?;
+        let packages: Vec<Value> = serde_json::from_str(&raw)
+            .map_err(|_| "无法读取 Windows 应用安装列表，请重试。".to_string())?;
+        for package in packages {
+            if package["Status"].as_str() != Some("Ok") {
+                return Err("ChatGPT 应用安装状态异常，请检查 Windows 应用设置。".into());
+            }
+            let location = package["InstallLocation"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or("无法读取 ChatGPT 安装位置。")?;
+            let family = package["PackageFamilyName"]
+                .as_str()
+                .ok_or("无法读取 ChatGPT 应用标识。")?;
+            let mut runtime_version = None;
+            for sub in ["app/resources/codex.exe", "resources/codex.exe"] {
+                let path = PathBuf::from(location).join(sub);
+                if path.is_file() {
+                    runtime_version = command(&path, &["--version"])
+                        .await
+                        .ok()
+                        .and_then(|s| parse_version(&s));
+                    if runtime_version.is_some() {
+                        break;
+                    }
+                }
+            }
+            registered_apps.push(Installation {
+                id: format!("desktop:{family}"),
+                kind: "desktop".into(),
+                runtime_version,
+                app_version: package["Version"]
+                    .as_str()
+                    .filter(|v| app_parts(v).is_some())
+                    .map(str::to_owned),
+            });
+        }
+            Ok(())
+        }.await;
+        if let Err(error) = package_result {
+            if result.is_empty() && registered_apps.is_empty() {
+                return Err(error);
+            }
+        }
+    }
+    #[cfg(windows)]
+    result.extend(registered_apps);
     let mut seen = std::collections::HashSet::new();
     for (file, app_version) in apps {
         if !file.is_file() || !seen.insert(file.clone()) {
@@ -369,8 +446,72 @@ pub async fn detect() -> Vec<Installation> {
         }
         merge_windows_runtimes(&mut result, runtimes);
     }
-    result
+    Ok(result)
 }
+#[derive(Default)]
+pub struct Detector {
+    pub installations: Vec<Installation>,
+    pub selection: Selection,
+    detected: bool,
+}
+
+impl Detector {
+    pub fn targets(&self) -> Result<Vec<Installation>> {
+        select(&self.installations, &self.selection)
+    }
+
+    pub async fn refresh(&mut self, selection: Option<Selection>, force: bool) -> Result<bool> {
+        let mut changed = false;
+        if self.needs_detection(selection.as_ref(), force) {
+            let installations = detect().await?;
+            changed = self.accept_detection(installations);
+        }
+        Ok(self.select_version(selection)? || changed)
+    }
+
+    fn needs_detection(&self, selection: Option<&Selection>, force: bool) -> bool {
+        !self.detected || (force && selection.is_none() && self.installations.is_empty())
+    }
+
+    fn accept_detection(&mut self, installations: Vec<Installation>) -> bool {
+        self.installations = installations;
+        self.detected = true;
+        if matches!(&self.selection, Selection::Installed { id } if !self.installations.iter().any(|item| &item.id == id))
+        {
+            self.selection = Selection::Auto;
+            return true;
+        }
+        false
+    }
+
+    fn select_version(&mut self, selection: Option<Selection>) -> Result<bool> {
+        let mut changed = false;
+        if let Some(selection) = selection {
+            select(&self.installations, &selection)?;
+            self.selection = selection;
+            changed = true;
+        }
+        if matches!(self.selection, Selection::Auto) {
+            if let Some(installation) = self
+                .installations
+                .iter()
+                .find(|v| v.kind == "desktop" && v.runtime_version.is_some())
+                .or_else(|| {
+                    self.installations
+                        .iter()
+                        .find(|v| v.runtime_version.is_some())
+                })
+            {
+                self.selection = Selection::Installed {
+                    id: installation.id.clone(),
+                };
+                changed = true;
+            }
+        }
+        Ok(changed)
+    }
+}
+
 pub fn select(all: &[Installation], selection: &Selection) -> Result<Vec<Installation>> {
     match selection {
         Selection::Auto => Ok(all.to_vec()),
@@ -397,7 +538,9 @@ pub fn select(all: &[Installation], selection: &Selection) -> Result<Vec<Install
                 app_version: app_version.clone().filter(|v| !v.is_empty()),
             }])
         }
-        Selection::Manual { kind, .. } if kind == "cli" => Err("请输入有效的 CLI 版本。".into()),
+        Selection::Manual { kind, .. } if kind == "cli" => {
+            Err("请输入有效的 Codex CLI 版本。".into())
+        }
         _ => Err("请输入有效的内核版本及应用版本。".into()),
     }
 }
@@ -428,6 +571,87 @@ pub fn client_version(all: &[Installation]) -> Option<String> {
 mod tests {
     use super::*;
     #[test]
+    fn finds_modern_npm_binary_in_custom_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        let prefix = root.path().join("custom Node directory");
+        let binary = prefix.join("node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe");
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(&binary, b"fixture").unwrap();
+        let found: Vec<_> = windows_npm_candidates(&prefix)
+            .into_iter()
+            .filter(|p| p.is_file())
+            .collect();
+        assert_eq!(found, vec![binary]);
+    }
+    #[test]
+    fn detector_only_rechecks_while_no_application_is_installed() {
+        let mut detector = Detector::default();
+        assert!(detector.needs_detection(None, false));
+        detector.accept_detection(vec![]);
+        assert!(detector.needs_detection(None, true));
+        assert!(!detector.needs_detection(None, false));
+        for kind in ["cli", "desktop"] {
+            detector.accept_detection(vec![Installation {
+                id: kind.into(),
+                kind: kind.into(),
+                runtime_version: Some("0.153.4".into()),
+                app_version: None,
+            }]);
+            assert!(!detector.needs_detection(None, true));
+            tauri::async_runtime::block_on(detector.refresh(None, true)).unwrap();
+            assert_eq!(detector.targets().unwrap()[0].kind, kind);
+        }
+    }
+
+    #[test]
+    fn detector_updates_selection_after_uninstall_and_prefers_desktop() {
+        let mut detector = Detector::default();
+        let cli = Installation {
+            id: "cli".into(),
+            kind: "cli".into(),
+            runtime_version: Some("0.153.4".into()),
+            app_version: None,
+        };
+        let desktop = Installation {
+            id: "desktop".into(),
+            kind: "desktop".into(),
+            runtime_version: Some("0.153.4".into()),
+            app_version: Some("26.3.0".into()),
+        };
+        detector.accept_detection(vec![cli.clone(), desktop]);
+        assert!(detector.select_version(None).unwrap());
+        assert_eq!(detector.targets().unwrap()[0].id, "desktop");
+        assert!(detector.accept_detection(vec![cli]));
+        assert!(detector.select_version(None).unwrap());
+        assert_eq!(detector.targets().unwrap()[0].id, "cli");
+        assert!(detector.accept_detection(vec![]));
+        assert!(!detector.select_version(None).unwrap());
+        assert!(detector.targets().unwrap().is_empty());
+    }
+
+    #[test]
+    fn detector_retains_manual_selection_and_rejects_missing_installation() {
+        let mut detector = Detector::default();
+        detector
+            .select_version(Some(Selection::Manual {
+                kind: "cli".into(),
+                runtime_version: "0.153.4".into(),
+                app_version: None,
+            }))
+            .unwrap();
+        assert!(!detector.accept_detection(vec![]));
+        assert!(!detector.select_version(None).unwrap());
+        assert!(detector
+            .select_version(Some(Selection::Installed {
+                id: "missing".into()
+            }))
+            .is_err());
+        assert_eq!(
+            detector.targets().unwrap()[0].runtime_version.as_deref(),
+            Some("0.153.4")
+        );
+    }
+    #[test]
     fn detects_detached_windows_runtimes_and_prefers_running_path() {
         let temp = tempfile::tempdir().unwrap();
         let base = temp.path().join("User With Spaces/AppData/Local");
@@ -447,10 +671,7 @@ mod tests {
             vec![first.clone()]
         );
         let running = PathBuf::from(first.to_string_lossy().replace('/', "\\").to_uppercase());
-        assert_eq!(
-            windows_runtime_candidates(&base, &[running]),
-            vec![first]
-        );
+        assert_eq!(windows_runtime_candidates(&base, &[running]), vec![first]);
         assert_eq!(
             windows_runtime_candidates(&base, &[temp.path().join("unrelated/codex.exe")]),
             all
@@ -485,7 +706,10 @@ mod tests {
         assert!(ambiguous[0].runtime_version.is_none());
         let mut standalone = Vec::new();
         merge_windows_runtimes(&mut standalone, vec![runtime]);
-        assert_eq!(standalone[0].kind, "desktop");
+        assert!(
+            standalone.is_empty(),
+            "Detached runtime cache cannot prove the app is installed"
+        );
     }
 
     #[test]

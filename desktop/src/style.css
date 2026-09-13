@@ -86,7 +86,7 @@ code,
 #status > span,
 .field-feedback,
 .version-status,
-.diagnostic-intro,
+.diagnostic-feedback,
 #version-info,
 .preview-version,
 .backup-detail,
@@ -155,6 +155,10 @@ summary:focus-visible {
   flex-shrink: 0;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+}
+/* Only macOS needs space for native window controls on the history page. */
+body:not([data-platform="darwin"]) .app-header[data-history] {
+  display: none;
 }
 .brand-row {
   display: flex;
@@ -1278,7 +1282,9 @@ main[data-channel-updating] select:disabled {
 }
 
 .diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
-.diagnostic-intro { height: 3.2em; margin: 0 0 8px; overflow: auto; }
+.modal .modal-body > .diagnostic-log { flex: 0 0 auto; height: 200px; max-height: 32dvh; min-height: 0; box-sizing: border-box; overflow: auto; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.diagnostic-intro { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.diagnostic-feedback { min-height: 1.6em; margin: 6px 0; font-size: 12px; }
 .diagnostic-copy { display: inline-flex; align-items: center; gap: 6px; }
 
 .settings-entry { position: relative; width: 32px; height: 32px; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--text); display: grid; place-items: center; flex-shrink: 0; }

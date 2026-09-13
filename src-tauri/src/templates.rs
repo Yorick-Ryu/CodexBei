@@ -1,7 +1,7 @@
 use crate::{
     config::{self, Result},
     network,
-    versions::{self, Installation, Selection},
+    versions::{app_parts, valid_version},
 };
 use node_semver::{Range, Version};
 use serde_json::{json, Value};
@@ -96,9 +96,7 @@ pub fn validate(template: &Value) -> Result<()> {
         || !id
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        || !template["version"]
-            .as_str()
-            .is_some_and(versions::valid_version)
+        || !template["version"].as_str().is_some_and(valid_version)
         || !template["default"].is_boolean()
         || regex::Regex::new("sk-[A-Za-z0-9_-]{12,}")
             .unwrap()
@@ -122,8 +120,8 @@ pub fn validate(template: &Value) -> Result<()> {
             return fail();
         }
         if let Some(r) = t.get("appRange") {
-            let min = r["min"].as_str().and_then(versions::app_parts);
-            let max = r["maxExclusive"].as_str().and_then(versions::app_parts);
+            let min = r["min"].as_str().and_then(app_parts);
+            let max = r["maxExclusive"].as_str().and_then(app_parts);
             if t["kind"] != "desktop"
                 || !exact(r, &["min", "maxExclusive"])
                 || min.is_none()
@@ -193,11 +191,10 @@ fn matches(template: &Value, request: &Value) -> bool {
                     None => true,
                     Some(r) => installed["appVersion"]
                         .as_str()
-                        .and_then(versions::app_parts)
+                        .and_then(app_parts)
                         .is_some_and(|v| {
-                            v >= versions::app_parts(r["min"].as_str().unwrap()).unwrap()
-                                && v < versions::app_parts(r["maxExclusive"].as_str().unwrap())
-                                    .unwrap()
+                            v >= app_parts(r["min"].as_str().unwrap()).unwrap()
+                                && v < app_parts(r["maxExclusive"].as_str().unwrap()).unwrap()
                         }),
                 }
             })
@@ -230,12 +227,9 @@ fn valid_request(request: &Value) -> bool {
                     exact(t, &["kind", "runtimeVersion", "appVersion"])
                         && ["cli", "desktop"].contains(&t["kind"].as_str().unwrap_or_default())
                         && (t["runtimeVersion"].is_null()
-                            || t["runtimeVersion"]
-                                .as_str()
-                                .is_some_and(versions::valid_version))
+                            || t["runtimeVersion"].as_str().is_some_and(valid_version))
                         && t.get("appVersion").is_none_or(|v| {
-                            t["kind"] == "desktop"
-                                && v.as_str().and_then(versions::app_parts).is_some()
+                            t["kind"] == "desktop" && v.as_str().and_then(app_parts).is_some()
                         })
                 })
         })
@@ -249,15 +243,12 @@ fn metadata(template: &Value) -> Value {
 }
 pub struct Service {
     pub client: reqwest::Client,
-    pub installations: Vec<Installation>,
-    pub selection: Selection,
     directory: PathBuf,
     cached: Vec<Value>,
     selected: Vec<Value>,
     bootstrap: Value,
     pub offline: bool,
     checked: Option<Instant>,
-    detected: bool,
 }
 impl Service {
     pub fn new(directory: PathBuf) -> Result<Self> {
@@ -290,22 +281,13 @@ impl Service {
         }
         Ok(Self {
             client: network::client()?,
-            installations: Vec::new(),
-            selection: Selection::Auto,
             directory,
             cached,
             selected,
             bootstrap,
             offline: false,
             checked: None,
-            detected: false,
         })
-    }
-    pub fn targets(&self) -> Result<Vec<Installation>> {
-        versions::select(&self.installations, &self.selection)
-    }
-    fn request(&self) -> Result<Value> {
-        Ok(versions::request(&self.targets()?))
     }
     fn find<'a>(entries: &'a [Value], request: &Value) -> Option<&'a Value> {
         entries.iter().find(|v| &v["request"] == request)
@@ -348,15 +330,14 @@ impl Service {
             0o600,
         )
     }
-    pub fn current(&self) -> Result<Value> {
-        let request = self.request()?;
-        let latest = Self::find(&self.cached, &request);
+    pub fn current(&self, request: &Value) -> Result<Value> {
+        let latest = Self::find(&self.cached, request);
         if latest.is_some_and(|v| v["template"].is_null()) {
             return Err("没有匹配的配置模板，请选择 Codex 版本。".into());
         }
-        let entry = Self::find(&self.selected, &request)
+        let entry = Self::find(&self.selected, request)
             .cloned()
-            .unwrap_or_else(|| latest.cloned().unwrap_or_else(|| self.bundled(&request)));
+            .unwrap_or_else(|| latest.cloned().unwrap_or_else(|| self.bundled(request)));
         if entry["template"].is_null() {
             return Err("没有匹配的配置模板，请选择 Codex 版本。".into());
         }
@@ -408,43 +389,11 @@ impl Service {
         }
         Ok(())
     }
-    pub async fn refresh(
-        &mut self,
-        selection: Option<Selection>,
-        force: bool,
-        activate: bool,
-    ) -> Result<Value> {
-        if !self.detected || (force && selection.is_none()) {
-            self.installations = versions::detect().await;
-            self.detected = true;
-        }
-        if let Some(selection) = selection {
-            versions::select(&self.installations, &selection)?;
-            self.selection = selection;
-            self.checked = None;
-        }
-        if matches!(self.selection, Selection::Auto) {
-            if let Some(installation) = self
-                .installations
-                .iter()
-                .find(|v| v.kind == "desktop" && v.runtime_version.is_some())
-                .or_else(|| {
-                    self.installations
-                        .iter()
-                        .find(|v| v.runtime_version.is_some())
-                })
-            {
-                self.selection = Selection::Installed {
-                    id: installation.id.clone(),
-                };
-                self.checked = None;
-            }
-        }
-        let request = self.request()?;
-        if Self::find(&self.selected, &request).is_none() {
-            let value = Self::find(&self.cached, &request)
+    pub async fn refresh(&mut self, request: &Value, force: bool, activate: bool) -> Result<Value> {
+        if Self::find(&self.selected, request).is_none() {
+            let value = Self::find(&self.cached, request)
                 .cloned()
-                .unwrap_or_else(|| self.bundled(&request));
+                .unwrap_or_else(|| self.bundled(request));
             Self::insert(&mut self.selected, value);
             self.save()?;
         }
@@ -458,7 +407,7 @@ impl Service {
                     .client
                     .post(RESOLVE)
                     .header("Accept", "application/json")
-                    .json(&request)
+                    .json(request)
                     .send()
                     .await
                     .map_err(|_| ERROR.to_string())?;
@@ -474,7 +423,7 @@ impl Service {
             }
             .await;
             self.offline = match fetched {
-                Ok(value) => self.accept(value, &request).is_err(),
+                Ok(value) => self.accept(value, request).is_err(),
                 Err(_) => true,
             };
             self.checked = Some(Instant::now());
@@ -483,7 +432,7 @@ impl Service {
             if self.offline {
                 return Err("无法获取最新模板，请稍后重试。".into());
             }
-            let latest = Self::find(&self.cached, &request)
+            let latest = Self::find(&self.cached, request)
                 .filter(|v| !v["template"].is_null())
                 .ok_or_else(|| "没有可用的更新模板。".to_string())?
                 .clone();
@@ -494,14 +443,13 @@ impl Service {
                 return Err(e);
             }
         }
-        self.summary()
+        self.summary(request)
     }
-    pub fn summary(&self) -> Result<Value> {
-        let request = self.request()?;
-        let current = self.current().unwrap_or(Value::Null);
-        let latest = Self::find(&self.cached, &request)
+    pub fn summary(&self, request: &Value) -> Result<Value> {
+        let current = self.current(request).unwrap_or(Value::Null);
+        let latest = Self::find(&self.cached, request)
             .cloned()
-            .unwrap_or_else(|| self.bundled(&request))["template"]
+            .unwrap_or_else(|| self.bundled(request))["template"]
             .clone();
         let update = current["version"]
             .as_str()
@@ -513,7 +461,7 @@ impl Service {
             )
             .is_some_and(|(current, latest)| latest > current);
         Ok(
-            json!({"installations":self.installations,"selection":self.selection,"template":metadata(&current),"latestTemplate":metadata(&latest),"templateUpdateAvailable":update,"offline":self.offline,"needsSelection":current.is_null() || latest.is_null(),"modelClientVersion":versions::client_version(&self.targets()?)}),
+            json!({"template":metadata(&current),"latestTemplate":metadata(&latest),"templateUpdateAvailable":update,"offline":self.offline,"needsSelection":current.is_null() || latest.is_null()}),
         )
     }
 }
@@ -560,7 +508,7 @@ mod tests {
     fn update_badge_requires_a_newer_template_version() {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
-        let request = s.request().unwrap();
+        let request = json!({"targets":[]});
         let entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
         Service::insert(&mut s.selected, entry.clone());
         for (version, available) in [
@@ -572,14 +520,17 @@ mod tests {
             let mut latest = entry.clone();
             latest["template"]["version"] = json!(version);
             Service::insert(&mut s.cached, latest);
-            assert_eq!(s.summary().unwrap()["templateUpdateAvailable"], available);
+            assert_eq!(
+                s.summary(&request).unwrap()["templateUpdateAvailable"],
+                available
+            );
         }
     }
     #[test]
     fn rejects_release_rollback_mutation_and_authoritative_no_match() {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
-        let request = s.request().unwrap();
+        let request = json!({"targets":[]});
         let entry = json!({"schemaVersion":1,"release":3,"request":request,"template":template()});
         s.accept(entry.clone(), &request).unwrap();
         let mut older = entry.clone();
@@ -593,7 +544,7 @@ mod tests {
         absent["release"] = json!(4);
         absent["template"] = Value::Null;
         s.accept(absent, &request).unwrap();
-        assert!(s.current().is_err());
+        assert!(s.current(&request).is_err());
     }
     #[test]
     #[ignore = "explicit live HTTPS contract check"]
@@ -601,14 +552,9 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let dir = tempfile::tempdir().unwrap();
             let mut service = Service::new(dir.path().join("cache")).unwrap();
-            service.detected = true;
             let result = service
                 .refresh(
-                    Some(Selection::Manual {
-                        kind: "cli".into(),
-                        runtime_version: "0.153.4".into(),
-                        app_version: None,
-                    }),
+                    &json!({"targets":[{"kind":"cli","runtimeVersion":"0.153.4"}]}),
                     true,
                     false,
                 )
