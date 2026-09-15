@@ -1,0 +1,15 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build:react && node scripts/build-macos-icon.cjs"
+  },
+  "bundle": {
+    "macOS": {
+      "infoPlist": "Info.macos.plist",
+      "files": {
+        "Resources/Assets.car": "../build/macos-icon/Assets.car",
+        "Resources/CodexBei.icns": "../build/macos-icon/CodexBei.icns"
+      },
+      "bundleVersion": "0.1.2"
+    }
+  }
+}
