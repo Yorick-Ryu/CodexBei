@@ -54,7 +54,6 @@ function stage(source, destination) {
     FAVICON_URL: `/favicon.ico?v=${hash(favicon).slice(0, 12)}`,
     SCRIPT_URL: publishAsset('app.js'), STYLE_URL: publishAsset('style.css'),
     BRAND_ICON: svg('desktop/assets/brand/codexbei.svg'),
-    BEIAPI_ICON: svg('desktop/assets/brand/logo-north.svg'),
     APPLE_ICON: svg('remote/download-icons/apple.svg'),
     WINDOWS_ICON: svg('remote/download-icons/windows.svg'),
   };
