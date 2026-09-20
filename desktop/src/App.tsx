@@ -34,12 +34,13 @@ const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
 const errorText = (error: unknown) =>
   typeof error === "string" ? error : "操作未完成，请重试。";
+const configureFirstNotice = "请点击一键配置";
 // Match known credential failures, rather than routing any mention of a key here.
 const isKeyError = (message: string) => [
+  "请输入 API 密钥。",
   "请提供有效的 API 密钥",
   "API 地址已更改或没有可复用密钥，请填写对应密钥。",
   "请输入此地址对应的密钥。",
-  "请先完成 API 密钥配置。",
   "无法获取模型，请检查密钥及访问权限。",
 ].includes(message);
 
@@ -220,7 +221,15 @@ export function App() {
     void run(async () => {
       setChannelSwitching(true);
       try {
-        await api.switchChannel(channel);
+        try {
+          await api.switchChannel(channel);
+        } catch (error) {
+          if (errorText(error) === "请先完成 API 密钥配置。") {
+            setStatus(apiKey.trim() ? configureFirstNotice : "请输入 API 密钥。");
+            return;
+          }
+          throw error;
+        }
         // A channel switch only changes routing; preserve unsaved form edits.
         setInspection(await api.inspect());
         setStatusSuccess(true);
@@ -421,7 +430,7 @@ export function App() {
   const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
   const showInstallHint = page === "config" && missingDesktop && hasCli && !installHintDismissed && !footerStatus && !installerError && !needsVersionNotice;
   const showNotice = !!(footerStatus || installerError || needsVersionNotice || showInstallHint);
-  const noticeKind = footerStatus ? (statusSuccess ? "success" : "error") : (installerError || needsVersionNotice ? "error" : "info");
+  const noticeKind = footerStatus ? (statusSuccess ? "success" : footerStatus === configureFirstNotice ? "info" : "error") : (installerError || needsVersionNotice ? "error" : "info");
   const closeNotice = () => {
     if (footerStatus) { setStatus(""); setStatusSuccess(false); }
     else if (installerError) setInstallerError("");
