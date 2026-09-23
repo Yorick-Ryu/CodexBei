@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "release": 4,
-  "publishedAt": "2026-09-23T00:48:06.803593Z",
+  "release": 5,
+  "publishedAt": "2026-09-23T07:00:52.953Z",
   "templates": [
     {
       "id": "codex-default",
@@ -27,6 +27,44 @@
       },
       "remove": [],
       "default": true
+    },
+    {
+      "id": "codex-native-catalog",
+      "version": "1.0.4",
+      "targets": [
+        {
+          "kind": "cli",
+          "runtimeRange": ">=0.156.0"
+        },
+        {
+          "kind": "desktop",
+          "runtimeRange": ">=0.156.0"
+        }
+      ],
+      "set": {
+        "model_provider": "custom",
+        "model": "$model",
+        "model_reasoning_effort": "high",
+        "model_providers": {
+          "custom": {
+            "name": "OpenAI",
+            "base_url": "$base_url",
+            "wire_api": "responses",
+            "requires_openai_auth": false,
+            "supports_websockets": true,
+            "experimental_bearer_token": "$api_key",
+            "http_headers": {
+              "x-openai-actor-authorization": "$base_url"
+            },
+            "model_catalog_url": "$model_catalog_url"
+          }
+        },
+        "features": {
+          "api_key_model_discovery": true
+        }
+      },
+      "remove": [],
+      "default": false
     }
   ]
 }

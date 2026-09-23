@@ -213,15 +213,24 @@ async fn configure(
     resolved.model = connection.model.clone();
     let version = versions::client_version(&service.targets()?)
         .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
-    let catalog = network::catalog(service.client(), resolved.clone(), &version).await?;
+    let template = service.current()?;
+    let catalog = if templates::native_catalog(&template) {
+        None
+    } else {
+        Some(network::catalog(service.client(), resolved.clone(), &version).await?)
+    };
     let incoming = lock(&state.incoming)?;
     if incoming.revision != revision {
         return Err("收到新的配置链接，请等待新配置完成。".into());
     }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision_before)?;
-    let plan = store.prepare(connection, keep_official_login, &service.current()?)?;
-    store.attach_catalog(&plan, &resolved, &catalog)?;
+    let plan = store.prepare(connection, keep_official_login, &template)?;
+    if let Some(catalog) = catalog {
+        store.attach_catalog(&plan, &resolved, &catalog)?;
+    } else {
+        store.attach_native_catalog(&plan, &resolved)?;
+    }
     let result = store.apply(&plan)?;
     Ok(prune_result(&store, result))
 }
@@ -263,15 +272,24 @@ async fn incoming(keep_official_login: bool, state: State<'_, AppState>) -> Resu
     let revision_before = lock(&state.store)?.revision()?;
     let version = versions::client_version(&service.targets()?)
         .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
-    let catalog = network::catalog(service.client(), connection.clone(), &version).await?;
+    let template = service.current()?;
+    let catalog = if templates::native_catalog(&template) {
+        None
+    } else {
+        Some(network::catalog(service.client(), connection.clone(), &version).await?)
+    };
     let current = lock(&state.incoming)?;
     if current.revision != revision {
         return Ok(Value::Null);
     }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision_before)?;
-    let plan = store.prepare(connection.clone(), keep_official_login, &service.current()?)?;
-    store.attach_catalog(&plan, &connection, &catalog)?;
+    let plan = store.prepare(connection.clone(), keep_official_login, &template)?;
+    if let Some(catalog) = catalog {
+        store.attach_catalog(&plan, &connection, &catalog)?;
+    } else {
+        store.attach_native_catalog(&plan, &connection)?;
+    }
     let result = store.apply(&plan)?;
     Ok(prune_result(&store, result))
 }
@@ -291,15 +309,36 @@ async fn sync_catalog(
     connection: Connection,
     revision: (PathBuf, String),
 ) -> Result<Value> {
-    let (client, version) = {
+    let (client, version, native, request) = {
         let service = state.service.lock().await;
         (
             service.client().clone(),
             versions::client_version(&service.targets()?)
                 .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?,
+            templates::native_catalog(&service.current()?),
+            versions::request(&service.targets()?),
         )
     };
+    if native {
+        let mut store = lock(&state.store)?;
+        store.check_revision(&revision)?;
+        let plan = store.prepare_api_switch()?;
+        if !store.attach_native_catalog(&plan, &connection)? {
+            return Ok(json!({"changed":false,"native":true}));
+        }
+        let mut result = store.apply(&plan)?;
+        result["changed"] = json!(true);
+        result["native"] = json!(true);
+        return Ok(prune_result(&store, result));
+    }
     let catalog = network::catalog(&client, connection.clone(), &version).await?;
+    // Changing the selected runtimes does not change config.toml; guard that race separately.
+    let service = state.service.lock().await;
+    if versions::request(&service.targets()?) != request
+        || templates::native_catalog(&service.current()?)
+    {
+        return Err("所选 Codex 版本已变化，请重新刷新。".into());
+    }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision)?;
     if store.catalog_matches(&catalog)? {

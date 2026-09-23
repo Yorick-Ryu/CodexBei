@@ -9,6 +9,8 @@ const bindings = {
   'model_providers.custom.http_headers.x-openai-actor-authorization': '$base_url',
 };
 const rules = {
+  'model_providers.custom.model_catalog_url': (v) => v === '$model_catalog_url',
+  'features.api_key_model_discovery': (v) => v === true,
   model_provider: (v) => v === 'custom',
   model_reasoning_effort: (v) => ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(v),
   model_reasoning_summary: (v) => ['auto', 'concise', 'detailed', 'none'].includes(v),
@@ -59,6 +61,8 @@ function validateTemplate(template) {
     else if (!Object.hasOwn(rules, name) || !rules[name](field.value)) fail();
   }
   for (const name of ['model_provider', ...Object.keys(bindings)]) if (!names.includes(name)) fail();
+  const native = names.includes('model_providers.custom.model_catalog_url');
+  if (native !== names.includes('features.api_key_model_discovery') || (native && template.default)) fail();
   // Templates only add or replace fields; deletion instructions are not accepted.
   if (!Array.isArray(template.remove) || template.remove.length !== 0) fail();
   return template;
@@ -102,7 +106,9 @@ function materialize(template, connection) {
   for (const field of flatten(template.set)) {
     let cursor = result;
     for (const part of field.path.slice(0, -1)) cursor = cursor[part] ??= {};
-    cursor[field.path.at(-1)] = Object.hasOwn(bindings, field.path.join('.')) ? values[field.value] : field.value;
+    cursor[field.path.at(-1)] = field.path.join('.') === 'model_providers.custom.model_catalog_url'
+      ? connection.baseUrl.replace(/\/$/, '') + '/models'
+      : Object.hasOwn(bindings, field.path.join('.')) ? values[field.value] : field.value;
   }
   return result;
 }

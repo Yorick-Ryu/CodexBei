@@ -36,7 +36,7 @@ async function fixture(options = {}) {
       window.fixtureCalls.push(cmd);
       if (cmd === 'refresh_catalog') {
         if (window.fixtureCatalogError) throw '模型获取失败，已保留原样';
-        return { changed: !!window.fixtureCatalogChanged };
+        return { changed: !!window.fixtureCatalogChanged, native: !!window.fixtureCatalogNative };
       }
       if (cmd === 'plugin:app|version') return '0.1.0';
       if (cmd === 'plugin:updater|check') {
@@ -141,6 +141,19 @@ test('React: catalog checks on startup and manual refresh reports changes and fa
     await page.evaluate(() => { window.fixtureCatalogError = true; });
     await page.locator('#refresh-models').click();
     await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已保留原样'));
+  } finally { await f.close(); }
+});
+
+test('React: native catalog refresh describes Codex ownership rather than claiming a directory download', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.locator('.settings-toggle').click();
+    await page.evaluate(() => { window.fixtureCatalogNative = true; window.fixtureCatalogChanged = true; });
+    await page.locator('#refresh-models').click();
+    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已启用原生模型发现'));
+    await page.evaluate(() => { window.fixtureCatalogChanged = false; });
+    await page.locator('#refresh-models').click();
+    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('模型目录由 Codex 原生管理'));
   } finally { await f.close(); }
 });
 

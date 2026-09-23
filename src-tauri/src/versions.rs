@@ -37,6 +37,17 @@ pub enum Selection {
 pub fn valid_version(value: &str) -> bool {
     value.len() <= 100 && Version::parse(value).is_ok_and(|v| v.to_string() == value)
 }
+pub fn supports_native_catalog(targets: &[Installation]) -> bool {
+    let minimum = Version::parse("0.156.0").unwrap();
+    !targets.is_empty()
+        && targets.iter().all(|target| {
+            target
+                .runtime_version
+                .as_deref()
+                .and_then(|s| Version::parse(s).ok())
+                .is_some_and(|version| version >= minimum)
+        })
+}
 pub fn app_parts(value: &str) -> Option<Vec<u64>> {
     if value.len() > 64 {
         return None;
@@ -559,7 +570,7 @@ pub fn request(all: &[Installation]) -> Value {
         .collect();
     targets.sort();
     targets.dedup();
-    json!({ "targets": targets.iter().map(|v| serde_json::from_str::<Value>(v).unwrap()).collect::<Vec<_>>() })
+    json!({ "clientVersion": env!("CARGO_PKG_VERSION"), "targets": targets.iter().map(|v| serde_json::from_str::<Value>(v).unwrap()).collect::<Vec<_>>() })
 }
 pub fn client_version(all: &[Installation]) -> Option<String> {
     all.iter()
@@ -570,6 +581,30 @@ pub fn client_version(all: &[Installation]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_catalog_uses_the_lowest_selected_runtime() {
+        for (values, expected) in [
+            (vec![Some("0.156.0")], true),
+            (vec![Some("0.156.1"), Some("0.156.0")], true),
+            (vec![Some("0.156.0"), Some("0.155.1")], false),
+            (vec![Some("0.155.1"), Some("0.156.0")], false),
+            (vec![Some("0.156.0"), None], false),
+            (vec![Some("0.156.0-alpha.16")], false),
+            (vec![], false),
+        ] {
+            let targets: Vec<_> = values
+                .into_iter()
+                .enumerate()
+                .map(|(i, version)| Installation {
+                    id: i.to_string(),
+                    kind: if i == 0 { "cli" } else { "desktop" }.into(),
+                    runtime_version: version.map(str::to_owned),
+                    app_version: Some("99.999.999".into()),
+                })
+                .collect();
+            assert_eq!(supports_native_catalog(&targets), expected);
+        }
+    }
     #[test]
     fn finds_modern_npm_binary_in_custom_prefix() {
         let root = tempfile::tempdir().unwrap();
@@ -731,7 +766,7 @@ mod tests {
         let value = request(&[i.clone(), i]);
         assert_eq!(
             value,
-            json!({"targets":[{"kind":"cli","runtimeVersion":"0.153.4"}]})
+            json!({"clientVersion":env!("CARGO_PKG_VERSION"),"targets":[{"kind":"cli","runtimeVersion":"0.153.4"}]})
         );
     }
     #[test]

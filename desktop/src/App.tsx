@@ -281,7 +281,7 @@ export function App() {
             const result = await api.refreshCatalog();
             if (active && result.changed) {
               setStatusSuccess(true);
-              setStatus("模型目录已更新，请重新启动 Codex 生效");
+              setStatus(result.native ? "已启用原生模型发现，请重新启动 Codex 生效" : "模型目录已更新，请重新启动 Codex 生效");
             }
           } catch {
             // Background failures keep the last working catalog without interrupting startup.
@@ -642,7 +642,9 @@ export function App() {
                                     }
                                     const result = await api.refreshCatalog();
                                     setStatusSuccess(true);
-                                    setStatus(result.skipped ? "当前未使用 API 通道" : result.changed
+                                    setStatus(result.skipped ? "当前未使用 API 通道" : result.native
+                                      ? result.changed ? "已启用原生模型发现，请重新启动 Codex 生效" : "模型目录由 Codex 原生管理"
+                                      : result.changed
                                       ? "模型目录已更新，请重新启动 Codex 生效"
                                       : "模型目录已是最新");
                                   }
