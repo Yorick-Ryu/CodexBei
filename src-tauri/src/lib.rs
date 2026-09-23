@@ -203,19 +203,50 @@ async fn configure(
     let revision = lock(&state.incoming)?.revision;
     let mut service = state.service.lock().await;
     service.refresh(None, true, false).await?;
+    let (revision_before, mut resolved) = {
+        let store = lock(&state.store)?;
+        (
+            store.revision()?,
+            store.credentials(&connection.api_key, &connection.base_url)?,
+        )
+    };
+    resolved.model = connection.model.clone();
+    let version = versions::client_version(&service.targets()?)
+        .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
+    let catalog = network::catalog(service.client(), resolved.clone(), &version).await?;
     let incoming = lock(&state.incoming)?;
     if incoming.revision != revision {
         return Err("收到新的配置链接，请等待新配置完成。".into());
     }
     let mut store = lock(&state.store)?;
+    store.check_revision(&revision_before)?;
     let plan = store.prepare(connection, keep_official_login, &service.current()?)?;
+    store.attach_catalog(&plan, &resolved, &catalog)?;
     let result = store.apply(&plan)?;
     Ok(prune_result(&store, result))
 }
 #[tauri::command]
-fn switch_channel(channel: String, state: State<AppState>) -> Result<Value> {
-    let mut store = lock(&state.store)?;
-    store.switch_channel(&channel)
+async fn switch_channel(
+    channel: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value> {
+    let (result, pending) = {
+        let mut store = lock(&state.store)?;
+        let result = store.switch_channel(&channel)?;
+        let pending = if channel == "api" {
+            Some((store.api_connection()?, store.revision()?))
+        } else {
+            None
+        };
+        (result, pending)
+    };
+    if let Some((connection, revision)) = pending {
+        tauri::async_runtime::spawn(async move {
+            let _ = sync_catalog(app.state::<AppState>(), connection, revision).await;
+        });
+    }
+    Ok(result)
 }
 #[tauri::command]
 async fn incoming(keep_official_login: bool, state: State<'_, AppState>) -> Result<Value> {
@@ -229,13 +260,55 @@ async fn incoming(keep_official_login: bool, state: State<'_, AppState>) -> Resu
     let connection = connection?;
     let mut service = state.service.lock().await;
     service.refresh(None, true, false).await?;
+    let revision_before = lock(&state.store)?.revision()?;
+    let version = versions::client_version(&service.targets()?)
+        .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
+    let catalog = network::catalog(service.client(), connection.clone(), &version).await?;
     let current = lock(&state.incoming)?;
     if current.revision != revision {
         return Ok(Value::Null);
     }
     let mut store = lock(&state.store)?;
-    let plan = store.prepare(connection, keep_official_login, &service.current()?)?;
+    store.check_revision(&revision_before)?;
+    let plan = store.prepare(connection.clone(), keep_official_login, &service.current()?)?;
+    store.attach_catalog(&plan, &connection, &catalog)?;
     let result = store.apply(&plan)?;
+    Ok(prune_result(&store, result))
+}
+#[tauri::command]
+async fn refresh_catalog(state: State<'_, AppState>) -> Result<Value> {
+    let (connection, revision) = {
+        let store = lock(&state.store)?;
+        if store.inspect()?["modelChannel"] != "api" {
+            return Ok(json!({"changed":false,"skipped":true}));
+        }
+        (store.api_connection()?, store.revision()?)
+    };
+    sync_catalog(state, connection, revision).await
+}
+async fn sync_catalog(
+    state: State<'_, AppState>,
+    connection: Connection,
+    revision: (PathBuf, String),
+) -> Result<Value> {
+    let (client, version) = {
+        let service = state.service.lock().await;
+        (
+            service.client().clone(),
+            versions::client_version(&service.targets()?)
+                .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?,
+        )
+    };
+    let catalog = network::catalog(&client, connection.clone(), &version).await?;
+    let mut store = lock(&state.store)?;
+    store.check_revision(&revision)?;
+    if store.catalog_matches(&catalog)? {
+        return Ok(json!({"changed":false}));
+    }
+    let plan = store.prepare_api_switch()?;
+    store.attach_catalog(&plan, &connection, &catalog)?;
+    let mut result = store.apply(&plan)?;
+    result["changed"] = json!(true);
     Ok(prune_result(&store, result))
 }
 #[tauri::command]
@@ -398,6 +471,7 @@ pub fn run() {
             switch_channel,
             incoming,
             models,
+            refresh_catalog,
             backups,
             backup_preview,
             restore,

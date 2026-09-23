@@ -61,6 +61,7 @@ export function installationLabel(v: { kind: string; runtimeVersion: string | nu
   return `桌面版${v.appVersion ? ` ${v.appVersion}` : ""} · 内核 ${v.runtimeVersion || "未知"}`;
 }
 export const api = {
+  refreshCatalog: () => invoke<{ changed: boolean; skipped?: boolean }>("refresh_catalog"),
   windowsDiagnostics: (baseUrl: string) => invoke<DiagnosticReport>("windows_diagnostics", { baseUrl }),
   check: (selection: Selection | null = null, force = false) =>
     invoke<Matching>("check", { selection, force }),

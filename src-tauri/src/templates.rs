@@ -509,7 +509,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
         let request = json!({"targets":[]});
-        let entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
+        let mut entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
+        entry["template"]["version"] = json!("1.0.2");
         Service::insert(&mut s.selected, entry.clone());
         for (version, available) in [
             ("1.0.2", false),
@@ -531,17 +532,21 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
         let request = json!({"targets":[]});
-        let entry = json!({"schemaVersion":1,"release":3,"request":request,"template":template()});
+        let release = serde_json::from_str::<Value>(include_str!("../../templates/bootstrap.json"))
+            .unwrap()["release"]
+            .as_u64()
+            .unwrap();
+        let entry = json!({"schemaVersion":1,"release":release,"request":request,"template":template()});
         s.accept(entry.clone(), &request).unwrap();
         let mut older = entry.clone();
-        older["release"] = json!(2);
+        older["release"] = json!(release - 1);
         assert!(s.accept(older, &request).is_err());
         let mut changed = entry.clone();
-        changed["release"] = json!(4);
+        changed["release"] = json!(release + 1);
         changed["template"]["set"]["model_reasoning_effort"] = json!("low");
         assert!(s.accept(changed, &request).is_err());
         let mut absent = entry;
-        absent["release"] = json!(4);
+        absent["release"] = json!(release + 1);
         absent["template"] = Value::Null;
         s.accept(absent, &request).unwrap();
         assert!(s.current(&request).is_err());

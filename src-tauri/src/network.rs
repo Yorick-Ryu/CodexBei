@@ -55,6 +55,13 @@ pub async fn models(
     connection: crate::config::Connection,
     version: &str,
 ) -> Result<Vec<String>> {
+    model_list(&catalog(client, connection, version).await?)
+}
+pub async fn catalog(
+    client: &reqwest::Client,
+    connection: crate::config::Connection,
+    version: &str,
+) -> Result<Value> {
     if !crate::versions::valid_version(version) {
         return Err("请先选择 Codex 内核版本。".into());
     }
@@ -76,7 +83,10 @@ pub async fn models(
     let value = bounded_json(response, 1024 * 1024)
         .await
         .map_err(|_| "模型列表获取失败，请稍后重试。".to_string())?;
-    model_list(&value)
+    if model_list(&value)?.is_empty() {
+        return Err("没有可用模型，已保留原配置。".into());
+    }
+    Ok(value)
 }
 #[cfg(test)]
 mod tests {

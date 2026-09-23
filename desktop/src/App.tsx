@@ -276,6 +276,17 @@ export function App() {
       try {
         const info = await api.check(null, true);
         if (active) setMatching(info);
+        if (active && info.modelClientVersion) {
+          try {
+            const result = await api.refreshCatalog();
+            if (active && result.changed) {
+              setStatusSuccess(true);
+              setStatus("模型目录已更新，请重新启动 Codex 生效");
+            }
+          } catch {
+            // Background failures keep the last working catalog without interrupting startup.
+          }
+        }
       } catch (error) {
         if (active) setStatus(errorText(error));
       } finally {
@@ -622,10 +633,23 @@ export function App() {
                                 id="refresh-models"
                                 className="text-button"
                                 disabled={disabled || modelsLoading}
-                                aria-busy={modelsLoading}
-                                onClick={() => setModelRefresh((v) => v + 1)}
+                                aria-busy={modelsLoading || busy}
+                                title="刷新模型列表并同步模型目录"
+                                onClick={() => void run(async () => {
+                                  if (inspection?.hasKey && inspection.modelChannel === "api") {
+                                    if (baseUrl.trim().replace(/\/$/, "") !== inspection.baseUrl?.replace(/\/$/, "") || apiKey !== inspection.apiKey) {
+                                      throw new Error("请先保存更改后的 API 地址和密钥，再刷新模型目录。");
+                                    }
+                                    const result = await api.refreshCatalog();
+                                    setStatusSuccess(true);
+                                    setStatus(result.skipped ? "当前未使用 API 通道" : result.changed
+                                      ? "模型目录已更新，请重新启动 Codex 生效"
+                                      : "模型目录已是最新");
+                                  }
+                                  setModelRefresh(v => v + 1);
+                                })}
                               >
-                                {modelsLoading ? "正在获取模型…" : "刷新列表"}
+                                {modelsLoading ? "刷新中…" : "刷新"}
                               </button>
                             </div>
                             <select

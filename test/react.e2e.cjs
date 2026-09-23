@@ -34,6 +34,10 @@ async function fixture(options = {}) {
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
     mockIPC(async (cmd, args) => {
       window.fixtureCalls.push(cmd);
+      if (cmd === 'refresh_catalog') {
+        if (window.fixtureCatalogError) throw '模型获取失败，已保留原样';
+        return { changed: !!window.fixtureCatalogChanged };
+      }
       if (cmd === 'plugin:app|version') return '0.1.0';
       if (cmd === 'plugin:updater|check') {
         if (window.fixtureUpdateCheckError) throw 'network';
@@ -125,6 +129,20 @@ async function openHistory(page) {
 async function openUpdater(page) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
 }
+
+test('React: catalog checks on startup and manual refresh reports changes and failures', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    assert.ok(await page.evaluate(() => window.fixtureCalls.includes('refresh_catalog')));
+    await page.locator('.settings-toggle').click();
+    await page.evaluate(() => { window.fixtureCatalogChanged = true; });
+    await page.locator('#refresh-models').click();
+    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('模型目录已更新'));
+    await page.evaluate(() => { window.fixtureCatalogError = true; });
+    await page.locator('#refresh-models').click();
+    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已保留原样'));
+  } finally { await f.close(); }
+});
 
 test('React: optional desktop notice closes without moving the form and yields to errors', async () => {
   const f = await fixture({ cliOnly: true }); const { page } = f;
