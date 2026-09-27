@@ -27,6 +27,9 @@ async function fixture(options = {}) {
     mockWindows('main');
     window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: 'https://api.beiapi.cn/v1', model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     window.fixtureBackups = [];
+    window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
+    window.fixtureClaudeBackups = [];
+    window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
     if (${!!options.cliOnly}) { window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli'); window.fixtureMatching.selection = { mode: 'installed', id: 'cli' }; window.fixtureMatching.modelClientVersion = '0.153.4'; }
@@ -34,6 +37,22 @@ async function fixture(options = {}) {
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
     mockIPC(async (cmd, args) => {
       window.fixtureCalls.push(cmd);
+      if (cmd === 'check' && window.fixtureHoldCheck) await new Promise(resolve => { window.fixtureReleaseCheck = resolve; });
+      if (cmd === 'incoming_tool') return window.fixtureIncomingTool || null;
+      if (args?.tool === 'claude') {
+        window.fixtureClaudeCalls.push({ cmd, args });
+        if (cmd === 'open_claude_installer') return null;
+        if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
+        if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
+        if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
+        if (cmd === 'models') return ['claude-sonnet-test', 'claude-opus-test'];
+        if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
+        if (cmd === 'incoming') { if (window.fixtureIncomingTool !== 'claude') return null; window.fixtureIncomingTool = null; return {}; }
+        if (cmd === 'backups') return [...window.fixtureClaudeBackups];
+        if (cmd === 'backup_preview') return {...window.fixtureClaudeBackups[0], content:'hidden'};
+        if (cmd === 'restore' || cmd === 'delete_backup') return {canceled:true};
+        if (cmd === 'open_config_file') {window.fixtureOpenedFile = window.fixtureClaude.file; return null;}
+      }
       if (cmd === 'refresh_catalog') {
         if (window.fixtureCatalogError) throw '模型获取失败，已保留原样';
         return { changed: !!window.fixtureCatalogChanged, native: !!window.fixtureCatalogNative };
@@ -62,6 +81,7 @@ async function fixture(options = {}) {
         return { schemaVersion: 1, hasDotEnvProxy: true, configurations: [{ source: '当前配置', content: 'model = "gpt-5.6-sol"' }], checks: [{ name: 'Codex .env', status: 'warning', detail: 'HTTPS_PROXY=http://127.0.0.1:7890; port=7890; tcp=UNREACHABLE' }, { name: '直连 HTTPS', status: 'ok', detail: 'GET https://api.beiapi.cn/v1/models; auth=NONE; HTTP 401; curl_exit=0; total=0.58s' }] };
       }
       if (cmd === 'check') {
+        (window.fixtureCheckForces ||= []).push(args.force);
         if (args.selection && window.fixtureVersionDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureVersionDelay));
         if (args.selection?.mode === 'manual') { if (!/^\\d+\\.\\d+\\.\\d+$/.test(args.selection.runtimeVersion)) throw args.selection.kind === 'cli' ? '请输入有效的 Codex CLI 版本。' : '请输入有效的内核版本及应用版本。'; window.fixtureMatching.modelClientVersion = args.selection.runtimeVersion; }
         if (args.selection) window.fixtureMatching.selection = args.selection;
@@ -79,6 +99,7 @@ async function fixture(options = {}) {
       }
       if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState };
       if (cmd === 'preview') {
+        window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
         await new Promise(resolve => setTimeout(resolve, lag));
         if (!args.baseUrl.startsWith('https://')) throw '请输入有效的 HTTPS API 地址。';
@@ -91,6 +112,12 @@ async function fixture(options = {}) {
         Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: 'api', baseUrl: args.connection.baseUrl, model: args.connection.model, keepOfficialLogin: args.keepOfficialLogin });
         window.fixtureBackups.push({ id: 'fixture-id', file: window.fixtureState.file, created: '2026-09-08T06:00:00.000Z', kind: 'configure', existed: false });
         return { backupId: 'fixture-id' };
+      }
+      if (cmd === 'switch_transport') {
+        await new Promise(resolve => setTimeout(resolve, window.fixtureTransportDelay || 0));
+        if (window.fixtureTransportError) throw window.fixtureTransportError;
+        window.fixtureState.supportsWebsockets = args.supportsWebsockets;
+        return { changed: true };
       }
       if (cmd === 'switch_channel') {
         await new Promise(resolve => setTimeout(resolve, window.fixtureChannelDelay || 0));
@@ -117,6 +144,49 @@ async function fixture(options = {}) {
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
+test('React: transport switches immediately without backups and preserves drafts on failure', async () => {
+  const { page, errors, close } = await fixture();
+  try {
+    const http = page.getByRole('radio', { name: 'HTTP', exact: true });
+    const ws = page.getByRole('radio', { name: 'WS', exact: true });
+    assert.equal(await page.locator('#keep-official-login').isChecked(), false);
+    assert.equal(await http.isChecked(), true);
+    await page.locator('#key').fill('sk-unsaved-fixture-draft');
+    await page.evaluate(() => { window.fixtureTransportDelay = 200; });
+    await ws.click();
+    await page.waitForFunction(() => document.getElementById('transport-protocol').getAttribute('aria-busy') === 'true');
+    assert.equal(await http.isDisabled(), true);
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('切换成功，新对话生效') && !document.getElementById('key').disabled && window.fixturePreviewTransport === true);
+    assert.equal(await ws.isChecked(), true);
+    assert.equal(await page.locator('#key').inputValue(), 'sk-unsaved-fixture-draft');
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    await page.evaluate(() => { window.fixtureTransportError = '模拟协议写入失败'; });
+    await http.click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('模拟协议写入失败') && !document.getElementById('key').disabled);
+    assert.equal(await ws.isChecked(), true);
+    assert.equal(await page.locator('#key').inputValue(), 'sk-unsaved-fixture-draft');
+    await page.evaluate(() => { window.fixtureTransportError = null; });
+    await http.click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('切换成功，新对话生效') && !document.getElementById('key').disabled && window.fixturePreviewTransport === false);
+    assert.equal(await http.isChecked(), true);
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    for (const width of [600, 460]) {
+      await page.setViewportSize({ width, height: 520 });
+      await page.locator('#transport-protocol').scrollIntoViewIfNeeded();
+      const layout = await page.locator('.action-row').evaluate(row => {
+        const a = row.querySelector('.action-options').getBoundingClientRect();
+        const b = row.querySelector('#apply').getBoundingClientRect();
+        const protocol = row.querySelector('#transport-protocol').getBoundingClientRect();
+        return { noOverlap: a.right <= b.left || a.top >= b.bottom || a.bottom <= b.top, inWindow: protocol.left >= 0 && protocol.right <= innerWidth };
+      });
+      assert.deepEqual(layout, { noOverlap: true, inWindow: true });
+      await page.screenshot({ path: path.join(output, 'transport-' + width + '.png') });
+    }
+    assert.deepEqual(errors, []);
+  } finally { await close(); }
+});
+
 async function chooseTheme(page, label) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('radio', { name: label, exact: true }).check();
@@ -130,30 +200,38 @@ async function openUpdater(page) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
 }
 
-test('React: catalog checks on startup and manual refresh reports changes and failures', async () => {
+test('React: startup and model refresh never write configuration', async () => {
   const f = await fixture(); const { page } = f;
   try {
-    assert.ok(await page.evaluate(() => window.fixtureCalls.includes('refresh_catalog')));
+    const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('refresh_catalog')), false);
     await page.locator('.settings-toggle').click();
-    await page.evaluate(() => { window.fixtureCatalogChanged = true; });
+    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
+    const count = await page.evaluate(() => window.fixtureCalls.filter(v => v === 'models').length);
     await page.locator('#refresh-models').click();
-    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('模型目录已更新'));
-    await page.evaluate(() => { window.fixtureCatalogError = true; });
-    await page.locator('#refresh-models').click();
-    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已保留原样'));
+    await page.waitForFunction(count => window.fixtureCalls.filter(v => v === 'models').length > count, count);
+    await page.locator('#model').selectOption('new-model');
+    await page.waitForFunction(() => !document.querySelector('#apply').disabled);
+    assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), before);
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.some(v => ['refresh_catalog', 'configure', 'restore', 'switch_channel'].includes(v))), false);
+    await page.locator('#apply').click();
+    await page.waitForFunction(() => window.fixtureState.model === 'new-model');
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
   } finally { await f.close(); }
 });
 
-test('React: native catalog refresh describes Codex ownership rather than claiming a directory download', async () => {
+test('React: model refresh errors preserve the saved configuration', async () => {
   const f = await fixture(); const { page } = f;
   try {
+    const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
     await page.locator('.settings-toggle').click();
-    await page.evaluate(() => { window.fixtureCatalogNative = true; window.fixtureCatalogChanged = true; });
+    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
+    await page.evaluate(() => { window.fixtureModelsError = '无法获取模型，请检查权限。'; });
     await page.locator('#refresh-models').click();
-    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已启用原生模型发现'));
-    await page.evaluate(() => { window.fixtureCatalogChanged = false; });
-    await page.locator('#refresh-models').click();
-    await page.waitForFunction(() => document.querySelector('#status').textContent.includes('模型目录由 Codex 原生管理'));
+    await page.waitForFunction(() => document.querySelector('#models-help').textContent.includes('无法获取模型'));
+    assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), before);
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
   } finally { await f.close(); }
 });
 
@@ -748,7 +826,7 @@ test('React: provider selection slides between options and respects reduced moti
   const f = await fixture(); const { page } = f;
   try {
     await page.locator('#keep-official-login').check();
-    for (const [channel, destination] of [['official', 44], ['api', 0]]) {
+    for (const [channel, destination] of [['official', 40], ['api', 0]]) {
       const positions = await page.evaluate(async channel => {
         document.querySelector(`input[name="model-channel"][value="${channel}"]`).click();
         const samples = [];
@@ -759,7 +837,7 @@ test('React: provider selection slides between options and respects reduced moti
         }
         return samples;
       }, channel);
-      assert.ok(positions.some(x => x > 0 && x < 44), 'selection should pass through intermediate positions');
+      assert.ok(positions.some(x => x > 0 && x < 40), 'selection should pass through intermediate positions');
       assert.equal(positions.at(-1), destination);
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -1071,3 +1149,92 @@ for (const kind of ['desktop', 'cli']) {
     } finally { await f.close(); }
   });
 }
+
+
+test('React: Claude tab keeps drafts isolated, previews mapping and configures JSON with its own backups', async () => {
+  const f = await fixture(); const { page } = f;
+  page.setDefaultTimeout(8000);
+  try {
+    await page.locator('#key').fill('sk-codex-unsaved-fixture');
+    const saved = await page.evaluate(() => JSON.stringify(window.fixtureState));
+    await page.getByRole('tab', {name:'Claude Code'}).click();
+    await page.waitForFunction(() => document.querySelector('#key')?.value === 'sk-claude-fixture-not-real' && !document.querySelector('#key').disabled);
+    assert.equal(await page.locator('#claude-panel').getAttribute('aria-labelledby'), 'claude-tab');
+    assert.equal(await page.locator('#keep-official-login').count(), 0);
+    assert.equal(await page.locator('#model-channel').count(), 0);
+    await page.getByRole('button', {name:'安装指南', exact:true}).click();
+    assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(call => call.cmd === 'open_claude_installer')), true);
+    await page.locator('#toggle-settings').click();
+    await page.waitForFunction(() => document.querySelector('#model option[value="claude-opus-test"]'));
+    await page.locator('#mapping-opus').selectOption('claude-opus-test');
+    await page.waitForFunction(() => document.querySelector('#preview-code').textContent.includes('claude-opus-test'));
+    assert.equal((await page.locator('#preview-code').textContent()).includes('sk-claude-fixture'), false);
+    await page.getByRole('tab', {name:'ChatGPT'}).click();
+    await page.waitForFunction(() => document.querySelector('#key')?.value === 'sk-codex-unsaved-fixture' && !document.querySelector('#key').disabled);
+    assert.deepEqual(await page.evaluate(() => window.fixtureCheckForces), [false, false]);
+    await page.getByRole('tab', {name:'Claude Code'}).click();
+    await page.waitForFunction(() => document.querySelector('#mapping-opus')?.value === 'claude-opus-test' && !document.querySelector('#apply').disabled);
+    assert.equal(await page.locator('#toggle-settings').getAttribute('aria-expanded'), 'true');
+    await page.locator('#mapping-opus').scrollIntoViewIfNeeded();
+    await page.screenshot({path: path.join(output, 'claude-settings.png')});
+    await page.locator('#apply').click();
+    await page.getByRole('heading', {name:'配置完成'}).waitFor();
+    assert.match(await page.locator('#success').innerText(), /Claude Code.*新会话生效/);
+    assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
+    assert.equal(await page.evaluate(() => window.fixtureClaude.mapping.opus), 'claude-opus-test');
+    await page.locator('#done').click();
+    await openHistory(page);
+    await page.getByRole('button', {name:'查看', exact:true}).click();
+    await page.getByText('/isolated/claude/settings.json', {exact:true}).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: incoming Claude link selects Claude and never configures Codex', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    const saved = await page.evaluate(() => JSON.stringify(window.fixtureState));
+    await page.evaluate(async () => {
+      window.fixtureIncomingTool = 'claude';
+      await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {event:'incoming-changed',payload:null});
+    });
+    await page.getByRole('heading', {name:'配置完成'}).waitFor();
+    assert.equal(await page.getByRole('tab', {name:'Claude Code'}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: tool tabs keep icon positions and configuration label stable while loading', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await chooseTheme(page, '雾白');
+    const positions = () => page.locator('.tabs .agent-icon').evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; }));
+    const before = await positions();
+    await page.locator('#key').fill('sk-steady-draft');
+    await page.waitForFunction(() => !document.querySelector('#apply').disabled);
+    for (const tool of ['Claude Code', 'ChatGPT']) {
+      await page.evaluate(() => { window.fixtureHoldCheck = true; window.fixtureReleaseCheck = null; });
+      await page.getByRole('tab', {name:tool,exact:true}).click();
+      await page.waitForFunction(() => !!window.fixtureReleaseCheck);
+      assert.deepEqual(await positions(), before);
+      assert.equal(await page.locator('#apply').innerText(), '一键配置');
+      assert.equal(await page.locator('#apply').isDisabled(), true);
+      if (tool === 'ChatGPT') {
+        assert.equal(await page.locator('#key').inputValue(), 'sk-steady-draft');
+        for (const selector of ['#key', '#apply']) {
+          assert.equal(await page.locator(selector).evaluate(el => getComputedStyle(el).opacity), '1');
+        }
+      }
+      assert.equal(await page.getByRole('tab', {name:tool,exact:true}).isDisabled(), false);
+      await page.evaluate(() => { window.fixtureHoldCheck = false; window.fixtureReleaseCheck(); });
+      await page.waitForFunction(() => document.querySelector('#configure')?.getAttribute('aria-busy') === 'false');
+      assert.deepEqual(await positions(), before);
+      assert.equal(await page.locator('#apply').innerText(), '一键配置');
+    }
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});

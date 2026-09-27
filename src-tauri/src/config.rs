@@ -80,7 +80,20 @@ pub fn model(input: &str) -> Result<String> {
     }
     Ok(input.into())
 }
+#[cfg(test)]
 pub fn parse_link(input: &str) -> Result<Option<Connection>> {
+    parse_tool_link(input).map(|value| value.map(|(_, connection)| connection))
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tool {
+    #[default]
+    Codex,
+    Claude,
+}
+
+pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
     let invalid = || err("配置链接无效，请从网站重新打开。");
     if input.len() > 8192 {
         return Err(invalid());
@@ -88,7 +101,7 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
     let u = url::Url::parse(input).map_err(|_| invalid())?;
     if u.scheme() != "codexbei"
         || u.host_str() != Some("configure")
-        || u.path() != "/codex"
+        || !["/codex", "/claude"].contains(&u.path())
         || u.port().is_some()
         || !u.username().is_empty()
         || u.password().is_some()
@@ -96,6 +109,16 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
     {
         return Err(invalid());
     }
+    let tool = if u.path() == "/claude" {
+        Tool::Claude
+    } else {
+        Tool::Codex
+    };
+    let preset = if tool == Tool::Claude {
+        "claude-v1"
+    } else {
+        "codexbei-v1"
+    };
     let pairs: Vec<_> = u.query_pairs().collect();
     if pairs.is_empty() {
         return Ok(None);
@@ -109,14 +132,22 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
             return Err(invalid());
         }
     }
-    if fields.len() != 4 || fields.get("preset").map(String::as_str) != Some("codexbei-v1") {
+    if fields.len() != 4 || fields.get("preset").map(String::as_str) != Some(preset) {
         return Err(invalid());
     }
-    Ok(Some(Connection {
-        base_url: endpoint(fields.get("base_url").ok_or_else(invalid)?)?,
-        api_key: key(fields.get("api_key").ok_or_else(invalid)?)?,
-        model: model(fields.get("model").ok_or_else(invalid)?)?,
-    }))
+    let base = fields.get("base_url").ok_or_else(invalid)?;
+    Ok(Some((
+        tool,
+        Connection {
+            base_url: if tool == Tool::Claude {
+                crate::claude::endpoint(base)?
+            } else {
+                endpoint(base)?
+            },
+            api_key: key(fields.get("api_key").ok_or_else(invalid)?)?,
+            model: model(fields.get("model").ok_or_else(invalid)?)?,
+        },
+    )))
 }
 
 pub fn read(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -340,7 +371,13 @@ fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> 
         }
     }
     let provider = providers::for_write(&doc, &c.base_url)?;
-    merge(doc.as_item_mut(), &preset(c, keep, template, &provider))?;
+    let transport =
+        item(&doc, &["model_providers", &provider, "supports_websockets"]).and_then(Item::as_bool);
+    let mut fields = preset(c, keep, template, &provider);
+    if let Some(enabled) = transport {
+        fields["model_providers"][&provider]["supports_websockets"] = json!(enabled);
+    }
+    merge(doc.as_item_mut(), &fields)?;
     let after = doc.to_string().into_bytes();
     document(Some(&after))?;
     Ok(after)
@@ -727,6 +764,11 @@ impl Store {
         let mut value: Json = toml_edit::de::from_str(&shown).map_err(|_| err("配置预览无效。"))?;
         let fields = value["model_providers"]["custom"].take();
         value["model_providers"] = json!({ &provider: fields });
+        if let Some(enabled) = item(&doc, &["model_providers", &provider, "supports_websockets"])
+            .and_then(Item::as_bool)
+        {
+            value["model_providers"][&provider]["supports_websockets"] = json!(enabled);
+        }
         if channel == "api" {
             value["model_provider"] = json!(provider);
         }
@@ -758,7 +800,7 @@ impl Store {
             "official"
         };
         Ok(
-            json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
+            json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
     pub fn prepare(&mut self, mut c: Connection, keep: bool, template: &Json) -> Result<String> {
@@ -847,6 +889,9 @@ impl Store {
         Ok(metadata)
     }
     pub fn apply(&mut self, id: &str) -> Result<Json> {
+        self.apply_with_backup(id, true)
+    }
+    pub fn apply_with_backup(&mut self, id: &str, create_backup: bool) -> Result<Json> {
         let plan = self
             .plans
             .remove(id)
@@ -860,13 +905,17 @@ impl Store {
         if !self.selected.parent().unwrap().exists() && self.selected == self.default_file {
             private_dir(self.selected.parent().unwrap())?;
         }
-        let backup = self.snapshot(
-            &plan.file,
-            plan.before.as_deref(),
-            Some(&plan.after),
-            "configure",
-            Some(plan.template),
-        )?;
+        let backup = if create_backup {
+            Some(self.snapshot(
+                &plan.file,
+                plan.before.as_deref(),
+                Some(&plan.after),
+                "configure",
+                Some(plan.template),
+            )?)
+        } else {
+            None
+        };
         if digest(read(&plan.file)?.as_deref()) != digest(plan.before.as_deref()) {
             return Err(err(CHANGED));
         }
@@ -905,7 +954,43 @@ impl Store {
         if digest(read(&plan.file)?.as_deref()) != digest(Some(&plan.after)) {
             return Err(err("写入后校验失败，请从备份还原。"));
         }
-        Ok(json!({ "file": plan.file, "backupId": backup.id }))
+        let mut result = json!({ "file": plan.file });
+        if let Some(backup) = backup {
+            result["backupId"] = json!(backup.id);
+        }
+        Ok(result)
+    }
+    pub fn switch_transport(&mut self, supports_websockets: bool) -> Result<Json> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
+        }
+        let provider = self
+            .api_provider(&doc)?
+            .ok_or_else(|| err("请先完成 API 密钥配置。"))?;
+        if item(&doc, &["model_providers", &provider, "supports_websockets"])
+            .and_then(Item::as_bool)
+            == Some(supports_websockets)
+        {
+            return Ok(json!({ "file": file, "changed": false }));
+        }
+        merge(
+            doc.as_item_mut(),
+            &json!({ "model_providers": { &provider: { "supports_websockets": supports_websockets } } }),
+        )?;
+        let after = doc.to_string().into_bytes();
+        document(Some(&after))?;
+        if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
+            return Err(err(CHANGED));
+        }
+        atomic_write(&file, &after, 0o600)?;
+        if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
+            return Err(err("传输协议写入后校验失败，请重新读取配置后重试。"));
+        }
+        self.plans.clear();
+        Ok(json!({ "file": file, "changed": true }))
     }
     pub fn switch_channel(&mut self, channel: &str) -> Result<Json> {
         let file = self.target(&self.selected)?;
@@ -969,15 +1054,6 @@ impl Store {
         if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
             return Err(err(CHANGED));
         }
-        if managed_catalog || self.native_state()?.is_some() {
-            self.snapshot(
-                &file,
-                before.as_deref(),
-                Some(&after),
-                "switch-channel",
-                None,
-            )?;
-        }
         atomic_write(&file, &after, 0o600)?;
         if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
             return Err(err("通道写入后校验失败，请重新读取配置后重试。"));
@@ -999,7 +1075,9 @@ impl Store {
         }
         let data = read(&folder.join("metadata.json"))?.ok_or_else(|| err("备份记录不存在。"))?;
         let meta: Metadata = serde_json::from_slice(&data).map_err(|_| err("备份记录损坏。"))?;
-        if meta.id != id || !["configure", "restore", "switch"].contains(&meta.kind.as_str()) {
+        if meta.id != id
+            || !["configure", "restore", "switch", "switch-channel"].contains(&meta.kind.as_str())
+        {
             return Err(err("备份记录损坏。"));
         }
         let bytes = if meta.existed {
@@ -1143,6 +1221,36 @@ mod tests {
         (dir, s)
     }
     #[test]
+    fn channel_switch_catalog_sync_does_not_create_backups() {
+        for native in [false, true] {
+            let (_dir, mut s) = store();
+            let c = connection();
+            let plan = s.prepare(c.clone(), false, &template()).unwrap();
+            s.apply(&plan).unwrap();
+            let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
+            s.switch_channel("official").unwrap();
+            s.switch_channel("api").unwrap();
+            let plan = s.prepare_api_switch().unwrap();
+            if native {
+                assert!(s.attach_native_catalog(&plan, &c).unwrap());
+            } else {
+                let catalog = json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+                s.attach_catalog(&plan, &c, &catalog).unwrap();
+            }
+            assert!(s
+                .apply_with_backup(&plan, false)
+                .unwrap()
+                .get("backupId")
+                .is_none());
+            s.switch_channel("official").unwrap();
+            assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+            assert_eq!(
+                fs::read_dir(s.root.join("backups")).unwrap().count(),
+                backups
+            );
+        }
+    }
+    #[test]
     fn native_catalog_migrates_and_restores_original_settings() {
         let (_dir, mut s) = store();
         fs::write(&s.selected, "model_catalog_json = '/original/models.json'\n[features]\napi_key_model_discovery = false\nother_feature = true\n").unwrap();
@@ -1169,6 +1277,7 @@ mod tests {
         assert_eq!(fs::read(s.catalog_path().unwrap()).unwrap(), bytes);
         let plan = s.prepare_api_switch().unwrap();
         assert!(!s.attach_native_catalog(&plan, &c).unwrap());
+        let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
         s.switch_channel("official").unwrap();
         let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
         assert_eq!(
@@ -1183,6 +1292,11 @@ mod tests {
         assert!(doc["model_providers"]["custom"]
             .get("model_catalog_url")
             .is_none());
+        s.switch_channel("api").unwrap();
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
     }
     #[test]
     fn native_configure_downgrade_and_user_override_are_safe() {
@@ -1280,7 +1394,12 @@ mod tests {
         let plan = s.prepare(c.clone(), false, &template()).unwrap();
         s.attach_catalog(&plan, &c, &catalog).unwrap();
         s.apply(&plan).unwrap();
+        let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
         s.switch_channel("official").unwrap();
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
         let mut doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
         assert!(doc.get("model_catalog_json").is_none());
         let revision = s.revision().unwrap();
@@ -1585,6 +1704,50 @@ mod tests {
         )
         .unwrap()
         .contains("sk-"));
+    }
+    #[test]
+    fn switches_transport_without_backups_and_preserves_selection_on_configure() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], true);
+        let initial = fs::read(&s.selected).unwrap();
+        let stale = s.prepare(c.clone(), true, &template()).unwrap();
+        let result = s.switch_transport(false).unwrap();
+        assert_eq!(result["changed"], true);
+        assert!(result.get("backupId").is_none());
+        assert!(s.apply_with_backup(&stale, false).is_err());
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "api");
+        let preview = s.preview(&c.base_url, &c.model, true, "api", &template()).unwrap();
+        assert!(preview.contains("supports_websockets = false"));
+        let saved = fs::read(&s.selected).unwrap();
+        assert_eq!(s.switch_transport(false).unwrap()["changed"], false);
+        assert_eq!(fs::read(&s.selected).unwrap(), saved);
+        let plan = s.prepare(c, true, &template()).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        s.switch_transport(true).unwrap();
+        assert_eq!(fs::read(&s.selected).unwrap(), initial);
+        s.switch_channel("official").unwrap();
+        s.switch_transport(false).unwrap();
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), 0);
+    }
+    #[test]
+    fn transport_switch_rejects_unconfigured_invalid_and_profile_files() {
+        let (_dir, mut s) = store();
+        assert!(s.switch_transport(true).is_err());
+        assert!(!s.selected.exists());
+        for content in ["not TOML", "profile = 'work'", "model_providers = 'wrong'"] {
+            fs::write(&s.selected, content).unwrap();
+            assert!(s.switch_transport(false).is_err());
+            assert_eq!(fs::read_to_string(&s.selected).unwrap(), content);
+        }
+        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), 0);
     }
     #[test]
     fn switches_model_channel_immediately_without_backups_or_losing_credentials() {

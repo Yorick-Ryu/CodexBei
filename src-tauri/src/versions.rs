@@ -81,7 +81,7 @@ pub fn parse_version(output: &str) -> Option<String> {
     let value = parts.next()?;
     valid_version(value).then(|| value.to_owned())
 }
-async fn command(executable: &Path, args: &[&str]) -> Result<String> {
+pub(crate) async fn command(executable: &Path, args: &[&str]) -> Result<String> {
     command_with_timeout(executable, args, Duration::from_secs(4)).await
 }
 async fn command_with_timeout(
