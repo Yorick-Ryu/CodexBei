@@ -32,6 +32,7 @@ async function fixture(options = {}) {
     window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
+    window.fixtureOfficialLogin = ${options.officialLogin !== false};
     if (${!!options.cliOnly}) { window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli'); window.fixtureMatching.selection = { mode: 'installed', id: 'cli' }; window.fixtureMatching.modelClientVersion = '0.153.4'; }
     if (${!!options.noInstallations}) window.fixtureMatching.installations = [];
     window.fixtureInitialError = ${JSON.stringify(options.initialError || false)};
@@ -98,6 +99,11 @@ async function fixture(options = {}) {
         return null;
       }
       if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState };
+      if (cmd === 'has_official_login') {
+        if (window.fixtureOfficialLoginDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureOfficialLoginDelay));
+        if (window.fixtureOfficialLoginError) throw '无法检测官方登录状态，请重试。';
+        return window.fixtureOfficialLogin;
+      }
       if (cmd === 'preview') {
         window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
@@ -144,6 +150,75 @@ async function fixture(options = {}) {
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
+test('React: missing official login requires confirmation and cancel keeps the preference off', async () => {
+  const f = await fixture({ officialLogin: false }); const { page } = f;
+  try {
+    const checkbox = page.locator('#keep-official-login');
+    const dialog = page.getByRole('dialog', { name: '开启保留官方登录' });
+    const saved = await page.evaluate(() => JSON.stringify(window.fixtureState));
+    assert.equal(await checkbox.isChecked(), false);
+    for (const [theme, width] of [['雾白', 600], ['石墨灰', 460]]) {
+      await chooseTheme(page, theme);
+      await page.setViewportSize({ width, height: 460 });
+      await checkbox.click();
+      await dialog.waitFor();
+      assert.equal(await checkbox.isChecked(), false);
+      assert.equal(await page.getByRole('radio', { name: '官方', exact: true }).isDisabled(), true);
+      assert.equal(await dialog.getAttribute('class'), 'modal modal--default');
+      assert.ok((await dialog.textContent()).includes('当前未检测到官方账号'));
+      const box = await dialog.boundingBox();
+      assert.ok(box.x >= 0 && box.x + box.width <= width && box.y >= 0 && box.y + box.height <= 460);
+      await page.screenshot({ path: path.join(output, `official-login-confirm-${width}.png`) });
+      await dialog.getByRole('button', { name: '保持关闭', exact: true }).click();
+      assert.equal(await checkbox.isChecked(), false);
+      assert.equal(await checkbox.evaluate(el => document.activeElement === el), true);
+    }
+    for (const dismiss of ['Escape', 'close']) {
+      await checkbox.click();
+      await dialog.waitFor();
+      if (dismiss === 'Escape') await page.keyboard.press('Escape');
+      else await dialog.getByRole('button', { name: '关闭开启保留官方登录', exact: true }).click();
+      assert.equal(await checkbox.isChecked(), false);
+      assert.equal(await dialog.isVisible(), false);
+    }
+    await checkbox.click();
+    await dialog.getByRole('button', { name: '仍要开启', exact: true }).click();
+    assert.equal(await checkbox.isChecked(), true);
+    await page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('requires_openai_auth = true'));
+    assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.some(cmd => ['configure', 'switch_channel'].includes(cmd))), false);
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    // Turning off needs no check; every new enable checks the file again.
+    await checkbox.uncheck();
+    await page.evaluate(() => { window.fixtureOfficialLogin = true; });
+    await checkbox.click();
+    await page.waitForFunction(() => document.getElementById('keep-official-login').checked);
+    assert.equal(await dialog.isVisible(), false);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(cmd => cmd === 'has_official_login').length), 6);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('React: official login check waits before enabling and failures keep it off', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    const checkbox = page.locator('#keep-official-login');
+    await page.evaluate(() => { window.fixtureOfficialLoginDelay = 500; });
+    await checkbox.click();
+    assert.equal(await checkbox.isChecked(), false);
+    assert.equal(await checkbox.isDisabled(), true);
+    await page.waitForFunction(() => document.getElementById('keep-official-login').checked && !document.getElementById('keep-official-login').disabled);
+    assert.equal(await page.locator('#official-login-confirm').isVisible(), false);
+    await checkbox.uncheck();
+    await page.evaluate(() => { window.fixtureOfficialLoginDelay = 0; window.fixtureOfficialLoginError = true; });
+    await checkbox.click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('无法检测官方登录状态'));
+    assert.equal(await checkbox.isChecked(), false);
+    assert.equal(await page.locator('#official-login-confirm').isVisible(), false);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: transport switches immediately without backups and preserves drafts on failure', async () => {
   const { page, errors, close } = await fixture();
   try {
@@ -181,7 +256,11 @@ test('React: transport switches immediately without backups and preserves drafts
         return { noOverlap: a.right <= b.left || a.top >= b.bottom || a.bottom <= b.top, inWindow: protocol.left >= 0 && protocol.right <= innerWidth };
       });
       assert.deepEqual(layout, { noOverlap: true, inWindow: true });
+      await page.locator('#transport-protocol').hover();
+      assert.equal(await page.getByRole('tooltip').textContent(), '传输协议');
       await page.screenshot({ path: path.join(output, 'transport-' + width + '.png') });
+      await page.mouse.move(10, 100);
+      assert.equal(await page.getByRole('tooltip').isVisible(), false);
     }
     assert.deepEqual(errors, []);
   } finally { await close(); }
@@ -761,7 +840,7 @@ test('React: login checkbox gates providers and its pixels stay stable during ch
         assert.equal(await providers.getAttribute('aria-disabled'), 'false');
         assert.equal(await providers.getByRole('radio', { name: '官方', exact: true }).isDisabled(), false);
         await providers.hover();
-        assert.equal(await page.locator('#provider-tooltip').count(), 0);
+        assert.equal(await page.locator('#provider-tooltip').textContent(), '提供商');
         await page.getByRole('radio', { name: 'API', exact: true }).focus();
         await page.waitForFunction(() => !document.querySelector('main').dataset.channelUpdating && !document.getElementById('apply').disabled);
         await page.waitForTimeout(160);

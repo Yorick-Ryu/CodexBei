@@ -1163,7 +1163,7 @@ dialog:focus {
 .channel-segments[data-channel="ws"]::before {
   transform: translateX(var(--channel-option-width));
 }
-.channel-segments[aria-disabled="true"]::before {
+.channel-segments[data-channel][aria-disabled="true"]::before {
   opacity: 0.5;
 }
 main[data-channel-updating] .channel-segments[data-channel]::before {
@@ -1243,6 +1243,9 @@ main[data-channel-updating] .channel-segments[data-channel]::before {
   color: var(--text);
   background: var(--hover);
 }
+.channel-segment input:disabled:not(:checked) + span {
+  color: color-mix(in srgb, var(--muted) 50%, var(--bg));
+}
 .channel-segment input:checked + span {
   color: var(--on-accent);
   background: transparent;
@@ -1253,25 +1256,24 @@ main[data-channel-updating] .channel-segments[data-channel]::before {
 }
 .channel-segment:has(input:disabled) {
   cursor: default;
-  opacity: 0.5;
 }
 @media (max-width: 500px) {
   .action-options {
     gap: 12px;
   }
-  .channel-title {
-    display: none;
-  }
 }
 
 /* Keep the existing form appearance while a short routing write holds the lock. */
-main[data-channel-updating] :is(.login-option, .channel-segment):has(input:disabled),
+main[data-channel-updating] .login-option:has(input:disabled),
 main[data-channel-updating] :is(#choose, #open-config, #refresh-models, #change-version):disabled,
 main[data-channel-updating][data-has-key="true"] :is(#toggle-key, #clear-key):disabled,
 main[data-channel-updating][data-has-base-url="true"] #clear-base-url:disabled,
 main[data-channel-updating][data-template-update="true"] #update-template:disabled,
 main[data-channel-updating] #apply[data-ready="true"]:disabled {
   opacity: 1;
+}
+main[data-channel-updating] .channel-segment input:disabled:not(:checked) + span {
+  color: var(--muted);
 }
 main[data-channel-updating] input:disabled,
 main[data-channel-updating] select:disabled {
@@ -1328,6 +1330,8 @@ main[data-channel-updating] select:disabled {
 .modal--tall .modal-body { flex: 1; }
 .modal-body > :not(#backup-preview-code) { flex-shrink: 0; }
 .modal-body p { line-height: 1.6; overflow-wrap: anywhere; }
+.modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; }
+.modal-actions .secondary { min-height: 36px; }
 
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .settings-theme-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 8px; }

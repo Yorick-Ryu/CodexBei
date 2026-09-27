@@ -4,6 +4,7 @@ mod diagnostics;
 mod editor;
 mod matching;
 mod network;
+mod official_auth;
 mod providers;
 mod redact;
 mod templates;
@@ -152,6 +153,11 @@ fn receive(app: &tauri::AppHandle, text: &str) {
         let _ = window.set_focus();
     }
 }
+#[tauri::command]
+fn has_official_login(state: State<AppState>) -> Result<bool> {
+    Ok(official_auth::detected(&lock(&state.store)?.selected))
+}
+
 #[tauri::command]
 fn inspect(tool: Option<Tool>, state: State<AppState>) -> Result<Value> {
     if tool == Some(Tool::Claude) {
@@ -644,6 +650,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             inspect,
+            has_official_login,
             check,
             update_template,
             choose,

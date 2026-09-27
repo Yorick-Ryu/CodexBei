@@ -75,6 +75,7 @@ export function toolApi(tool: Tool) {
   models: (apiKey: string, baseUrl: string) =>
     invoke<string[]>("models", { apiKey, baseUrl }),
   inspect: () => invoke<Inspection>("inspect"),
+  hasOfficialLogin: () => invoke<boolean>("has_official_login"),
   choose: () => invoke<Inspection>("choose"),
   openConfigFile: () => invoke<void>("open_config_file"),
   preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official", mapping?: Mapping) =>

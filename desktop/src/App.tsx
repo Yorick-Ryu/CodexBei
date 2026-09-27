@@ -85,13 +85,14 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [baseUrl, setBaseUrl] = useState(initialDraft.current?.baseUrl ?? defaultBase);
   const [model, setModel] = useState(initialDraft.current?.model ?? defaultModel);
   const [keep, setKeep] = useState(initialDraft.current?.keep ?? false);
+  const [officialLoginConfirmOpen, setOfficialLoginConfirmOpen] = useState(false);
   const [visibleKey, setVisibleKey] = useState(false);
   const [busy, setBusy] = useState(true);
   const [initializing, setInitializing] = useState(true);
   const [configuring, setConfiguring] = useState(false);
   const [channelSwitching, setChannelSwitching] = useState(false);
   const [transportSwitching, setTransportSwitching] = useState(false);
-  const [channelTooltipOpen, setChannelTooltipOpen] = useState(false);
+  const [actionTooltip, setActionTooltip] = useState<"provider" | "transport" | null>(null);
   const [previewChannel, setPreviewChannel] = useState<string>();
   const [loginPreviewPending, setLoginPreviewPending] = useState(false);
   const [status, setStatus] = useState("");
@@ -264,6 +265,24 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setFileError(errorText(error));
     }
   });
+  const applyLoginPreference = (enabled: boolean) => {
+    setPreviewPending(true);
+    setLoginPreviewPending(true);
+    setKeep(enabled);
+    keepRef.current = enabled;
+    setActionTooltip(null);
+  };
+  const changeLoginPreference = (enabled: boolean) => {
+    if (!enabled) {
+      applyLoginPreference(false);
+      return;
+    }
+    setActionTooltip(null);
+    void run(async () => {
+      if (await api.hasOfficialLogin()) applyLoginPreference(true);
+      else setOfficialLoginConfirmOpen(true);
+    }, false, false);
+  };
   const switchChannel = (channel: "api" | "official") => {
     if (!keep) return;
     void run(async () => {
@@ -551,7 +570,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           </div>
         )}
       </header>
-      <div className="content-scroll" onScrollCapture={() => setChannelTooltipOpen(false)}>
+      <div className="content-scroll" onScrollCapture={() => setActionTooltip(null)}>
         <main className={page !== "history" ? "config-main" : undefined} data-restore-ready={restoringDraft.current && !!apiKey.trim() && !!preview && !previewError && !!matching && !matching.needsSelection || undefined} data-restoring={(initializing || previewPending) && restoringDraft.current || undefined} data-channel-updating={channelUpdating || undefined} data-has-key={!!apiKey} data-has-base-url={!!baseUrl} data-template-update={!!matching?.templateUpdateAvailable}>
           {page !== "history" ? (
             <div id="configuration-page">
@@ -894,36 +913,30 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                               id="keep-official-login"
                               type="checkbox"
                               checked={keep}
-                              onChange={(e) => {
-                                setPreviewPending(true);
-                                setLoginPreviewPending(true);
-                                setKeep(e.target.checked);
-                                setChannelTooltipOpen(false);
-                              }}
+                              onChange={(e) => changeLoginPreference(e.target.checked)}
                               disabled={disabled}
                             />
                             保留官方登录
                           </label>
                           <div className="channel-option">
-                            <span className="channel-title" id="model-channel-label">提供商</span>
                             <div
                               id="model-channel"
                               className="channel-segments"
-                              data-channel={inspection?.modelChannel}
+                              data-channel={inspection?.modelChannel ?? "api"}
                               role="radiogroup"
-                              aria-labelledby="model-channel-label"
+                              aria-label="提供商"
                               aria-busy={channelUpdating}
                               aria-disabled={disabled || !keep}
-                              aria-describedby={channelTooltipOpen && !keep ? "provider-tooltip" : undefined}
+                              aria-describedby={actionTooltip === "provider" ? "provider-tooltip" : undefined}
                               tabIndex={!keep ? 0 : undefined}
-                              onMouseEnter={() => setChannelTooltipOpen(!keep)}
-                              onMouseLeave={() => setChannelTooltipOpen(false)}
-                              onFocus={() => setChannelTooltipOpen(!keep)}
+                              onMouseEnter={() => setActionTooltip("provider")}
+                              onMouseLeave={() => setActionTooltip(null)}
+                              onFocus={() => setActionTooltip("provider")}
                               onBlur={(event) => {
-                                if (!event.currentTarget.contains(event.relatedTarget)) setChannelTooltipOpen(false);
+                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
                               }}
                               onKeyDown={(event) => {
-                                if (event.key === "Escape") setChannelTooltipOpen(false);
+                                if (event.key === "Escape") setActionTooltip(null);
                               }}
                             >
                               {([
@@ -935,30 +948,40 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                     type="radio"
                                     name="model-channel"
                                     value={channel}
-                                    checked={inspection?.modelChannel === channel}
+                                    checked={(inspection?.modelChannel ?? "api") === channel}
                                     disabled={disabled || !keep}
                                     onChange={() => switchChannel(channel)}
                                   />
                                   <span>{label}</span>
                                 </label>
                               ))}
-                              {channelTooltipOpen && !keep && (
+                              {actionTooltip === "provider" && (
                                 <span id="provider-tooltip" className="channel-tooltip" role="tooltip">
-                                  请先打开保留官方登录
+                                  {keep ? "提供商" : "请先打开保留官方登录"}
                                 </span>
                               )}
                             </div>
                           </div>
-                          <div className="channel-option transport-option" title={inspection?.baseUrl ? "API 通道的传输协议，切换后立即保存，无需一键配置" : "请先完成 API 密钥配置"}>
-                            <span className="transport-title" id="transport-protocol-label">传输协议</span>
+                          <div className="channel-option transport-option">
                             <div
                               id="transport-protocol"
                               className="channel-segments"
-                              data-channel={inspection?.baseUrl ? (inspection.supportsWebsockets ? "ws" : "http") : undefined}
+                              data-channel={inspection?.supportsWebsockets ? "ws" : "http"}
                               role="radiogroup"
-                              aria-labelledby="transport-protocol-label"
+                              aria-label="传输协议"
                               aria-busy={transportSwitching}
                               aria-disabled={disabled || !inspection?.baseUrl}
+                              aria-describedby={actionTooltip === "transport" ? "transport-tooltip" : undefined}
+                              tabIndex={!inspection?.baseUrl ? 0 : undefined}
+                              onMouseEnter={() => setActionTooltip("transport")}
+                              onMouseLeave={() => setActionTooltip(null)}
+                              onFocus={() => setActionTooltip("transport")}
+                              onBlur={(event) => {
+                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") setActionTooltip(null);
+                              }}
                             >
                               {([
                                 [false, "HTTP"],
@@ -969,13 +992,18 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                     type="radio"
                                     name="transport-protocol"
                                     value={label.toLowerCase()}
-                                    checked={!!inspection?.baseUrl && !!inspection.supportsWebsockets === enabled}
+                                    checked={!!inspection?.supportsWebsockets === enabled}
                                     disabled={disabled || !inspection?.baseUrl}
                                     onChange={() => switchTransport(enabled)}
                                   />
                                   <span>{label}</span>
                                 </label>
                               ))}
+                              {actionTooltip === "transport" && (
+                                <span id="transport-tooltip" className="channel-tooltip" role="tooltip">
+                                  传输协议
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>}
@@ -1084,6 +1112,18 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
             onClick={closeNotice}><CloseIcon /></button>}
         </div>
       </div>
+      <Modal id="official-login-confirm" title="开启保留官方登录"
+        descriptionId="official-login-confirm-description"
+        open={officialLoginConfirmOpen} onClose={() => setOfficialLoginConfirmOpen(false)}>
+        <p id="official-login-confirm-description">当前未检测到官方账号，是否仍要开启“保留官方登录”？</p>
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={() => {
+            setOfficialLoginConfirmOpen(false);
+            applyLoginPreference(true);
+          }}>仍要开启</button>
+          <button type="button" className="primary" onClick={() => setOfficialLoginConfirmOpen(false)}>保持关闭</button>
+        </div>
+      </Modal>
       <VersionPicker
         open={versionOpen}
         matching={versionDraft || matching}

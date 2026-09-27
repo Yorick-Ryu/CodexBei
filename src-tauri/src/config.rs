@@ -792,8 +792,9 @@ impl Store {
         let has_key = item(&doc, &[custom[0], custom[1], "experimental_bearer_token"])
             .and_then(Item::as_str)
             .is_some_and(|v| key(v).is_ok());
-        let model_channel = if provider.is_some()
-            && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref()
+        let model_channel = if doc.is_empty()
+            || (provider.is_some()
+                && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref())
         {
             "api"
         } else {
@@ -1708,6 +1709,9 @@ mod tests {
     #[test]
     fn switches_transport_without_backups_and_preserves_selection_on_configure() {
         let (_dir, mut s) = store();
+        let initial = s.inspect().unwrap();
+        assert_eq!(initial["modelChannel"], "api");
+        assert_eq!(initial["supportsWebsockets"], false);
         let c = connection();
         let plan = s.prepare(c.clone(), true, &template()).unwrap();
         s.apply_with_backup(&plan, false).unwrap();

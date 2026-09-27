@@ -19,6 +19,7 @@ mockIPC(async (cmd, raw) => {
     baseUrl: "https://api.beiapi.cn/v1", model: "gpt-5.6-sol", hasKey: true,
     apiKey: "sk-preview-placeholder", modelChannel: "api", keepOfficialLogin: false, supportsWebsockets, platform: "windows",
   };
+  if (cmd === "has_official_login") return false;
   if (cmd === "switch_transport") { supportsWebsockets = args.supportsWebsockets === true; return { changed: true }; }
   if (cmd === "check") return {
     installations, selection: { mode: "auto" }, template: { id: "preview", version: "1.0.0", digest: "preview" },
