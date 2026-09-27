@@ -184,7 +184,7 @@ async fn check(
     state: State<'_, AppState>,
 ) -> Result<Value> {
     if tool == Some(Tool::Claude) {
-        return Ok(claude::check(state.test_mode).await);
+        return Ok(claude::check().await);
     }
     state
         .service

@@ -364,35 +364,34 @@ impl Store {
     }
 }
 
-pub async fn check(test_mode: bool) -> Value {
+pub async fn check() -> Value {
     let mut installations = Vec::new();
-    if !test_mode {
-        let binary = if cfg!(windows) {
-            "claude.exe"
-        } else {
-            "claude"
-        };
-        let mut candidates = vec![PathBuf::from(binary)];
-        if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join(".local/bin").join(binary));
-        }
-        if !cfg!(windows) {
-            candidates.extend([
-                PathBuf::from("/opt/homebrew/bin/claude"),
-                PathBuf::from("/usr/local/bin/claude"),
-            ]);
-        }
-        for path in candidates {
-            if let Ok(output) = crate::versions::command(&path, &["--version"]).await {
-                if let Some(version) = output
-                    .trim()
-                    .strip_suffix(" (Claude Code)")
-                    .filter(|v| crate::versions::valid_version(v))
-                {
-                    installations
-                        .push(json!({"id":"claude-cli","kind":"claude","runtimeVersion":version}));
-                    break;
-                }
+    // Version detection is read-only and also runs with isolated preview configuration.
+    let binary = if cfg!(windows) {
+        "claude.exe"
+    } else {
+        "claude"
+    };
+    let mut candidates = vec![PathBuf::from(binary)];
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".local/bin").join(binary));
+    }
+    if !cfg!(windows) {
+        candidates.extend([
+            PathBuf::from("/opt/homebrew/bin/claude"),
+            PathBuf::from("/usr/local/bin/claude"),
+        ]);
+    }
+    for path in candidates {
+        if let Ok(output) = crate::versions::command(&path, &["--version"]).await {
+            if let Some(version) = output
+                .trim()
+                .strip_suffix(" (Claude Code)")
+                .filter(|v| crate::versions::valid_version(v))
+            {
+                installations
+                    .push(json!({"id":"claude-cli","kind":"claude","runtimeVersion":version}));
+                break;
             }
         }
     }
