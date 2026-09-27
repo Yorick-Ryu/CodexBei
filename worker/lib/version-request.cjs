@@ -19,7 +19,8 @@ function requestFor(installations, clientVersion) {
 const requestKey = (request) => JSON.stringify(normalizeRequest(request));
 function compatibleTemplate(template, request) {
   const native = template.set?.features?.api_key_model_discovery === true;
-  return !native || (validVersion(request.clientVersion) && semver.satisfies(request.clientVersion, '>=0.1.3'));
+  // Compare against the first possible 0.1.3 prerelease, including later previews.
+  return !native || (validVersion(request.clientVersion) && semver.gte(request.clientVersion, '0.1.3-0'));
 }
 function resolveResponse(manifest, request) {
   request = normalizeRequest(request);

@@ -177,7 +177,8 @@ fn matches(template: &Value, request: &Value) -> bool {
         && !request["clientVersion"]
             .as_str()
             .and_then(|v| Version::parse(v).ok())
-            .is_some_and(|v| Range::parse(">=0.1.3").unwrap().satisfies(&v))
+            // Client capabilities depend on the release line, including previews.
+            .is_some_and(|v| (v.major, v.minor, v.patch) >= (0, 1, 3))
     {
         return false;
     }
@@ -505,6 +506,7 @@ mod tests {
             (vec![Some("0.156.0"), Some("0.155.1")], false),
             (vec![Some("0.156.0"), None], false),
             (vec![Some("0.156.0-alpha.16")], false),
+            (vec![Some("0.157.0-alpha.1")], false),
             (vec![], false),
         ] {
             let targets: Vec<_> = versions
@@ -525,27 +527,29 @@ mod tests {
         let directory = temp.path().join("cache");
         let mut service = Service::new(directory.clone()).unwrap();
         let legacy = json!({"targets":[{"kind":"cli","runtimeVersion":"0.156.0"}]});
-        for version in [
-            None,
-            Some("0.1.2"),
-            Some("0.1.3-alpha.1"),
-            Some("0.1.3"),
-            Some("0.2.0"),
-        ] {
+        let cases = [
+            (None, false),
+            (Some("0.1.2"), false),
+            (Some("0.1.2-alpha.1"), false),
+            (Some("0.1.3-alpha.1"), true),
+            (Some("0.1.3-rc.1"), true),
+            (Some("0.1.3"), true),
+            (Some("0.1.4-alpha.1"), true),
+            (Some("0.2.0-beta.1"), true),
+            (Some("0.2.0"), true),
+        ];
+        for (version, native) in cases {
             let mut request = legacy.clone();
             if let Some(v) = version {
                 request["clientVersion"] = json!(v);
             }
             assert!(valid_request(&request));
             let response = service.bundled(&request);
-            assert_eq!(
-                native_catalog(&response["template"]),
-                matches!(version, Some("0.1.3" | "0.2.0"))
-            );
+            assert_eq!(native_catalog(&response["template"]), native, "{version:?}");
             service.accept(response, &request).unwrap();
         }
         let reloaded = Service::new(directory).unwrap();
-        assert_eq!(reloaded.cached.len(), 5);
+        assert_eq!(reloaded.cached.len(), cases.len());
         assert!(!native_catalog(&reloaded.current(&legacy).unwrap()));
         for invalid in [Value::Null, json!(13), json!("v0.1.3"), json!("")] {
             let mut request = legacy.clone();
@@ -557,6 +561,29 @@ mod tests {
         assert!(validate_response(&response, &legacy).is_err());
         response["request"] = legacy.clone();
         assert!(validate_response(&response, &legacy).is_err());
+    }
+    #[test]
+    fn prerelease_client_discards_cached_policy_from_before_the_fix() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("cache");
+        let request = json!({"clientVersion":"0.1.4-alpha.1","targets":[{"kind":"cli","runtimeVersion":"0.156.0"}]});
+        let previous =
+            json!({"schemaVersion":1,"release":5,"request":request,"template":template()});
+        config::private_dir(&directory).unwrap();
+        config::atomic_write(
+            &directory.join("templates-v2.json"),
+            &serde_json::to_vec(&json!({"cached":[previous],"selected":[previous]})).unwrap(),
+            0o600,
+        )
+        .unwrap();
+
+        let mut service = Service::new(directory.clone()).unwrap();
+        assert!(service.cached.is_empty() && service.selected.is_empty());
+        assert!(native_catalog(&service.current(&request).unwrap()));
+        assert!(service.accept(previous, &request).is_err());
+        service.accept(service.bundled(&request), &request).unwrap();
+        let reloaded = Service::new(directory).unwrap();
+        assert!(native_catalog(&reloaded.current(&request).unwrap()));
     }
     #[test]
     fn enforces_template_allowlist_and_bindings() {

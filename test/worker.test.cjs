@@ -38,11 +38,13 @@ test('native catalog requires all selected runtimes to meet the boundary', async
   for (const [versions, native] of [
     [['0.156.0'], true], [['0.156.1', '0.156.0'], true],
     [['0.156.0', '0.155.1'], false], [['0.155.1', '0.156.0'], false],
-    [['0.156.0', null], false], [['0.156.0-alpha.16'], false], [[], false],
+    [['0.156.0', null], false], [['0.156.0-alpha.16'], false], [['0.157.0-alpha.1'], false], [[], false],
   ]) {
     const targets = versions.map((runtimeVersion, i) => ({ kind: i ? 'desktop' : 'cli', runtimeVersion }));
-    const body = await (await handle(request({ clientVersion: '0.1.3', targets }), bootstrap)).json();
-    assert.equal(body.template.id, native ? 'codex-native-catalog' : 'codex-default');
+    for (const clientVersion of ['0.1.3', '0.1.3-alpha.1', '0.1.4-alpha.1']) {
+      const body = await (await handle(request({ clientVersion, targets }), bootstrap)).json();
+      assert.equal(body.template.id, native ? 'codex-native-catalog' : 'codex-default');
+    }
   }
   const { materialize, validateTemplate } = require('../worker/lib/template-policy.cjs');
   const native = bootstrap.templates.find(t => t.id === 'codex-native-catalog');
@@ -63,7 +65,11 @@ test('templates cannot delete existing user configuration', async () => {
 test('client version gates native templates without changing legacy response shape', async () => {
   const { requestKey, validateResponse } = require('../worker/lib/version-request.cjs');
   const targets = [{ kind: 'cli', runtimeVersion: '0.156.0' }];
-  for (const [version, native] of [[undefined, false], ['0.1.2', false], ['0.1.3-alpha.1', false], ['0.1.3', true], ['0.2.0', true]]) {
+  for (const [version, native] of [
+    [undefined, false], ['0.1.2', false], ['0.1.2-alpha.1', false],
+    ['0.1.3-alpha.1', true], ['0.1.3-rc.1', true], ['0.1.3', true],
+    ['0.1.4-alpha.1', true], ['0.2.0-beta.1', true], ['0.2.0', true],
+  ]) {
     const input = requestFor(targets, version);
     const response = await handle(request(input), bootstrap);
     assert.equal(response.status, 200);
