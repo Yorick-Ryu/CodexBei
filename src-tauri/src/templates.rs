@@ -174,11 +174,11 @@ pub fn validate(template: &Value) -> Result<()> {
 }
 fn matches(template: &Value, request: &Value) -> bool {
     if native_catalog(template)
-        && !request["clientVersion"]
+        && request["clientVersion"]
             .as_str()
             .and_then(|v| Version::parse(v).ok())
             // Client capabilities depend on the release line, including previews.
-            .is_some_and(|v| (v.major, v.minor, v.patch) >= (0, 1, 3))
+            .is_none_or(|v| (v.major, v.minor, v.patch) < (0, 1, 3))
     {
         return false;
     }
