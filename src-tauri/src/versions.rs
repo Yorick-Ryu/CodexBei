@@ -108,6 +108,18 @@ async fn command_with_timeout(
         .map_err(|_| "读取版本超时。".to_string())?
         .map_err(|_| "无法读取版本。".into())
 }
+#[cfg(target_os = "macos")]
+fn macos_runtime(bundle: &Path) -> Option<PathBuf> {
+    // Newer desktop apps package the runtime as a nested app. Prefer it
+    // when both layouts exist, while retaining the legacy standalone binary.
+    [
+        "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        "Contents/Resources/codex",
+    ]
+    .into_iter()
+    .map(|relative| bundle.join(relative))
+    .find(|path| path.is_file())
+}
 #[cfg(any(windows, test))]
 fn windows_npm_candidates(prefix: &Path) -> Vec<PathBuf> {
     let package = prefix.join("node_modules/@openai/codex");
@@ -251,14 +263,15 @@ async fn detect() -> Result<Vec<Installation>> {
                     // may use a ChatGPT bundle identifier rather than the
                     // legacy Codex identifier. The embedded runtime is the
                     // capability we need to detect.
-                    if bundle_id.starts_with("com.openai.")
-                        && bundle.join("Contents/Resources/codex").is_file()
-                    {
+                    if bundle_id.starts_with("com.openai.") {
+                        let Some(runtime) = macos_runtime(&bundle) else {
+                            continue;
+                        };
                         let version = info["CFBundleShortVersionString"]
                             .as_str()
                             .filter(|v| app_parts(v).is_some())
                             .map(str::to_owned);
-                        apps.push((bundle.join("Contents/Resources/codex"), version));
+                        apps.push((runtime, version));
                     }
                 }
             }
