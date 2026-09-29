@@ -80,7 +80,20 @@ pub fn model(input: &str) -> Result<String> {
     }
     Ok(input.into())
 }
+#[cfg(test)]
 pub fn parse_link(input: &str) -> Result<Option<Connection>> {
+    parse_tool_link(input).map(|value| value.map(|(_, connection)| connection))
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tool {
+    #[default]
+    Codex,
+    Claude,
+}
+
+pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
     let invalid = || err("配置链接无效，请从网站重新打开。");
     if input.len() > 8192 {
         return Err(invalid());
@@ -88,7 +101,7 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
     let u = url::Url::parse(input).map_err(|_| invalid())?;
     if u.scheme() != "codexbei"
         || u.host_str() != Some("configure")
-        || u.path() != "/codex"
+        || !["/codex", "/claude"].contains(&u.path())
         || u.port().is_some()
         || !u.username().is_empty()
         || u.password().is_some()
@@ -96,6 +109,16 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
     {
         return Err(invalid());
     }
+    let tool = if u.path() == "/claude" {
+        Tool::Claude
+    } else {
+        Tool::Codex
+    };
+    let preset = if tool == Tool::Claude {
+        "claude-v1"
+    } else {
+        "codexbei-v1"
+    };
     let pairs: Vec<_> = u.query_pairs().collect();
     if pairs.is_empty() {
         return Ok(None);
@@ -109,14 +132,22 @@ pub fn parse_link(input: &str) -> Result<Option<Connection>> {
             return Err(invalid());
         }
     }
-    if fields.len() != 4 || fields.get("preset").map(String::as_str) != Some("codexbei-v1") {
+    if fields.len() != 4 || fields.get("preset").map(String::as_str) != Some(preset) {
         return Err(invalid());
     }
-    Ok(Some(Connection {
-        base_url: endpoint(fields.get("base_url").ok_or_else(invalid)?)?,
-        api_key: key(fields.get("api_key").ok_or_else(invalid)?)?,
-        model: model(fields.get("model").ok_or_else(invalid)?)?,
-    }))
+    let base = fields.get("base_url").ok_or_else(invalid)?;
+    Ok(Some((
+        tool,
+        Connection {
+            base_url: if tool == Tool::Claude {
+                crate::claude::endpoint(base)?
+            } else {
+                endpoint(base)?
+            },
+            api_key: key(fields.get("api_key").ok_or_else(invalid)?)?,
+            model: model(fields.get("model").ok_or_else(invalid)?)?,
+        },
+    )))
 }
 
 pub fn read(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -267,6 +298,9 @@ fn preset(connection: &Connection, keep: bool, template: &Json, provider: &str) 
     custom["experimental_bearer_token"] = json!(connection.api_key);
     custom["http_headers"]["x-openai-actor-authorization"] = json!(connection.base_url);
     custom["requires_openai_auth"] = json!(keep);
+    if crate::templates::native_catalog(template) {
+        custom["model_catalog_url"] = json!(format!("{}/models", connection.base_url));
+    }
     let provider_fields = custom.take();
     fields["model_providers"] = json!({ provider: provider_fields });
     fields["model_provider"] = json!(provider);
@@ -293,6 +327,9 @@ pub fn preview(
     };
     merge(doc.as_item_mut(), &preset(&c, keep, template, &provider_id))?;
     merge(doc.as_item_mut(), &json!({ "model_provider": provider }))?;
+    if channel == "official" && crate::templates::native_catalog(template) {
+        doc.remove("features");
+    }
     Ok(doc.to_string())
 }
 fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> Result<Vec<u8>> {
@@ -334,7 +371,13 @@ fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> 
         }
     }
     let provider = providers::for_write(&doc, &c.base_url)?;
-    merge(doc.as_item_mut(), &preset(c, keep, template, &provider))?;
+    let transport =
+        item(&doc, &["model_providers", &provider, "supports_websockets"]).and_then(Item::as_bool);
+    let mut fields = preset(c, keep, template, &provider);
+    if let Some(enabled) = transport {
+        fields["model_providers"][&provider]["supports_websockets"] = json!(enabled);
+    }
+    merge(doc.as_item_mut(), &fields)?;
     let after = doc.to_string().into_bytes();
     document(Some(&after))?;
     Ok(after)
@@ -360,6 +403,16 @@ struct Plan {
     after: Vec<u8>,
     created: Instant,
     template: Json,
+    catalog: Option<(PathBuf, Vec<u8>, Vec<u8>)>,
+    native: Option<(PathBuf, Vec<u8>)>,
+}
+#[derive(Serialize, Deserialize)]
+struct NativeCatalogState {
+    provider: String,
+    url: String,
+    previous_url: Option<String>,
+    previous_feature: Option<bool>,
+    previous_catalog: Option<String>,
 }
 pub struct Store {
     pub root: PathBuf,
@@ -368,6 +421,252 @@ pub struct Store {
     plans: std::collections::HashMap<String, Plan>,
 }
 impl Store {
+    pub fn prepare_api_switch(&mut self) -> Result<String> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("请先选择对应的 profile 配置文件。"));
+        }
+        let provider = self
+            .api_provider(&doc)?
+            .ok_or_else(|| err("请先完成 API 密钥配置。"))?;
+        doc["model_provider"] = toml_edit::value(provider);
+        let id = Uuid::new_v4().to_string();
+        self.plans.clear();
+        self.plans.insert(
+            id.clone(),
+            Plan {
+                file,
+                before,
+                after: doc.to_string().into_bytes(),
+                created: Instant::now(),
+                template: Json::Null,
+                catalog: None,
+                native: None,
+            },
+        );
+        Ok(id)
+    }
+    pub fn revision(&self) -> Result<(PathBuf, String)> {
+        Ok((
+            self.selected.clone(),
+            digest(read(&self.target(&self.selected)?)?.as_deref()),
+        ))
+    }
+    pub fn check_revision(&self, revision: &(PathBuf, String)) -> Result<()> {
+        if &self.revision()? != revision {
+            return Err(err(CHANGED));
+        }
+        Ok(())
+    }
+    pub fn api_connection(&self) -> Result<Connection> {
+        let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
+        let provider = self
+            .api_provider(&doc)?
+            .ok_or_else(|| err("请先完成 API 密钥配置。"))?;
+        let base = item(&doc, &["model_providers", &provider, "base_url"])
+            .and_then(Item::as_str)
+            .ok_or_else(|| err("API 地址无效。"))?;
+        self.credentials("", base)
+    }
+    fn catalog_path(&self) -> Result<PathBuf> {
+        Ok(self
+            .target(&self.selected)?
+            .parent()
+            .ok_or_else(|| err("配置路径无效。"))?
+            .join("models_cache_bei.json"))
+    }
+    fn native_state_path(&self) -> Result<PathBuf> {
+        // Profile files can share a directory; recovery state must belong to the selected file.
+        Ok(self
+            .target(&self.selected)?
+            .with_extension("native.previous.json"))
+    }
+    fn native_state(&self) -> Result<Option<NativeCatalogState>> {
+        read(&self.native_state_path()?)?
+            .map(|bytes| {
+                serde_json::from_slice(&bytes).map_err(|_| err("原生模型目录恢复信息无效。"))
+            })
+            .transpose()
+    }
+    fn restore_native(&self, doc: &mut DocumentMut) -> Result<()> {
+        let Some(saved) = self.native_state()? else {
+            return Ok(());
+        };
+        if item(
+            doc,
+            &["model_providers", &saved.provider, "model_catalog_url"],
+        )
+        .and_then(Item::as_str)
+            != Some(saved.url.as_str())
+        {
+            return Ok(());
+        }
+        let provider = doc["model_providers"][&saved.provider]
+            .as_table_like_mut()
+            .ok_or_else(|| err("模型提供商配置无效。"))?;
+        provider.remove("model_catalog_url");
+        if let Some(value) = saved.previous_url {
+            provider.insert("model_catalog_url", toml_edit::value(value));
+        }
+        if item(doc, &["features", "api_key_model_discovery"]).and_then(Item::as_bool) == Some(true)
+        {
+            let features = doc["features"]
+                .as_table_like_mut()
+                .ok_or_else(|| err("功能配置无效。"))?;
+            features.remove("api_key_model_discovery");
+            if let Some(value) = saved.previous_feature {
+                features.insert("api_key_model_discovery", toml_edit::value(value));
+            }
+        }
+        if doc.get("model_catalog_json").is_none() {
+            if let Some(value) = saved.previous_catalog {
+                doc["model_catalog_json"] = toml_edit::value(value);
+            }
+        }
+        Ok(())
+    }
+    pub fn attach_native_catalog(&mut self, id: &str, connection: &Connection) -> Result<bool> {
+        let plan = self.plans.get(id).ok_or_else(|| err("配置预览已过期。"))?;
+        // Read originals from the pre-template document, not values already materialized by prepare.
+        let before_doc = document(plan.before.as_deref())?;
+        let mut original = before_doc.clone();
+        self.restore_native(&mut original)?;
+        let mut doc = document(Some(&plan.after))?;
+        let provider = doc
+            .get("model_provider")
+            .and_then(Item::as_str)
+            .filter(|p| *p != "openai")
+            .ok_or_else(|| err("当前未使用 API 通道。"))?
+            .to_owned();
+        let current = original.get("model_catalog_json").and_then(Item::as_str);
+        // Never silently take over a user-owned static catalog.
+        let already_native = self.native_state()?.is_some_and(|s| {
+            item(
+                &before_doc,
+                &["model_providers", &s.provider, "model_catalog_url"],
+            )
+            .and_then(Item::as_str)
+                == Some(s.url.as_str())
+        });
+        if current.is_some_and(|p| !self.managed_catalog(Path::new(p))) && !already_native {
+            return Err(err(
+                "检测到自定义 model_catalog_json，请先移除该设置后使用原生模型发现。",
+            ));
+        }
+        let saved = NativeCatalogState {
+            provider: provider.clone(),
+            url: format!("{}/models", endpoint(&connection.base_url)?),
+            previous_url: item(
+                &original,
+                &["model_providers", &provider, "model_catalog_url"],
+            )
+            .and_then(Item::as_str)
+            .map(str::to_owned),
+            previous_feature: item(&original, &["features", "api_key_model_discovery"])
+                .and_then(Item::as_bool),
+            previous_catalog: self.original_catalog(&original)?,
+        };
+        // A static override wins over discovery, so only the managed override is suspended.
+        if let Some(path) = doc.get("model_catalog_json").and_then(Item::as_str) {
+            if !self.managed_catalog(Path::new(path)) {
+                return Err(err(
+                    "检测到自定义 model_catalog_json，请先移除该设置后使用原生模型发现。",
+                ));
+            }
+        }
+        doc.remove("model_catalog_json");
+        merge(
+            doc.as_item_mut(),
+            &json!({"model_providers":{&provider:{"model_catalog_url":saved.url}},"features":{"api_key_model_discovery":true}}),
+        )?;
+        let after = doc.to_string().into_bytes();
+        let changed = plan.before.as_deref() != Some(after.as_slice());
+        let state_path = self.native_state_path()?;
+        let plan = self.plans.get_mut(id).unwrap();
+        plan.after = after;
+        plan.native = Some((state_path, serde_json::to_vec(&saved).unwrap()));
+        Ok(changed)
+    }
+    pub fn catalog_matches(&self, catalog: &Json) -> Result<bool> {
+        let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
+        if self.native_state()?.is_some_and(|saved| {
+            item(
+                &doc,
+                &["model_providers", &saved.provider, "model_catalog_url"],
+            )
+            .and_then(Item::as_str)
+                == Some(saved.url.as_str())
+        }) {
+            return Ok(false);
+        }
+        let path = self.catalog_path()?;
+        if doc.get("model_catalog_json").and_then(Item::as_str) != path.to_str() {
+            return Ok(false);
+        }
+        Ok(read(&path)?
+            .and_then(|b| serde_json::from_slice::<Json>(&b).ok())
+            .as_ref()
+            == Some(catalog))
+    }
+    fn managed_catalog(&self, path: &Path) -> bool {
+        if self.catalog_path().ok().as_deref() == Some(path) {
+            return path.with_extension("previous.json").is_file();
+        }
+        let legacy = path.parent() == Some(self.root.join("catalogs").as_path());
+        let current = self.catalog_path().ok().is_some_and(|file| {
+            path.parent() == Some(file.parent().unwrap().join("catalogs").as_path())
+        });
+        let stem = path
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .unwrap_or_default();
+        let hash = if legacy {
+            Some(stem)
+        } else if current {
+            stem.strip_prefix("catalog-")
+        } else {
+            None
+        };
+        path.extension().is_some_and(|v| v == "json")
+            && hash.is_some_and(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+            && path.with_extension("previous.json").is_file()
+    }
+    fn original_catalog(&self, doc: &DocumentMut) -> Result<Option<String>> {
+        let current = doc.get("model_catalog_json").and_then(Item::as_str);
+        if let Some(path) = current {
+            let path = Path::new(path);
+            if self.managed_catalog(path) {
+                let bytes = read(&path.with_extension("previous.json"))?
+                    .ok_or_else(|| err("模型目录恢复信息缺失，已保留配置。"))?;
+                return serde_json::from_slice(&bytes).map_err(|_| err("模型目录恢复信息无效。"));
+            }
+        }
+        Ok(current.map(str::to_owned))
+    }
+    pub fn attach_catalog(
+        &mut self,
+        id: &str,
+        _connection: &Connection,
+        catalog: &Json,
+    ) -> Result<()> {
+        if crate::network::model_list(catalog)?.is_empty() {
+            return Err(err("没有可用模型。"));
+        }
+        let plan = self.plans.get(id).ok_or_else(|| err("配置预览已过期。"))?;
+        let mut doc = document(Some(&plan.after))?;
+        self.restore_native(&mut doc)?;
+        let previous = self.original_catalog(&doc)?;
+        let bytes = serde_json::to_vec(catalog).map_err(|_| err("模型目录无效。"))?;
+        let previous_bytes = serde_json::to_vec(&previous).unwrap();
+        let path = self.catalog_path()?;
+        doc["model_catalog_json"] =
+            toml_edit::value(path.to_str().ok_or_else(|| err("模型目录路径无效。"))?);
+        self.plans.get_mut(id).unwrap().after = doc.to_string().into_bytes();
+        self.plans.get_mut(id).unwrap().catalog = Some((path, bytes, previous_bytes));
+        Ok(())
+    }
     pub fn new(root: PathBuf, default_file: PathBuf) -> Result<Self> {
         private_dir(&root)?;
         let root = io(root.canonicalize())?;
@@ -465,6 +764,11 @@ impl Store {
         let mut value: Json = toml_edit::de::from_str(&shown).map_err(|_| err("配置预览无效。"))?;
         let fields = value["model_providers"]["custom"].take();
         value["model_providers"] = json!({ &provider: fields });
+        if let Some(enabled) = item(&doc, &["model_providers", &provider, "supports_websockets"])
+            .and_then(Item::as_bool)
+        {
+            value["model_providers"][&provider]["supports_websockets"] = json!(enabled);
+        }
         if channel == "api" {
             value["model_provider"] = json!(provider);
         }
@@ -488,15 +792,16 @@ impl Store {
         let has_key = item(&doc, &[custom[0], custom[1], "experimental_bearer_token"])
             .and_then(Item::as_str)
             .is_some_and(|v| key(v).is_ok());
-        let model_channel = if provider.is_some()
-            && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref()
+        let model_channel = if doc.is_empty()
+            || (provider.is_some()
+                && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref())
         {
             "api"
         } else {
             "official"
         };
         Ok(
-            json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
+            json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
     pub fn prepare(&mut self, mut c: Connection, keep: bool, template: &Json) -> Result<String> {
@@ -535,6 +840,8 @@ impl Store {
                 after,
                 created: Instant::now(),
                 template: json!({"id":template["id"],"version":template["version"],"digest":crate::templates::digest(template)}),
+                catalog: None,
+                native: None,
             },
         );
         Ok(id)
@@ -583,6 +890,9 @@ impl Store {
         Ok(metadata)
     }
     pub fn apply(&mut self, id: &str) -> Result<Json> {
+        self.apply_with_backup(id, true)
+    }
+    pub fn apply_with_backup(&mut self, id: &str, create_backup: bool) -> Result<Json> {
         let plan = self
             .plans
             .remove(id)
@@ -596,21 +906,92 @@ impl Store {
         if !self.selected.parent().unwrap().exists() && self.selected == self.default_file {
             private_dir(self.selected.parent().unwrap())?;
         }
-        let backup = self.snapshot(
-            &plan.file,
-            plan.before.as_deref(),
-            Some(&plan.after),
-            "configure",
-            Some(plan.template),
-        )?;
+        let backup = if create_backup {
+            Some(self.snapshot(
+                &plan.file,
+                plan.before.as_deref(),
+                Some(&plan.after),
+                "configure",
+                Some(plan.template),
+            )?)
+        } else {
+            None
+        };
         if digest(read(&plan.file)?.as_deref()) != digest(plan.before.as_deref()) {
             return Err(err(CHANGED));
         }
-        atomic_write(&plan.file, &plan.after, 0o600)?;
+        let mut writes = Vec::new();
+        if let Some((path, bytes, previous)) = &plan.catalog {
+            writes.push((path.with_extension("previous.json"), previous));
+            writes.push((path.clone(), bytes));
+        }
+        if let Some((path, bytes)) = &plan.native {
+            writes.push((path.clone(), bytes));
+        }
+        if !writes.is_empty() {
+            let old: Vec<_> = writes
+                .iter()
+                .map(|(path, _)| read(path).map(|bytes| (path, bytes)))
+                .collect::<Result<_>>()?;
+            let result = (|| {
+                for (path, bytes) in &writes {
+                    atomic_write(path, bytes, 0o600)?;
+                }
+                atomic_write(&plan.file, &plan.after, 0o600)
+            })();
+            if let Err(error) = result {
+                for (file, saved) in old {
+                    if let Some(saved) = saved {
+                        atomic_write(file, &saved, 0o600)?;
+                    } else if file.exists() {
+                        io(fs::remove_file(file))?;
+                    }
+                }
+                return Err(error);
+            }
+        } else {
+            atomic_write(&plan.file, &plan.after, 0o600)?;
+        }
         if digest(read(&plan.file)?.as_deref()) != digest(Some(&plan.after)) {
             return Err(err("写入后校验失败，请从备份还原。"));
         }
-        Ok(json!({ "file": plan.file, "backupId": backup.id }))
+        let mut result = json!({ "file": plan.file });
+        if let Some(backup) = backup {
+            result["backupId"] = json!(backup.id);
+        }
+        Ok(result)
+    }
+    pub fn switch_transport(&mut self, supports_websockets: bool) -> Result<Json> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
+        }
+        let provider = self
+            .api_provider(&doc)?
+            .ok_or_else(|| err("请先完成 API 密钥配置。"))?;
+        if item(&doc, &["model_providers", &provider, "supports_websockets"])
+            .and_then(Item::as_bool)
+            == Some(supports_websockets)
+        {
+            return Ok(json!({ "file": file, "changed": false }));
+        }
+        merge(
+            doc.as_item_mut(),
+            &json!({ "model_providers": { &provider: { "supports_websockets": supports_websockets } } }),
+        )?;
+        let after = doc.to_string().into_bytes();
+        document(Some(&after))?;
+        if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
+            return Err(err(CHANGED));
+        }
+        atomic_write(&file, &after, 0o600)?;
+        if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
+            return Err(err("传输协议写入后校验失败，请重新读取配置后重试。"));
+        }
+        self.plans.clear();
+        Ok(json!({ "file": file, "changed": true }))
     }
     pub fn switch_channel(&mut self, channel: &str) -> Result<Json> {
         let file = self.target(&self.selected)?;
@@ -644,8 +1025,25 @@ impl Store {
         let current = doc
             .get("model_provider")
             .and_then(Item::as_str)
-            .unwrap_or("openai");
-        if current == provider {
+            .unwrap_or("openai")
+            .to_owned();
+        let managed_catalog = doc
+            .get("model_catalog_json")
+            .and_then(Item::as_str)
+            .is_some_and(|p| self.managed_catalog(Path::new(p)));
+        if channel == "official" {
+            self.restore_native(&mut doc)?;
+        }
+        if channel == "official" && managed_catalog {
+            let previous = self.original_catalog(&doc)?;
+            doc.remove("model_catalog_json");
+            if let Some(previous) = previous {
+                doc["model_catalog_json"] = toml_edit::value(previous);
+            }
+        }
+        if current == provider
+            && doc.to_string().as_bytes() == before.as_deref().unwrap_or_default()
+        {
             return Ok(json!({ "file": file, "changed": false }));
         }
         merge(doc.as_item_mut(), &json!({ "model_provider": provider }))?;
@@ -678,7 +1076,9 @@ impl Store {
         }
         let data = read(&folder.join("metadata.json"))?.ok_or_else(|| err("备份记录不存在。"))?;
         let meta: Metadata = serde_json::from_slice(&data).map_err(|_| err("备份记录损坏。"))?;
-        if meta.id != id || !["configure", "restore", "switch"].contains(&meta.kind.as_str()) {
+        if meta.id != id
+            || !["configure", "restore", "switch", "switch-channel"].contains(&meta.kind.as_str())
+        {
             return Err(err("备份记录损坏。"));
         }
         let bytes = if meta.existed {
@@ -820,6 +1220,258 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = Store::new(dir.path().join("data"), dir.path().join("config.toml")).unwrap();
         (dir, s)
+    }
+    #[test]
+    fn channel_switch_catalog_sync_does_not_create_backups() {
+        for native in [false, true] {
+            let (_dir, mut s) = store();
+            let c = connection();
+            let plan = s.prepare(c.clone(), false, &template()).unwrap();
+            s.apply(&plan).unwrap();
+            let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
+            s.switch_channel("official").unwrap();
+            s.switch_channel("api").unwrap();
+            let plan = s.prepare_api_switch().unwrap();
+            if native {
+                assert!(s.attach_native_catalog(&plan, &c).unwrap());
+            } else {
+                let catalog = json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+                s.attach_catalog(&plan, &c, &catalog).unwrap();
+            }
+            assert!(s
+                .apply_with_backup(&plan, false)
+                .unwrap()
+                .get("backupId")
+                .is_none());
+            s.switch_channel("official").unwrap();
+            assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+            assert_eq!(
+                fs::read_dir(s.root.join("backups")).unwrap().count(),
+                backups
+            );
+        }
+    }
+    #[test]
+    fn native_catalog_migrates_and_restores_original_settings() {
+        let (_dir, mut s) = store();
+        fs::write(&s.selected, "model_catalog_json = '/original/models.json'\n[features]\napi_key_model_discovery = false\nother_feature = true\n").unwrap();
+        let c = connection();
+        let catalog =
+            json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.apply(&plan).unwrap();
+        let bytes = fs::read(s.catalog_path().unwrap()).unwrap();
+        let plan = s.prepare_api_switch().unwrap();
+        assert!(s.attach_native_catalog(&plan, &c).unwrap());
+        s.apply(&plan).unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert!(doc.get("model_catalog_json").is_none());
+        assert_eq!(
+            doc["model_providers"]["custom"]["model_catalog_url"].as_str(),
+            Some("https://example.com/v1/models")
+        );
+        assert_eq!(
+            doc["features"]["api_key_model_discovery"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(fs::read(s.catalog_path().unwrap()).unwrap(), bytes);
+        let plan = s.prepare_api_switch().unwrap();
+        assert!(!s.attach_native_catalog(&plan, &c).unwrap());
+        let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
+        s.switch_channel("official").unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            doc["model_catalog_json"].as_str(),
+            Some("/original/models.json")
+        );
+        assert_eq!(
+            doc["features"]["api_key_model_discovery"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(doc["features"]["other_feature"].as_bool(), Some(true));
+        assert!(doc["model_providers"]["custom"]
+            .get("model_catalog_url")
+            .is_none());
+        s.switch_channel("api").unwrap();
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
+    }
+    #[test]
+    fn native_configure_downgrade_and_user_override_are_safe() {
+        let (_dir, mut s) = store();
+        let native = serde_json::from_str::<Json>(include_str!("../../templates/bootstrap.json"))
+            .unwrap()["templates"][1]
+            .clone();
+        let c = connection();
+        let plan = s.prepare(c.clone(), true, &native).unwrap();
+        s.attach_native_catalog(&plan, &c).unwrap();
+        s.apply(&plan).unwrap();
+        assert!(!s.catalog_path().unwrap().exists());
+        let catalog =
+            json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+        let plan = s.prepare_api_switch().unwrap();
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.apply(&plan).unwrap();
+        assert!(s.catalog_matches(&catalog).unwrap());
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert!(item(&doc, &["features", "api_key_model_discovery"]).is_none());
+        assert!(item(&doc, &["model_providers", "custom", "model_catalog_url"]).is_none());
+        let plan = s.prepare_api_switch().unwrap();
+        s.attach_native_catalog(&plan, &c).unwrap();
+        s.apply(&plan).unwrap();
+        let mut doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        doc["model_catalog_json"] = toml_edit::value("/user/override.json");
+        fs::write(&s.selected, doc.to_string()).unwrap();
+        let before = fs::read(&s.selected).unwrap();
+        let plan = s.prepare_api_switch().unwrap();
+        assert!(s.attach_native_catalog(&plan, &c).is_err());
+        assert_eq!(fs::read(&s.selected).unwrap(), before);
+        s.switch_channel("official").unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            doc["model_catalog_json"].as_str(),
+            Some("/user/override.json")
+        );
+    }
+    #[test]
+    fn late_native_plan_cannot_overwrite_switch_or_edits() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        s.apply(&plan).unwrap();
+        let plan = s.prepare_api_switch().unwrap();
+        s.attach_native_catalog(&plan, &c).unwrap();
+        s.switch_channel("official").unwrap();
+        assert!(s.apply(&plan).is_err());
+        assert!(!s.native_state_path().unwrap().exists());
+    }
+    #[test]
+    fn late_catalog_does_not_write_after_switching_to_official() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        s.apply(&plan).unwrap();
+        let revision = s.revision().unwrap();
+        let plan = s.prepare_api_switch().unwrap();
+        let catalog =
+            json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.switch_channel("official").unwrap();
+        assert!(s.check_revision(&revision).is_err());
+        assert!(s.apply(&plan).is_err());
+        assert!(!s.catalog_path().unwrap().exists());
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+    }
+    #[test]
+    fn upgrade_from_config_without_catalog_preserves_settings() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        s.apply(&plan).unwrap();
+        let before = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert!(before.get("model_catalog_json").is_none());
+        let catalog =
+            json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+        assert!(!s.catalog_matches(&catalog).unwrap());
+        let plan = s.prepare_api_switch().unwrap();
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.apply(&plan).unwrap();
+        assert!(s.catalog_matches(&catalog).unwrap());
+        let mut after = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        after.remove("model_catalog_json");
+        assert_eq!(after.to_string(), before.to_string());
+        s.switch_channel("official").unwrap();
+        assert!(!s.catalog_matches(&catalog).unwrap());
+    }
+    #[test]
+    fn official_removes_only_managed_catalog_and_revision_detects_changes() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let catalog =
+            json!({"models":[{"slug":"gpt-6-luna","visibility":"list","supported_in_api":true}]});
+        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.apply(&plan).unwrap();
+        let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
+        s.switch_channel("official").unwrap();
+        assert_eq!(
+            fs::read_dir(s.root.join("backups")).unwrap().count(),
+            backups
+        );
+        let mut doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert!(doc.get("model_catalog_json").is_none());
+        let revision = s.revision().unwrap();
+        doc["model_catalog_json"] = toml_edit::value("/user/catalog.json");
+        fs::write(&s.selected, doc.to_string()).unwrap();
+        assert!(s.check_revision(&revision).is_err());
+        s.switch_channel("official").unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            doc["model_catalog_json"].as_str(),
+            Some("/user/catalog.json")
+        );
+    }
+    #[test]
+    fn catalog_switch_preserves_original_and_replaces_fixed_file() {
+        let (_dir, mut s) = store();
+        fs::write(
+            &s.selected,
+            "model_catalog_json = '/original/models.json'\n",
+        )
+        .unwrap();
+        let catalog = json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true,"base_instructions":"preserve me"}]});
+        let c = connection();
+        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        s.attach_catalog(&plan, &c, &catalog).unwrap();
+        s.apply(&plan).unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        let first = doc["model_catalog_json"].as_str().unwrap().to_owned();
+        assert_eq!(Path::new(&first).parent(), s.selected.parent());
+        assert!(Path::new(&first)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .eq("models_cache_bei.json"));
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&first).unwrap()).unwrap(),
+            catalog
+        );
+        let plan = s.prepare_api_switch().unwrap();
+        let mut other = c.clone();
+        other.api_key.push('x');
+        let updated =
+            json!({"models":[{"slug":"gpt-6-luna","visibility":"list","supported_in_api":true}]});
+        s.attach_catalog(&plan, &other, &updated).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&first).unwrap()).unwrap(),
+            catalog
+        );
+        s.apply(&plan).unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(doc["model_catalog_json"].as_str().unwrap(), first);
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&first).unwrap()).unwrap(),
+            updated
+        );
+        let before = fs::read(&s.selected).unwrap();
+        let plan = s.prepare_api_switch().unwrap();
+        assert!(s.attach_catalog(&plan, &c, &json!({"models":[]})).is_err());
+        assert_eq!(fs::read(&s.selected).unwrap(), before);
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&first).unwrap()).unwrap(),
+            updated
+        );
+        s.switch_channel("official").unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            doc["model_catalog_json"].as_str(),
+            Some("/original/models.json")
+        );
+        assert!(Path::new(&first).exists());
     }
     #[test]
     fn editor_uses_selected_existing_file_without_requiring_valid_toml() {
@@ -1053,6 +1705,53 @@ mod tests {
         )
         .unwrap()
         .contains("sk-"));
+    }
+    #[test]
+    fn switches_transport_without_backups_and_preserves_selection_on_configure() {
+        let (_dir, mut s) = store();
+        let initial = s.inspect().unwrap();
+        assert_eq!(initial["modelChannel"], "api");
+        assert_eq!(initial["supportsWebsockets"], false);
+        let c = connection();
+        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], true);
+        let initial = fs::read(&s.selected).unwrap();
+        let stale = s.prepare(c.clone(), true, &template()).unwrap();
+        let result = s.switch_transport(false).unwrap();
+        assert_eq!(result["changed"], true);
+        assert!(result.get("backupId").is_none());
+        assert!(s.apply_with_backup(&stale, false).is_err());
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "api");
+        let preview = s.preview(&c.base_url, &c.model, true, "api", &template()).unwrap();
+        assert!(preview.contains("supports_websockets = false"));
+        let saved = fs::read(&s.selected).unwrap();
+        assert_eq!(s.switch_transport(false).unwrap()["changed"], false);
+        assert_eq!(fs::read(&s.selected).unwrap(), saved);
+        let plan = s.prepare(c, true, &template()).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        s.switch_transport(true).unwrap();
+        assert_eq!(fs::read(&s.selected).unwrap(), initial);
+        s.switch_channel("official").unwrap();
+        s.switch_transport(false).unwrap();
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+        assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
+        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), 0);
+    }
+    #[test]
+    fn transport_switch_rejects_unconfigured_invalid_and_profile_files() {
+        let (_dir, mut s) = store();
+        assert!(s.switch_transport(true).is_err());
+        assert!(!s.selected.exists());
+        for content in ["not TOML", "profile = 'work'", "model_providers = 'wrong'"] {
+            fs::write(&s.selected, content).unwrap();
+            assert!(s.switch_transport(false).is_err());
+            assert_eq!(fs::read_to_string(&s.selected).unwrap(), content);
+        }
+        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), 0);
     }
     #[test]
     fn switches_model_channel_immediately_without_backups_or_losing_credentials() {

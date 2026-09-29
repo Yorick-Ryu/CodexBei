@@ -1,6 +1,6 @@
 # CodexBei
 
-使用 **Tauri 2 + Rust + React / TypeScript + Vite** 的桌面配置助手。通过 BeiAPI 密钥配置 Codex CLI / ChatGPT 桌面版，支持 macOS 和 Windows。桌面端不包含 Electron 或 Node.js 运行时。
+使用 **Tauri 2 + Rust + React / TypeScript + Vite** 的桌面配置助手。通过 BeiAPI 密钥配置 Codex CLI / ChatGPT 桌面版 / Claude Code，支持 macOS 和 Windows。桌面端不包含 Electron 或 Node.js 运行时。
 
 ## 开发与构建
 
@@ -22,6 +22,7 @@ npm run check             # TypeScript / Vite / Rust Clippy
 
 ## 功能
 
+- 传输协议 HTTP / WS 分段切换，立即写入 API 提供商的 supports_websockets，不生成备份；预览与后续一键配置保留该选择。
 - 一键配置、预览、同地址密钥复用、保留官方登录，并可在 API 密钥与官方额度间切换；不改写 `auth.json`。
 - 自动检测 CLI 和桌面版内核、手动选择版本；Rust 调用在线模板服务，校验字段白名单、版本范围、发布序号和模板摘要，离线使用已缓存或内置模板。
 - 通过当前网关请求带 `client_version` 的模型列表；网络请求均在 Rust 中执行，旧密钥不会用于新网关。
@@ -30,9 +31,11 @@ npm run check             # TypeScript / Vite / Rust Clippy
 - 系统/深浅主题，默认 600 × 560、最小 460 × 460。
 - Windows 右上角设置内提供“问题排查”，生成包含脱敏当前配置的只读检测报告；独立脚本与检查范围见 [Windows 问题排查](docs/windows-diagnostics.md)。
 
-配置默认位于 `$CODEX_HOME/config.toml` 或 `~/.codex/config.toml`，可使用原生文件选择器选择 `config.toml` 或 `*.config.toml`。应用缓存与备份位于系统本地数据目录下的 `CodexBei/`。TOML 合并保留无关配置语义，部分排版会规范化；备份保存原始字节。
+Claude Code 使用内置映射，写入 `$CLAUDE_CONFIG_DIR/settings.json` 或 `~/.claude/settings.json` 的六个 `env` 字段；Opus、Sonnet、Haiku 默认跟随所选模型，也可分别选择。其他 JSON 设置保留，预览只显示脱敏后的托管字段，备份独立保存并可恢复。未安装 CLI 时也可先保存配置，安装后新会话生效。
 
-网站链接参数为 `base_url`、`api_key`、`model`、`preset=codexbei-v1`，均必须唯一。API 地址仅允许无账号、查询参数和片段的 HTTPS 地址。版本服务只接收版本标识，不接收密钥、路径或配置内容。
+Codex 配置默认位于 `$CODEX_HOME/config.toml` 或 `~/.codex/config.toml`，可使用原生文件选择器选择 `config.toml` 或 `*.config.toml`。应用缓存与备份位于系统本地数据目录下的 `CodexBei/`。TOML 合并保留无关配置语义，部分排版会规范化；备份保存原始字节。
+
+网站链接参数为 `base_url`、`api_key`、`model`、`preset=codexbei-v1`，均必须唯一。API 地址仅允许无账号、查询参数和片段的 HTTPS 地址。版本服务只接收版本标识，不接收密钥、路径或配置内容。Claude 使用 `codexbei://configure/claude` 与 `preset=claude-v1`，API 地址去除末尾 `/v1`；网页按用户选择的可用分组复用密钥，没有合适密钥时创建 `CodexBei · CC`。
 
 ## 代码与验证
 

@@ -30,12 +30,62 @@ test('unknown and preview versions use default, with explicit preview overrides 
     const response = await handle(request(requestFor(versions)), policies());
     assert.equal(response.status, 200); assert.equal((await response.json()).template.id, 'codex-default');
   }
-  const m = policies(); m.templates[1].targets = [{ kind: 'cli', runtimeRange: '>=0.153.0-alpha.1 <0.153.0' }];
+  const m = policies(); m.templates.find(t => t.id === 'codex-0152').targets = [{ kind: 'cli', runtimeRange: '>=0.153.0-alpha.1 <0.153.0' }];
   assert.equal((await (await handle(request(requestFor(targets)), m)).json()).template.id, 'codex-0152');
+});
+
+test('native catalog requires all selected runtimes to meet the boundary', async () => {
+  for (const [versions, native] of [
+    [['0.156.0'], true], [['0.156.1', '0.156.0'], true],
+    [['0.156.0', '0.155.1'], false], [['0.155.1', '0.156.0'], false],
+    [['0.156.0', null], false], [['0.156.0-alpha.16'], false], [['0.157.0-alpha.1'], false], [[], false],
+  ]) {
+    const targets = versions.map((runtimeVersion, i) => ({ kind: i ? 'desktop' : 'cli', runtimeVersion }));
+    for (const clientVersion of ['0.1.3', '0.1.3-alpha.1', '0.1.4-alpha.1']) {
+      const body = await (await handle(request({ clientVersion, targets }), bootstrap)).json();
+      assert.equal(body.template.id, native ? 'codex-native-catalog' : 'codex-default');
+    }
+  }
+  const { materialize, validateTemplate } = require('../worker/lib/template-policy.cjs');
+  const native = bootstrap.templates.find(t => t.id === 'codex-native-catalog');
+  const result = materialize(native, { baseUrl: 'https://example.com/proxy/v1', apiKey: 'test', model: 'test' });
+  assert.equal(result.model_providers.custom.model_catalog_url, 'https://example.com/proxy/v1/models');
+  assert.equal(result.features.api_key_model_discovery, true);
+  const invalid = structuredClone(native);
+  invalid.set.model_providers.custom.model_catalog_url = 'https://untrusted.example/models';
+  assert.throws(() => validateTemplate(invalid));
 });
 
 test('templates cannot delete existing user configuration', async () => {
   const manifest = structuredClone(bootstrap);
   manifest.templates[0].remove = [['preferred_auth_method']];
   assert.equal((await handle(request(requestFor(cli)), manifest)).status, 503);
+});
+
+test('client version gates native templates without changing legacy response shape', async () => {
+  const { requestKey, validateResponse } = require('../worker/lib/version-request.cjs');
+  const targets = [{ kind: 'cli', runtimeVersion: '0.156.0' }];
+  for (const [version, native] of [
+    [undefined, false], ['0.1.2', false], ['0.1.2-alpha.1', false],
+    ['0.1.3-alpha.1', true], ['0.1.3-rc.1', true], ['0.1.3', true],
+    ['0.1.4-alpha.1', true], ['0.2.0-beta.1', true], ['0.2.0', true],
+  ]) {
+    const input = requestFor(targets, version);
+    const response = await handle(request(input), bootstrap);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.request, input);
+    assert.equal(body.template.id, native ? 'codex-native-catalog' : 'codex-default');
+    assert.equal(body.release, bootstrap.release);
+    validateResponse(body, input);
+    if (version === undefined) assert.equal(Object.hasOwn(body.request, 'clientVersion'), false);
+  }
+  assert.notEqual(requestKey(requestFor(targets)), requestKey(requestFor(targets, '0.1.3')));
+  assert.notEqual(requestKey(requestFor(targets, '0.1.2')), requestKey(requestFor(targets, '0.1.3')));
+  for (const clientVersion of [null, 13, '', 'v0.1.3', '0.1', 'x'.repeat(101)]) {
+    assert.equal((await handle(request({ clientVersion, targets }), bootstrap)).status, 400);
+  }
+  const modern = await (await handle(request(requestFor(targets, '0.1.3')), bootstrap)).json();
+  const legacy = requestFor(targets);
+  assert.throws(() => validateResponse({ ...modern, request: legacy }, legacy));
 });

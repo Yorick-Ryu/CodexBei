@@ -28,7 +28,12 @@ impl Service {
     }
 
     pub fn current(&self) -> Result<Value> {
-        self.templates.current(&versions::request(&self.targets()?))
+        let targets = self.targets()?;
+        let template = self.templates.current(&versions::request(&targets))?;
+        if templates::native_catalog(&template) && !versions::supports_native_catalog(&targets) {
+            return Err("所选内核尚不支持原生模型目录，请重新选择版本。".into());
+        }
+        Ok(template)
     }
 
     pub async fn refresh(

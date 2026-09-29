@@ -65,6 +65,8 @@ pub fn flatten(value: &Value, prefix: &[String]) -> Result<Vec<(Vec<String>, Val
 fn allowed(name: &str, value: &Value) -> bool {
     let s = value.as_str().unwrap_or_default();
     match name {
+        "model_providers.custom.model_catalog_url" => value == "$model_catalog_url",
+        "features.api_key_model_discovery" => value == &json!(true),
         "model_provider" => value == "custom",
         "model_reasoning_effort" => ["minimal", "low", "medium", "high", "xhigh"].contains(&s),
         "model_reasoning_summary" => ["auto", "concise", "detailed", "none"].contains(&s),
@@ -82,6 +84,10 @@ fn allowed(name: &str, value: &Value) -> bool {
         }
         _ => false,
     }
+}
+pub fn native_catalog(template: &Value) -> bool {
+    template["set"]["model_providers"]["custom"]["model_catalog_url"] == "$model_catalog_url"
+        && template["set"]["features"]["api_key_model_discovery"] == true
 }
 pub fn validate(template: &Value) -> Result<()> {
     if !exact(
@@ -159,9 +165,23 @@ pub fn validate(template: &Value) -> Result<()> {
     if !remove.is_empty() {
         return fail();
     }
+    let has_url = names.contains("model_providers.custom.model_catalog_url");
+    let has_feature = names.contains("features.api_key_model_discovery");
+    if has_url != has_feature || (has_url && template["default"] == true) {
+        return fail();
+    }
     Ok(())
 }
 fn matches(template: &Value, request: &Value) -> bool {
+    if native_catalog(template)
+        && request["clientVersion"]
+            .as_str()
+            .and_then(|v| Version::parse(v).ok())
+            // Client capabilities depend on the release line, including previews.
+            .is_none_or(|v| (v.major, v.minor, v.patch) < (0, 1, 3))
+    {
+        return false;
+    }
     if template["default"] == true {
         return true;
     }
@@ -220,7 +240,10 @@ fn validate_response(value: &Value, request: &Value) -> Result<()> {
     Ok(())
 }
 fn valid_request(request: &Value) -> bool {
-    exact(request, &["targets"])
+    exact(request, &["targets", "clientVersion"])
+        && request
+            .get("clientVersion")
+            .is_none_or(|v| v.as_str().is_some_and(valid_version))
         && request["targets"].as_array().is_some_and(|v| {
             v.len() <= 20
                 && v.iter().all(|t| {
@@ -474,6 +497,95 @@ mod tests {
             .clone()
     }
     #[test]
+    fn bundled_native_policy_requires_all_selected_runtimes() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = Service::new(temp.path().join("cache")).unwrap();
+        for (versions, native) in [
+            (vec![Some("0.156.0")], true),
+            (vec![Some("0.156.1"), Some("0.156.0")], true),
+            (vec![Some("0.156.0"), Some("0.155.1")], false),
+            (vec![Some("0.156.0"), None], false),
+            (vec![Some("0.156.0-alpha.16")], false),
+            (vec![Some("0.157.0-alpha.1")], false),
+            (vec![], false),
+        ] {
+            let targets: Vec<_> = versions
+                .iter()
+                .enumerate()
+                .map(|(i, v)| json!({"kind":if i == 0 {"cli"} else {"desktop"},"runtimeVersion":v}))
+                .collect();
+            let t = service
+                .current(&json!({"clientVersion":env!("CARGO_PKG_VERSION"),"targets":targets}))
+                .unwrap();
+            validate(&t).unwrap();
+            assert_eq!(native_catalog(&t), native);
+        }
+    }
+    #[test]
+    fn client_version_is_validated_and_isolates_cached_templates() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("cache");
+        let mut service = Service::new(directory.clone()).unwrap();
+        let legacy = json!({"targets":[{"kind":"cli","runtimeVersion":"0.156.0"}]});
+        let cases = [
+            (None, false),
+            (Some("0.1.2"), false),
+            (Some("0.1.2-alpha.1"), false),
+            (Some("0.1.3-alpha.1"), true),
+            (Some("0.1.3-rc.1"), true),
+            (Some("0.1.3"), true),
+            (Some("0.1.4-alpha.1"), true),
+            (Some("0.2.0-beta.1"), true),
+            (Some("0.2.0"), true),
+        ];
+        for (version, native) in cases {
+            let mut request = legacy.clone();
+            if let Some(v) = version {
+                request["clientVersion"] = json!(v);
+            }
+            assert!(valid_request(&request));
+            let response = service.bundled(&request);
+            assert_eq!(native_catalog(&response["template"]), native, "{version:?}");
+            service.accept(response, &request).unwrap();
+        }
+        let reloaded = Service::new(directory).unwrap();
+        assert_eq!(reloaded.cached.len(), cases.len());
+        assert!(!native_catalog(&reloaded.current(&legacy).unwrap()));
+        for invalid in [Value::Null, json!(13), json!("v0.1.3"), json!("")] {
+            let mut request = legacy.clone();
+            request["clientVersion"] = invalid;
+            assert!(!valid_request(&request));
+        }
+        let modern = json!({"clientVersion":"0.1.3","targets":legacy["targets"]});
+        let mut response = service.bundled(&modern);
+        assert!(validate_response(&response, &legacy).is_err());
+        response["request"] = legacy.clone();
+        assert!(validate_response(&response, &legacy).is_err());
+    }
+    #[test]
+    fn prerelease_client_discards_cached_policy_from_before_the_fix() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("cache");
+        let request = json!({"clientVersion":"0.1.4-alpha.1","targets":[{"kind":"cli","runtimeVersion":"0.156.0"}]});
+        let previous =
+            json!({"schemaVersion":1,"release":5,"request":request,"template":template()});
+        config::private_dir(&directory).unwrap();
+        config::atomic_write(
+            &directory.join("templates-v2.json"),
+            &serde_json::to_vec(&json!({"cached":[previous],"selected":[previous]})).unwrap(),
+            0o600,
+        )
+        .unwrap();
+
+        let mut service = Service::new(directory.clone()).unwrap();
+        assert!(service.cached.is_empty() && service.selected.is_empty());
+        assert!(native_catalog(&service.current(&request).unwrap()));
+        assert!(service.accept(previous, &request).is_err());
+        service.accept(service.bundled(&request), &request).unwrap();
+        let reloaded = Service::new(directory).unwrap();
+        assert!(native_catalog(&reloaded.current(&request).unwrap()));
+    }
+    #[test]
     fn enforces_template_allowlist_and_bindings() {
         let mut t = template();
         validate(&t).unwrap();
@@ -509,7 +621,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
         let request = json!({"targets":[]});
-        let entry = json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
+        let mut entry =
+            json!({"schemaVersion":1,"release":2,"request":request,"template":template()});
+        entry["template"]["version"] = json!("1.0.2");
         Service::insert(&mut s.selected, entry.clone());
         for (version, available) in [
             ("1.0.2", false),
@@ -531,17 +645,22 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut s = Service::new(temp.path().join("cache")).unwrap();
         let request = json!({"targets":[]});
-        let entry = json!({"schemaVersion":1,"release":3,"request":request,"template":template()});
+        let release = serde_json::from_str::<Value>(include_str!("../../templates/bootstrap.json"))
+            .unwrap()["release"]
+            .as_u64()
+            .unwrap();
+        let entry =
+            json!({"schemaVersion":1,"release":release,"request":request,"template":template()});
         s.accept(entry.clone(), &request).unwrap();
         let mut older = entry.clone();
-        older["release"] = json!(2);
+        older["release"] = json!(release - 1);
         assert!(s.accept(older, &request).is_err());
         let mut changed = entry.clone();
-        changed["release"] = json!(4);
+        changed["release"] = json!(release + 1);
         changed["template"]["set"]["model_reasoning_effort"] = json!("low");
         assert!(s.accept(changed, &request).is_err());
         let mut absent = entry;
-        absent["release"] = json!(4);
+        absent["release"] = json!(release + 1);
         absent["template"] = Value::Null;
         s.accept(absent, &request).unwrap();
         assert!(s.current(&request).is_err());

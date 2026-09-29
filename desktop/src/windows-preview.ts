@@ -1,20 +1,32 @@
 // Browser-only visual fixture. This module is unreachable in production builds.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 mockWindows("main");
+let supportsWebsockets = true;
 const installations = [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
 mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
+  if (cmd === "incoming_tool") return null;
+  if (args.tool === "claude") {
+    if (cmd === "inspect") return { file: "C:\\Users\\Example\\.claude\\settings.json", testMode: true,
+      baseUrl: "https://api.beiapi.cn", model: "claude-sonnet-test", hasKey: true, apiKey: "sk-preview-placeholder",
+      modelChannel: "api", keepOfficialLogin: false, platform: "windows" };
+    if (cmd === "check") return { installations: [], selection: { mode: "auto" }, template: {id: "claude-builtin", version: "1.0.0", digest: "claude-v1"}, latestTemplate: null, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: "claude" };
+    if (cmd === "models") return ["claude-sonnet-test", "claude-opus-test"];
+    if (cmd === "preview") return JSON.stringify({env: {ANTHROPIC_BASE_URL: args.baseUrl, ANTHROPIC_MODEL: args.model, ANTHROPIC_AUTH_TOKEN: "（已隐藏）"}}, null, 2);
+  }
   if (cmd === "inspect") return {
     file: "C:\\Users\\Example\\.codex\\config.toml", testMode: true,
     baseUrl: "https://api.beiapi.cn/v1", model: "gpt-5.6-sol", hasKey: true,
-    apiKey: "sk-preview-placeholder", modelChannel: "api", keepOfficialLogin: false, platform: "windows",
+    apiKey: "sk-preview-placeholder", modelChannel: "api", keepOfficialLogin: false, supportsWebsockets, platform: "windows",
   };
+  if (cmd === "has_official_login") return false;
+  if (cmd === "switch_transport") { supportsWebsockets = args.supportsWebsockets === true; return { changed: true }; }
   if (cmd === "check") return {
     installations, selection: { mode: "auto" }, template: { id: "preview", version: "1.0.0", digest: "preview" },
     latestTemplate: null, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: "0.153.4",
   };
   if (cmd === "models") return ["gpt-5.6-sol"];
-  if (cmd === "preview") return `model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nwire_api = "responses"\nsupports_websockets = true\nexperimental_bearer_token = "（已隐藏）"`;
+  if (cmd === "preview") return `model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nwire_api = "responses"\nsupports_websockets = ${supportsWebsockets}\nexperimental_bearer_token = "（已隐藏）"`;
   if (cmd === "windows_diagnostics") {
     await new Promise(resolve => setTimeout(resolve, 650));
     return {

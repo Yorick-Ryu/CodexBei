@@ -1,5 +1,7 @@
 import {
   useCallback,
+  useMemo,
+  type MutableRefObject,
   useEffect,
   useRef,
   useState,
@@ -7,7 +9,10 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  api,
+  toolApi,
+  incomingTool,
+  type Tool,
+  type Mapping,
   installationLabel,
   type Backup,
   type BackupPreview,
@@ -27,7 +32,7 @@ import claude from "../assets/agents/claude-code.svg";
 
 const toolTabs = [
   { id: "codex", name: "ChatGPT", icon: chatgpt, iconClass: "chatgpt-icon", disabled: false },
-  { id: "claude", name: "Claude Code", icon: claude, iconClass: "", disabled: true },
+  { id: "claude", name: "Claude Code", icon: claude, iconClass: "", disabled: false },
 ] as const;
 
 const date = (value: string) =>
@@ -51,17 +56,43 @@ const displayPath = (path = "") => {
   return path;
 };
 
+type Draft = { apiKey: string; baseUrl: string; model: string; mapping: Mapping; keep: boolean; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
+
 export function App() {
-  const [inspection, setInspection] = useState<Inspection | null>(null);
-  const [apiKey, setApiKey] = useState("");
+  const drafts = useRef<Partial<Record<Tool, Draft>>>({});
+  const [tool, setTool] = useState<Tool>("codex");
+  useEffect(() => {
+    let active = true;
+    const route = () => { void incomingTool().then(value => { if (active && value) setTool(value); }).catch(() => {}); };
+    const subscription = listen("incoming-changed", route);
+    route();
+    return () => { active = false; void subscription.then(unlisten => unlisten()); };
+  }, []);
+  return <ToolApp key={tool} activeTool={tool} setActiveTool={setTool} drafts={drafts} />;
+}
+
+function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setActiveTool: (tool: Tool) => void; drafts: MutableRefObject<Partial<Record<Tool, Draft>>> }) {
+  const initialDraft = useRef(drafts.current[activeTool]);
+  const restoringDraft = useRef(!!initialDraft.current);
+  const api = useMemo(() => toolApi(activeTool), [activeTool]);
+  const isClaude = activeTool === "claude";
+  const defaultBase = isClaude ? "https://api.beiapi.cn" : "https://api.beiapi.cn/v1";
+  const defaultModel = isClaude ? "claude-sonnet-4-6" : "gpt-6-astra";
+  const [mapping, setMapping] = useState<Mapping>(initialDraft.current?.mapping ?? {});
+  const [inspection, setInspection] = useState<Inspection | null>(initialDraft.current?.inspection ?? null);
+  const [apiKey, setApiKey] = useState(initialDraft.current?.apiKey ?? "");
   const loadedKey = useRef<{ value: string; baseUrl: string } | null>(null);
-  const [baseUrl, setBaseUrl] = useState("https://api.beiapi.cn/v1");
-  const [model, setModel] = useState("gpt-6-astra");
-  const [keep, setKeep] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(initialDraft.current?.baseUrl ?? defaultBase);
+  const [model, setModel] = useState(initialDraft.current?.model ?? defaultModel);
+  const [keep, setKeep] = useState(initialDraft.current?.keep ?? false);
+  const [officialLoginConfirmOpen, setOfficialLoginConfirmOpen] = useState(false);
   const [visibleKey, setVisibleKey] = useState(false);
   const [busy, setBusy] = useState(true);
+  const [initializing, setInitializing] = useState(true);
+  const [configuring, setConfiguring] = useState(false);
   const [channelSwitching, setChannelSwitching] = useState(false);
-  const [channelTooltipOpen, setChannelTooltipOpen] = useState(false);
+  const [transportSwitching, setTransportSwitching] = useState(false);
+  const [actionTooltip, setActionTooltip] = useState<"provider" | "transport" | null>(null);
   const [previewChannel, setPreviewChannel] = useState<string>();
   const [loginPreviewPending, setLoginPreviewPending] = useState(false);
   const [status, setStatus] = useState("");
@@ -80,7 +111,7 @@ export function App() {
     }, 3000);
     return () => clearTimeout(timeout);
   }, [status, statusSuccess, successNoticeId]);
-  const [matching, setMatching] = useState<Matching | null>(null);
+  const [matching, setMatching] = useState<Matching | null>(initialDraft.current?.matching ?? null);
   const [waitingForChatgptInstall, setWaitingForChatgptInstall] = useState(false);
   const [openingInstaller, setOpeningInstaller] = useState(false);
   const openingInstallerRef = useRef(false);
@@ -89,6 +120,7 @@ export function App() {
     try { return localStorage.getItem("codexbei.desktop-install-hint-dismissed") === "true"; }
     catch { return false; }
   });
+  const [claudeInstallHintDismissed, setClaudeInstallHintDismissed] = useState(false);
   const openInstaller = async () => {
     if (openingInstallerRef.current) return;
     openingInstallerRef.current = true;
@@ -119,17 +151,19 @@ export function App() {
     setVersionDraft(null);
     setVersionOpen(false);
   };
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialDraft.current?.expanded ?? false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelStatus, setModelStatus] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelRefresh, setModelRefresh] = useState(0);
   const [page, setPage] = useState<"config" | "success" | "history">("config");
-  const [activeTool, setActiveTool] = useState<(typeof toolTabs)[number]["id"]>("codex");
   const selectedTool = toolTabs.find(tool => tool.id === activeTool)!;
-  const [preview, setPreview] = useState("");
-  const [previewError, setPreviewError] = useState("");
+  const [preview, setPreview] = useState(initialDraft.current?.preview ?? "");
+  const [previewError, setPreviewError] = useState(initialDraft.current?.previewError ?? "");
   const [previewPending, setPreviewPending] = useState(true);
+  useEffect(() => {
+    if (!initializing && !previewPending) restoringDraft.current = false;
+  }, [initializing, previewPending]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [selectedBackup, setSelectedBackup] = useState<BackupPreview | null>(
     null,
@@ -149,13 +183,28 @@ export function App() {
     setApiKey(data.apiKey || "");
     setVisibleKey(false);
     loadedKey.current = data.apiKey && data.baseUrl ? { value: data.apiKey, baseUrl: data.baseUrl } : null;
-    setBaseUrl(data.baseUrl || "https://api.beiapi.cn/v1");
-    setModel(data.model || "gpt-6-astra");
+    setBaseUrl(data.baseUrl || defaultBase);
+    setModel(data.model || defaultModel);
+    setMapping(Object.fromEntries(Object.entries(data.mapping || {}).filter(([, value]) => value && value !== data.model)));
     setKeep(data.keepOfficialLogin);
     keepRef.current = data.keepOfficialLogin;
+    const draft = initialDraft.current;
+    initialDraft.current = undefined;
+    if (draft) {
+      setApiKey(draft.apiKey);
+      setBaseUrl(draft.baseUrl);
+      setModel(draft.model);
+      setMapping(draft.mapping);
+      setKeep(draft.keep);
+      keepRef.current = draft.keep;
+      setExpanded(draft.expanded);
+    }
     document.body.dataset.platform =
       data.platform === "macos" ? "darwin" : data.platform;
-  }, []);
+  }, [defaultBase, defaultModel]);
+  useEffect(() => {
+    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, mapping, keep, expanded, inspection, matching, preview, previewError };
+  }, [inspection, activeTool, apiKey, baseUrl, model, mapping, keep, expanded, matching, preview, previewError, drafts]);
   const changeBaseUrl = (value: string) => {
     const saved = loadedKey.current;
     if (saved && apiKey === saved.value && value.trim().replace(/\/+$/, "") !== saved.baseUrl.replace(/\/+$/, "")) {
@@ -179,7 +228,7 @@ export function App() {
       setMatching(await api.check());
       if (outcome?.warning) setStatus(outcome.warning);
     },
-    [acceptInspection],
+    [acceptInspection, api],
   );
   const run = useCallback(
     async (
@@ -216,6 +265,24 @@ export function App() {
       setFileError(errorText(error));
     }
   });
+  const applyLoginPreference = (enabled: boolean) => {
+    setPreviewPending(true);
+    setLoginPreviewPending(true);
+    setKeep(enabled);
+    keepRef.current = enabled;
+    setActionTooltip(null);
+  };
+  const changeLoginPreference = (enabled: boolean) => {
+    if (!enabled) {
+      applyLoginPreference(false);
+      return;
+    }
+    setActionTooltip(null);
+    void run(async () => {
+      if (await api.hasOfficialLogin()) applyLoginPreference(true);
+      else setOfficialLoginConfirmOpen(true);
+    }, false, false);
+  };
   const switchChannel = (channel: "api" | "official") => {
     if (!keep) return;
     void run(async () => {
@@ -237,6 +304,21 @@ export function App() {
         setSuccessNoticeId(value => value + 1);
       } finally {
         setChannelSwitching(false);
+      }
+    });
+  };
+  const switchTransport = (supportsWebsockets: boolean) => {
+    void run(async () => {
+      setTransportSwitching(true);
+      try {
+        await api.switchTransport(supportsWebsockets);
+        // Refresh saved state without replacing unsaved key, model or URL edits.
+        setInspection(await api.inspect());
+        setStatusSuccess(true);
+        setStatus("切换成功，新对话生效");
+        setSuccessNoticeId(value => value + 1);
+      } finally {
+        setTransportSwitching(false);
       }
     });
   };
@@ -274,13 +356,15 @@ export function App() {
         .show()
         .catch(() => {});
       try {
-        const info = await api.check(null, true);
+        // Tab remounts reuse the backend template cache; installation polling stays forced.
+        const info = await api.check();
         if (active) setMatching(info);
       } catch (error) {
         if (active) setStatus(errorText(error));
       } finally {
         if (active) {
           busyRef.current = false;
+          setInitializing(false);
           setBusy(false);
           drainIncoming.current();
         }
@@ -293,14 +377,14 @@ export function App() {
       active = false;
       void subscription.then((unlisten) => unlisten());
     };
-  }, [acceptInspection]);
+  }, [acceptInspection, api, isClaude]);
   useEffect(() => {
     let active = true;
     // Keep the previous layout while IPC produces the replacement preview.
     // Clearing it here collapses the page and clamps WebKit's scroll position.
     setPreviewPending(true);
     setPreviewError("");
-    void api.preview(baseUrl, model, keep, inspection?.modelChannel ?? "api").then(
+    void api.preview(baseUrl, model, keep, inspection?.modelChannel ?? "api", mapping).then(
       (value) => {
         if (active) {
           setPreview(value);
@@ -321,7 +405,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [baseUrl, model, keep, matching?.template?.digest, inspection?.modelChannel]);
+  }, [baseUrl, model, keep, matching?.template?.digest, inspection?.modelChannel, inspection?.supportsWebsockets, inspection?.file, mapping, api]);
   useEffect(() => {
     if (!waitingForChatgptInstall) return;
     let active = true;
@@ -420,21 +504,23 @@ export function App() {
   const keyError = page === "config" ? (statusKeyError ? status : isKeyError(modelStatus) ? modelStatus : "") : "";
   const footerStatus = statusKeyError ? "" : status;
   const disabled = busy || !inspection;
-  const channelUpdating = channelSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
+  const channelUpdating = channelSwitching || transportSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
   const hasCli = !!matching?.installations.some(item => item.kind === "cli");
   const hasDesktop = !!matching?.installations.some(item => item.kind === "desktop");
-  const missingDesktop = !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
+  const missingDesktop = !isClaude && !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
   const installerLabel = inspection?.platform === "windows" ? "前往商店安装" : "下载桌面版";
   const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
-  const showInstallHint = page === "config" && missingDesktop && hasCli && !installHintDismissed && !footerStatus && !installerError && !needsVersionNotice;
+  const missingClaude = isClaude && !!matching && !matching.installations.length;
+  const showInstallHint = page === "config" && (missingClaude ? !claudeInstallHintDismissed : missingDesktop && hasCli && !installHintDismissed) && !footerStatus && !installerError && !needsVersionNotice;
   const showNotice = !!(footerStatus || installerError || needsVersionNotice || showInstallHint);
   const noticeKind = footerStatus ? (statusSuccess ? "success" : footerStatus === configureFirstNotice ? "info" : "error") : (installerError || needsVersionNotice ? "error" : "info");
   const closeNotice = () => {
     if (footerStatus) { setStatus(""); setStatusSuccess(false); }
     else if (installerError) setInstallerError("");
     else if (showInstallHint) {
+      if (isClaude) { setClaudeInstallHintDismissed(true); return; }
       setInstallHintDismissed(true);
       try { localStorage.setItem("codexbei.desktop-install-hint-dismissed", "true"); } catch { /* Keep dismissal for this session. */ }
     }
@@ -457,10 +543,16 @@ export function App() {
                     key={tool.id}
                     role="tab"
                     aria-selected={activeTool === tool.id}
-                    aria-controls={activeTool === tool.id ? "codex-panel" : undefined}
+                    aria-controls={activeTool === tool.id ? `${activeTool}-panel` : undefined}
                     id={`${tool.id}-tab`}
-                    disabled={tool.disabled}
+                    disabled={(busy && !initializing) || tool.disabled}
                     onClick={() => setActiveTool(tool.id)}
+                    onKeyDown={event => {
+                      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                        event.preventDefault();
+                        setActiveTool(activeTool === "codex" ? "claude" : "codex");
+                      }
+                    }}
                   >
                     <img className={`agent-icon ${tool.iconClass}`} src={tool.icon} alt="" />
                     {tool.name}
@@ -469,7 +561,7 @@ export function App() {
                 ))}
               </div>
               <AppSettings baseUrl={baseUrl} theme={<ThemeSelector />} updateAvailable={softwareUpdate.available}
-                isWindows={inspection?.platform === "windows" || (!inspection && /Win/i.test(navigator.platform))}
+                isWindows={!isClaude && (inspection?.platform === "windows" || (!inspection && /Win/i.test(navigator.platform)))}
                 updateRow={softwareUpdate.row} historyBusy={busy} onOpenHistory={() => void run(async () => {
                   setBackups(await api.backups());
                   setPage("history");
@@ -478,12 +570,12 @@ export function App() {
           </div>
         )}
       </header>
-      <div className="content-scroll" onScrollCapture={() => setChannelTooltipOpen(false)}>
-        <main className={page !== "history" ? "config-main" : undefined} data-channel-updating={channelUpdating || undefined} data-has-key={!!apiKey} data-has-base-url={!!baseUrl} data-template-update={!!matching?.templateUpdateAvailable}>
+      <div className="content-scroll" onScrollCapture={() => setActionTooltip(null)}>
+        <main className={page !== "history" ? "config-main" : undefined} data-restore-ready={restoringDraft.current && !!apiKey.trim() && !!preview && !previewError && !!matching && !matching.needsSelection || undefined} data-restoring={(initializing || previewPending) && restoringDraft.current || undefined} data-channel-updating={channelUpdating || undefined} data-has-key={!!apiKey} data-has-base-url={!!baseUrl} data-template-update={!!matching?.templateUpdateAvailable}>
           {page !== "history" ? (
             <div id="configuration-page">
               <section
-                id="codex-panel"
+                id={`${activeTool}-panel`}
                 role="tabpanel"
                 aria-labelledby={`${activeTool}-tab`}
               >
@@ -496,7 +588,7 @@ export function App() {
                       配置完成
                     </h1>
                     <p>
-                      {hasCli && !hasDesktop ? "Codex CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
+                      {isClaude ? "Claude Code 配置已保存，新会话生效。" : hasCli && !hasDesktop ? "Codex CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
                     </p>
                     <button
                       className="primary"
@@ -513,15 +605,21 @@ export function App() {
                     onSubmit={(event) => {
                       event.preventDefault();
                       void run(async () => {
-                        const result = await api.configure(
-                          { apiKey, baseUrl, model },
-                          keep,
-                        );
-                        await completed(result);
+                        setConfiguring(true);
+                        try {
+                          const result = await api.configure(
+                            { apiKey, baseUrl, model },
+                            keep,
+                            mapping,
+                          );
+                          await completed(result);
+                        } finally {
+                          setConfiguring(false);
+                        }
                       });
                     }}
                   >
-                    {matching && !matching.installations.length ? (
+                    {!isClaude && matching && !matching.installations.length ? (
                       <div className="config-card install-card">
                         <div className="install-card-icon"><img className={selectedTool.iconClass} src={selectedTool.icon} alt="" /></div>
                         <h2 className="config-title">未检测到 {selectedTool.name}</h2>
@@ -622,10 +720,13 @@ export function App() {
                                 id="refresh-models"
                                 className="text-button"
                                 disabled={disabled || modelsLoading}
-                                aria-busy={modelsLoading}
-                                onClick={() => setModelRefresh((v) => v + 1)}
+                                aria-busy={modelsLoading || busy}
+                                title="刷新可选模型，点击一键配置后保存"
+                                onClick={() => void run(async () => {
+                                  setModelRefresh(v => v + 1);
+                                })}
                               >
-                                {modelsLoading ? "正在获取模型…" : "刷新列表"}
+                                {modelsLoading ? "刷新中…" : "刷新"}
                               </button>
                             </div>
                             <select
@@ -654,6 +755,17 @@ export function App() {
                             >
                               {!isKeyError(modelStatus) && modelStatus}
                             </p>
+                            {isClaude && (["opus", "sonnet", "haiku"] as const).map(tier => (
+                              <div key={tier}>
+                                <label htmlFor={`mapping-${tier}`}>{tier[0].toUpperCase() + tier.slice(1)} 模型</label>
+                                <select id={`mapping-${tier}`} value={mapping[tier] || ""} disabled={disabled}
+                                  onChange={event => { setPreviewPending(true); setMapping(value => ({...value, [tier]: event.target.value || undefined})); }}>
+                                  <option value="">跟随所选模型</option>
+                                  {[...new Set([model, mapping[tier], ...availableModels].filter((v): v is string => !!v))].map(value => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                                <p className="field-feedback" aria-hidden="true" />
+                              </div>
+                            ))}
                             <label htmlFor="base-url">API 地址</label>
                             <div className="key-control base-url-control">
                               <input
@@ -739,7 +851,7 @@ export function App() {
                                       {installerLabel}
                                     </button>
                                   )}
-                                  <button
+                                  {!isClaude && <button
                                     type="button"
                                     id="change-version"
                                     className="text-button"
@@ -749,7 +861,7 @@ export function App() {
                                     onClick={() => setVersionOpen(true)}
                                   >
                                     选择 ChatGPT 版本
-                                  </button>
+                                  </button>}
                                 </div>
                                 {matching && matching.selection.mode !== "auto" && (
                                   <p className="preview-version selected-version">
@@ -758,7 +870,7 @@ export function App() {
                                       : matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")}
                                   </p>
                                 )}
-                                <div className="template-version-row">
+                                {!isClaude && <div className="template-version-row">
                                   <p id="preview-version" className="preview-version">
                                     {matching?.offline ? (
                                       <>本地模板 {matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新</>
@@ -785,7 +897,7 @@ export function App() {
                                       <span className="template-update-dot" aria-hidden="true" />
                                     )}
                                   </button>
-                                </div>
+                                </div>}
                               </div>
                               <pre id="preview-code" aria-label="配置预览">
                                 {previewError || preview}
@@ -795,42 +907,36 @@ export function App() {
                         </div>
                       </div>
                       <div className="action-row">
-                        <div className="action-options">
+                        {!isClaude && <div className="action-options">
                           <label className="login-option">
                             <input
                               id="keep-official-login"
                               type="checkbox"
                               checked={keep}
-                              onChange={(e) => {
-                                setPreviewPending(true);
-                                setLoginPreviewPending(true);
-                                setKeep(e.target.checked);
-                                setChannelTooltipOpen(false);
-                              }}
+                              onChange={(e) => changeLoginPreference(e.target.checked)}
                               disabled={disabled}
                             />
                             保留官方登录
                           </label>
                           <div className="channel-option">
-                            <span className="channel-title" id="model-channel-label">提供商</span>
                             <div
                               id="model-channel"
                               className="channel-segments"
-                              data-channel={inspection?.modelChannel}
+                              data-channel={inspection?.modelChannel ?? "api"}
                               role="radiogroup"
-                              aria-labelledby="model-channel-label"
+                              aria-label="提供商"
                               aria-busy={channelUpdating}
                               aria-disabled={disabled || !keep}
-                              aria-describedby={channelTooltipOpen && !keep ? "provider-tooltip" : undefined}
+                              aria-describedby={actionTooltip === "provider" ? "provider-tooltip" : undefined}
                               tabIndex={!keep ? 0 : undefined}
-                              onMouseEnter={() => setChannelTooltipOpen(!keep)}
-                              onMouseLeave={() => setChannelTooltipOpen(false)}
-                              onFocus={() => setChannelTooltipOpen(!keep)}
+                              onMouseEnter={() => setActionTooltip("provider")}
+                              onMouseLeave={() => setActionTooltip(null)}
+                              onFocus={() => setActionTooltip("provider")}
                               onBlur={(event) => {
-                                if (!event.currentTarget.contains(event.relatedTarget)) setChannelTooltipOpen(false);
+                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
                               }}
                               onKeyDown={(event) => {
-                                if (event.key === "Escape") setChannelTooltipOpen(false);
+                                if (event.key === "Escape") setActionTooltip(null);
                               }}
                             >
                               {([
@@ -842,21 +948,65 @@ export function App() {
                                     type="radio"
                                     name="model-channel"
                                     value={channel}
-                                    checked={inspection?.modelChannel === channel}
+                                    checked={(inspection?.modelChannel ?? "api") === channel}
                                     disabled={disabled || !keep}
                                     onChange={() => switchChannel(channel)}
                                   />
                                   <span>{label}</span>
                                 </label>
                               ))}
-                              {channelTooltipOpen && !keep && (
+                              {actionTooltip === "provider" && (
                                 <span id="provider-tooltip" className="channel-tooltip" role="tooltip">
-                                  请先打开保留官方登录
+                                  {keep ? "提供商" : "请先打开保留官方登录"}
                                 </span>
                               )}
                             </div>
                           </div>
-                        </div>
+                          <div className="channel-option transport-option">
+                            <div
+                              id="transport-protocol"
+                              className="channel-segments"
+                              data-channel={inspection?.supportsWebsockets ? "ws" : "http"}
+                              role="radiogroup"
+                              aria-label="传输协议"
+                              aria-busy={transportSwitching}
+                              aria-disabled={disabled || !inspection?.baseUrl}
+                              aria-describedby={actionTooltip === "transport" ? "transport-tooltip" : undefined}
+                              tabIndex={!inspection?.baseUrl ? 0 : undefined}
+                              onMouseEnter={() => setActionTooltip("transport")}
+                              onMouseLeave={() => setActionTooltip(null)}
+                              onFocus={() => setActionTooltip("transport")}
+                              onBlur={(event) => {
+                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") setActionTooltip(null);
+                              }}
+                            >
+                              {([
+                                [false, "HTTP"],
+                                [true, "WS"],
+                              ] as const).map(([enabled, label]) => (
+                                <label className="channel-segment" key={label}>
+                                  <input
+                                    type="radio"
+                                    name="transport-protocol"
+                                    value={label.toLowerCase()}
+                                    checked={!!inspection?.supportsWebsockets === enabled}
+                                    disabled={disabled || !inspection?.baseUrl}
+                                    onChange={() => switchTransport(enabled)}
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              ))}
+                              {actionTooltip === "transport" && (
+                                <span id="transport-tooltip" className="channel-tooltip" role="tooltip">
+                                  传输协议
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>}
                         <button
                           id="apply"
                           data-ready={applyReady}
@@ -865,7 +1015,7 @@ export function App() {
                           className="primary"
                           disabled={disabled || !applyReady || previewPending}
                         >
-                          {busy && !channelUpdating ? "处理中…" : "一键配置"}
+                          {configuring ? "处理中…" : "一键配置"}
                         </button>
                       </div>
                     </div>
@@ -949,7 +1099,10 @@ export function App() {
                 <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
               </>
             ) : showInstallHint && (
-              <>
+              isClaude ? <>
+                <span>未检测到 Claude Code，可先保存配置，安装后新会话生效。</span>
+                <button type="button" className="text-button" disabled={busy} onClick={() => void run(() => api.openClaudeInstaller())}>安装指南</button>
+              </> : <>
                 <span>未检测到桌面版，Codex CLI 可正常配置</span>
                 <button type="button" className="text-button" disabled={openingInstaller} onClick={() => void openInstaller()}>{installerLabel}</button>
               </>
@@ -959,6 +1112,18 @@ export function App() {
             onClick={closeNotice}><CloseIcon /></button>}
         </div>
       </div>
+      <Modal id="official-login-confirm" title="开启保留官方登录"
+        descriptionId="official-login-confirm-description"
+        open={officialLoginConfirmOpen} onClose={() => setOfficialLoginConfirmOpen(false)}>
+        <p id="official-login-confirm-description">当前未检测到官方账号，是否仍要开启“保留官方登录”？</p>
+        <div className="modal-actions">
+          <button type="button" className="secondary" onClick={() => {
+            setOfficialLoginConfirmOpen(false);
+            applyLoginPreference(true);
+          }}>仍要开启</button>
+          <button type="button" className="primary" onClick={() => setOfficialLoginConfirmOpen(false)}>保持关闭</button>
+        </div>
+      </Modal>
       <VersionPicker
         open={versionOpen}
         matching={versionDraft || matching}
