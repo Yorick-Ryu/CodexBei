@@ -6,7 +6,7 @@
 
 ## ChatGPT macOS 镜像
 
-Worker 每天 03:00（UTC，北京时间 11:00）从 `CHATGPT_MAC_ARM64_URL` 和 `CHATGPT_MAC_X64_URL` 下载未经修改的官方 DMG 到 R2，下载地址为 `/mirror/arm64/ChatGPT_aarch64.dmg`、`/mirror/x64/ChatGPT_x64.dmg`，清单为 `/mirror/manifest.json`。每次覆盖对应架构的固定对象，只保留最后一次成功同步的安装包，不保留历史版本。Apple 芯片使用官方 `Codex.dmg`（arm64），Intel 使用官方 `Codex-latest-x64.dmg`（x64），不可共用同一安装包。两个上游地址通过 Worker var 配置，上游地址变化时更新变量即可。手动同步使用 `POST /mirror/sync` 并携带 `Authorization: Bearer <MIRROR_SYNC_TOKEN>`。首次启用前创建 `codexbei-mac-mirror` R2 bucket，并配置 `MIRROR_SYNC_TOKEN` 与两个上游 URL。
+Worker 每天 20:00 UTC（北京时间次日凌晨 04:00）从 `CHATGPT_MAC_ARM64_URL` 和 `CHATGPT_MAC_X64_URL` 下载未经修改的官方 DMG 到 R2，下载地址为 `/mirror/arm64/ChatGPT_aarch64.dmg`、`/mirror/x64/ChatGPT_x64.dmg`，清单为 `/mirror/manifest.json`。每次覆盖对应架构的固定对象，只保留最后一次成功同步的安装包，不保留历史版本。Apple 芯片使用官方 `Codex.dmg`（arm64），Intel 使用官方 `Codex-latest-x64.dmg`（x64），不可共用同一安装包。两个上游地址通过 Worker var 配置，上游地址变化时更新变量即可。手动同步使用 `POST /mirror/sync` 并携带 `Authorization: Bearer <MIRROR_SYNC_TOKEN>`。首次启用前创建 `codexbei-mac-mirror` R2 bucket，并配置 `MIRROR_SYNC_TOKEN` 与两个上游 URL。
 
 下载页源码在 [download-page/index.html](download-page/index.html)、[style.css](download-page/style.css) 和 [app.js](download-page/app.js)。运行 `node scripts/stage-app-downloads.cjs <发布目录> dist-downloads` 生成页面，再用 `python3 -m http.server 0 --bind 127.0.0.1 --directory dist-downloads` 本地预览；本地生成不部署。架构默认 Mac Apple 芯片 / Windows x64；外观支持跟随系统、深色、浅色，并在浏览器保存选择。
 
