@@ -1,6 +1,6 @@
 import {
   ArrowRight, Check, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, History, Monitor, Moon,
-  Settings, SlidersHorizontal, Sun, X, type LucideIcon,
+  RefreshCw, Settings, SlidersHorizontal, Sun, X, type LucideIcon,
 } from "lucide-react";
 
 // Named imports keep the bundle limited to the Lucide icons used by the app.
@@ -24,3 +24,5 @@ export const HistoryIcon = appIcon(History);
 export const MonitorIcon = appIcon(Monitor);
 export const MoonIcon = appIcon(Moon);
 export const SunIcon = appIcon(Sun);
+
+export const RefreshIcon = appIcon(RefreshCw);

@@ -25,13 +25,16 @@ async function fixture(options = {}) {
   const context = await browser.newContext({ viewport: { width: 600, height: 460 }, colorScheme: 'dark' });
   await context.addInitScript({ content: mocks + `
     mockWindows('main');
-    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: 'https://api.beiapi.cn/v1', model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
+    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     window.fixtureBackups = [];
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
     window.fixtureClaudeBackups = [];
     window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
+    window.fixtureQuotaDelay = ${options.quotaDelay || 0};
+    window.fixtureQuotaError = ${JSON.stringify(options.quotaError || '')};
+    window.fixtureEmptyQuota = ${!!options.emptyQuota};
     window.fixtureOfficialLogin = ${options.officialLogin !== false};
     if (${!!options.cliOnly}) { window.fixtureMatching.installations = window.fixtureMatching.installations.filter(item => item.kind === 'cli'); window.fixtureMatching.selection = { mode: 'installed', id: 'cli' }; window.fixtureMatching.modelClientVersion = '0.153.4'; }
     if (${!!options.noInstallations}) window.fixtureMatching.installations = [];
@@ -98,7 +101,19 @@ async function fixture(options = {}) {
         window.fixtureOpenedFile = window.fixtureState.file;
         return null;
       }
-      if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState };
+      if (cmd === 'open_wallet') { window.fixtureWalletOpened = true; return null; }
+      if (cmd === 'quota') {
+        if (args.channel !== 'api') throw new Error('Official quota must not be queried');
+        window.fixtureQuotaRequests = (window.fixtureQuotaRequests || 0) + 1;
+        if (window.fixtureQuotaDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureQuotaDelay));
+        if (window.fixtureQuotaError) throw window.fixtureQuotaError;
+        if (window.fixtureEmptyQuota) return {channel:'api',rows:[],groups:[]};
+        return args.channel === 'official' ? { channel: 'official', planType: 'plus', rows: [{ label:'5 小时额度',value:'剩余 75%',remaining:window.fixtureOfficialRemaining ?? 75,resetAt:1790711528 },{ label:'每周额度',value:'剩余 67%',remaining:67,resetAt:1791048107 }] } : { channel:'api',rows:[{label:'余额',value:args.tool === 'claude' ? '$64.25' : '$128.50'},{label:'密钥余额',value:'不限额'}],groups:window.fixtureNoPlans ? [] : [
+          {id:1,title:'Plus 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$24.00 / $30.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$180.00 / $240.00',remaining:75,resetAt:1791048107}]},
+          {id:2,title:'Ultra 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$120.00 / $150.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$960.00 / $1200.00',remaining:80,resetAt:1791048107}]}
+        ]};
+      }
+      if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState, hasOfficialCredentials: window.fixtureOfficialLogin };
       if (cmd === 'has_official_login') {
         if (window.fixtureOfficialLoginDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureOfficialLoginDelay));
         if (window.fixtureOfficialLoginError) throw '无法检测官方登录状态，请重试。';
@@ -256,6 +271,9 @@ test('React: transport switches immediately without backups and preserves drafts
         return { noOverlap: a.right <= b.left || a.top >= b.bottom || a.bottom <= b.top, inWindow: protocol.left >= 0 && protocol.right <= innerWidth };
       });
       assert.deepEqual(layout, { noOverlap: true, inWindow: true });
+      // Let resize/scroll handlers settle before entering the tooltip target.
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await page.locator('#transport-protocol').hover();
       assert.equal(await page.getByRole('tooltip').textContent(), '传输协议');
       await page.screenshot({ path: path.join(output, 'transport-' + width + '.png') });
@@ -380,11 +398,11 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
         await page.setViewportSize({ width, height: 460 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight), true);
         const cardSpacing = await page.locator('.config-card').evaluate(el => {
-          const card = el.getBoundingClientRect();
+          const card = el.closest("section").getBoundingClientRect();
           return { top: card.top, bottom: innerHeight - card.bottom, headerBottom: document.querySelector('.app-header').getBoundingClientRect().bottom };
         });
-        // The compact form sits 16px above the content area's vertical center.
-        assert.ok(Math.abs(cardSpacing.top - cardSpacing.headerBottom - cardSpacing.bottom + 32) <= 1, JSON.stringify(cardSpacing));
+        // The complete panel includes the quota card; it stays below the header.
+        assert.equal(await page.locator(".quota-panel").evaluate(el => el.scrollHeight <= el.clientHeight), true);
         assert.ok(cardSpacing.top >= cardSpacing.headerBottom + 16, JSON.stringify(cardSpacing));
         await page.screenshot({ path: path.join(output, `${scheme}-${width}.png`) });
       }
@@ -1316,4 +1334,120 @@ test('React: tool tabs keep icon positions and configuration label stable while 
     }
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
+});
+
+
+test('React: API quota and Plus Ultra plans stay visible across routing and refresh', async () => {
+  const f = await fixture(); const {page}=f;
+  try {
+    await page.setViewportSize({width:600,height:740});
+    await page.getByText('$128.50',{exact:true}).waitFor();
+    assert.equal(await page.locator('.quota-official').count(),0);
+    assert.equal(await page.evaluate(()=>window.fixtureQuotaRequests),1);
+    assert.equal(await page.locator('.quota-plans').isVisible(),false);
+    const titleTop=await page.locator('.config-title').evaluate(e=>e.getBoundingClientRect().top);
+    await page.getByRole('button',{name:/生效套餐\s*2/}).click();
+    await page.getByText('Ultra 月卡',{exact:true}).waitFor();
+    assert.equal(await page.locator('.config-title').evaluate(e=>e.getBoundingClientRect().top),titleTop);
+    await page.locator('#keep-official-login').check();
+    const geometry=()=>page.evaluate(()=>['#key','#apply','.quota-api'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));
+    const before=await geometry();
+    const count=await page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length);
+    await page.getByRole('radio',{name:'官方',exact:true}).click();
+    await page.waitForFunction(()=>!document.querySelector('main').dataset.channelUpdating);
+    assert.deepEqual(await geometry(),before);
+    assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length),count);
+    await page.evaluate(()=>window.fixtureQuotaDelay=400);
+    await page.getByRole('button',{name:'刷新API 额度'}).click();
+    await page.waitForFunction(n=>window.fixtureCalls.filter(c=>c==='quota').length>n,count);
+    assert.deepEqual(await geometry(),before);
+    await page.waitForFunction(()=>document.querySelector('.quota-api').getAttribute('aria-busy')==='false');
+    assert.deepEqual(await geometry(),before);
+    await page.evaluate(()=>window.fixtureQuotaError='额度查询失败，请稍后刷新。');
+    await page.getByRole('button',{name:'刷新API 额度'}).evaluate(button=>button.click());
+    await page.locator('.quota-panel').waitFor({state:'detached'});
+    assert.deepEqual(await page.evaluate(()=>['#key','#apply'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]})),before.slice(0,2));
+    assert.equal(await page.getByText('暂时无法获取额度信息',{exact:true}).count(),0);
+    await page.setViewportSize({width:460,height:600});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    assert.deepEqual(f.errors,[]);
+  } finally { await f.close(); }
+});
+
+test('React: switching Claude and ChatGPT reuses API quota snapshot', async () => {
+  const f = await fixture(); const {page}=f;
+  try {
+    await page.getByText('$128.50',{exact:true}).waitFor();
+    const calls=()=>page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length);
+    const before=await calls();
+    for(let i=0;i<2;i++) {
+      await page.getByRole('tab',{name:'Claude Code',exact:true}).click();
+      await page.locator('#claude-panel').waitFor();
+      await page.getByText('$64.25',{exact:true}).waitFor();
+      assert.equal(await page.locator('.quota-plans').isVisible(),false);
+      await page.getByRole('button',{name:/生效套餐\s*2/}).click();
+      await page.getByText('Ultra 月卡',{exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'充值',exact:true}).count(),1);
+      await page.getByRole('tab',{name:'ChatGPT',exact:true}).click();
+      await page.getByText('$128.50',{exact:true}).waitFor();
+    }
+    assert.equal(await calls(),before+1);
+    await page.getByRole('button',{name:'刷新API 额度',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('.quota-api').getAttribute('aria-busy')==='false');
+    assert.equal(await calls(),before+2);
+    assert.equal(await page.evaluate(()=>window.fixtureClaudeCalls.filter(c=>c.cmd==='quota').length),1);
+  } finally { await f.close(); }
+});
+
+test('React: absent official credentials hide the whole official quota region', async () => {
+  const f = await fixture({officialLogin:false}); const {page}=f;
+  try {
+    await page.getByText('$128.50',{exact:true}).waitFor();
+    assert.equal(await page.locator('.quota-official').count(),0);
+    assert.equal(await page.getByRole('button',{name:'刷新官方额度'}).count(),0);
+    assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length),1);
+    assert.equal(await page.locator('.quota-panel').evaluate(e=>e.firstElementChild.classList.contains('quota-api')),true);
+  } finally { await f.close(); }
+});
+
+test('React: API quota stays hidden until available and on initial failure or empty response', async () => {
+ for (const options of [{quotaDelay:1200},{quotaError:'查询失败'},{emptyQuota:true}]) {
+  const f=await fixture(options); const {page}=f;
+  try {
+   assert.equal(await page.locator('.quota-panel').count(),0);
+   assert.equal(await page.getByText('正在查询额度…',{exact:true}).count(),0);
+   if(options.quotaDelay) await page.getByText('$128.50',{exact:true}).waitFor();
+   else {assert.equal(await page.getByText('API 额度',{exact:true}).count(),0);}
+   assert.deepEqual(f.errors,[]);
+  } finally {await f.close();}
+ }
+});
+
+ test('React: no eligible plans leaves no message or plan placeholder', async () => {
+ const f=await fixture(); const {page}=f;
+ try {
+  await page.getByText('$128.50',{exact:true}).waitFor();
+  await page.evaluate(()=>window.fixtureNoPlans=true);
+  await page.getByRole('button',{name:'刷新API 额度',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.quota-api').getAttribute('aria-busy')==='false');
+  assert.equal(await page.locator('.quota-plans').count(),0);
+  assert.equal(await page.getByText('暂无有效套餐',{exact:true}).count(),0);
+  assert.equal(await page.getByText('$128.50',{exact:true}).count(),1);
+ } finally {await f.close();}
+});
+
+test('React: recharge is available only for the BeiAPI v1 endpoint', async () => {
+ for (const baseUrl of ['https://api.beiapi.cn/v1','https://other.example/v1','https://api.beiapi.cn/v2']) {
+  const f=await fixture({baseUrl});
+  try {
+   await f.page.getByText('$128.50',{exact:true}).waitFor();
+   const button=f.page.getByRole('button',{name:'充值',exact:true});
+   if(baseUrl==='https://api.beiapi.cn/v1') {
+    assert.match(await button.locator('..').innerText(),/余额/);
+    await button.click();
+    assert.equal(await f.page.evaluate(()=>window.fixtureWalletOpened),true);
+   } else assert.equal(await button.count(),0);
+   assert.deepEqual(f.errors,[]);
+  } finally {await f.close();}
+ }
 });

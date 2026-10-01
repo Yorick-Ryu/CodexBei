@@ -25,6 +25,7 @@ import { VersionPicker } from "./VersionPicker";
 import { CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
 import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
+import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
@@ -1022,6 +1023,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                     )}
                   </form>
                 )}
+                {inspection && <QuotaCard inspection={inspection} tool={activeTool} />}
               </section>
             </div>
           ) : (

@@ -22,6 +22,8 @@ npm run check             # TypeScript / Vite / Rust Clippy
 
 ## 功能
 
+- ChatGPT 与 Claude Code 分别查询当前 API 的余额、密钥余额和套餐额度；查询成功才显示，套餐默认折叠，支持手动刷新、剩余天数和 BeiAPI 充值入口，不展示官方额度。
+
 - 传输协议 HTTP / WS 分段切换，立即写入 API 提供商的 supports_websockets，不生成备份；预览与后续一键配置保留该选择。
 - 一键配置、预览、同地址密钥复用、保留官方登录，并可在 API 密钥与官方额度间切换；不改写 `auth.json`。
 - 自动检测 CLI 和桌面版内核、手动选择版本；Rust 调用在线模板服务，校验字段白名单、版本范围、发布序号和模板摘要，离线使用已缓存或内置模板。

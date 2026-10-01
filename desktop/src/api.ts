@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 export type Tool = "codex" | "claude";
 export type Mapping = { opus?: string; sonnet?: string; haiku?: string };
 export type Inspection = {
+  hasOfficialCredentials?: boolean;
   mapping?: Mapping;
   file: string;
   testMode: boolean;
@@ -65,9 +66,13 @@ export function installationLabel(v: { kind: string; runtimeVersion: string | nu
   if (v.kind === "cli") return `Codex CLI · ${v.runtimeVersion || "未知"}`;
   return `桌面版${v.appVersion ? ` ${v.appVersion}` : ""} · 内核 ${v.runtimeVersion || "未知"}`;
 }
+export type QuotaRow = { label: string; value: string; remaining?: number | null; resetAt?: number | null; resetPending?: boolean };
+export type Quota = { channel: "api" | "official"; planType?: string | null; rows: QuotaRow[]; groups?: { id: number; title: string; expiresAt?: number; rows: QuotaRow[] }[] };
 export function toolApi(tool: Tool) {
  const invoke = <T,>(command: string, args: Record<string, unknown> = {}) => tauriInvoke<T>(command, { ...args, tool });
  return {
+  openWallet: () => invoke<void>("open_wallet"),
+  quota: (channel: "api" | "official") => invoke<Quota>("quota", { channel }),
   windowsDiagnostics: (baseUrl: string) => invoke<DiagnosticReport>("windows_diagnostics", { baseUrl }),
   check: (selection: Selection | null = null, force = false) =>
     invoke<Matching>("check", { selection, force }),

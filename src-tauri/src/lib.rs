@@ -6,6 +6,7 @@ mod matching;
 mod network;
 mod official_auth;
 mod providers;
+mod quota;
 mod redact;
 mod templates;
 mod versions;
@@ -105,6 +106,36 @@ fn open_claude_installer() -> Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_wallet() -> Result<()> {
+    let url = "https://www.beiapi.cn/wallet";
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = std::process::Command::new("cmd");
+        command
+            .creation_flags(0x08000000)
+            .args(["/C", "start", "", url]);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("/usr/bin/open");
+        command.arg(url);
+        command
+    };
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+    command
+        .spawn()
+        .map_err(|_| "无法打开充值页面。".to_string())?;
+    Ok(())
+}
+
 struct Incoming {
     pending: Option<Result<(Tool, Connection)>>,
     last: Option<(String, Instant)>,
@@ -172,6 +203,7 @@ fn inspect(tool: Option<Tool>, state: State<AppState>) -> Result<Value> {
         (Some(true), Some(base_url)) => store.credentials("", base_url)?.api_key,
         _ => String::new(),
     };
+    value["hasOfficialCredentials"] = json!(official_auth::detected(&store.selected));
     value["apiKey"] = json!(saved_key);
     value["testMode"] = json!(state.test_mode);
     Ok(value)
@@ -461,6 +493,21 @@ async fn sync_catalog(
     Ok(prune_result(&store, result))
 }
 #[tauri::command]
+async fn quota(tool: Option<Tool>, channel: String, state: State<'_, AppState>) -> Result<Value> {
+    let source = if tool == Some(Tool::Claude) {
+        if channel != "api" {
+            return Err("未知额度来源。".into());
+        }
+        let store = lock(&state.claude)?;
+        let info = store.inspect()?;
+        let base = info["baseUrl"].as_str().ok_or("请先完成 API 配置。")?;
+        quota::Source::Api(store.credentials("", base)?)
+    } else {
+        quota::source(&*lock(&state.store)?, &channel)?
+    };
+    quota::query(source).await
+}
+#[tauri::command]
 async fn models(
     tool: Option<Tool>,
     api_key: String,
@@ -662,12 +709,14 @@ pub fn run() {
             incoming,
             incoming_tool,
             models,
+            quota,
             backups,
             backup_preview,
             restore,
             delete_backup,
             open_chatgpt_installer,
             open_claude_installer,
+            open_wallet,
             windows_diagnostics
         ])
         .run(tauri::generate_context!())
