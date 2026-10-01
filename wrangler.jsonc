@@ -9,7 +9,7 @@
   ],
   "triggers": {
     "crons": [
-      "0 3 * * 0"
+      "0 3 * * *"
     ]
   },
   "r2_buckets": [
@@ -39,6 +39,6 @@
   },
   "vars": {
     "CHATGPT_MAC_ARM64_URL": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",
-    "CHATGPT_MAC_X64_URL": "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
+    "CHATGPT_MAC_X64_URL": "https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg"
   }
 }
