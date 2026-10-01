@@ -95,7 +95,7 @@ async function fixture(options = {}) {
       if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, 30)); if (window.fixtureModelsError) throw window.fixtureModelsError; return ['gpt-6-astra', 'slow-model', 'new-model']; }
       if (cmd === 'inspect' && window.fixtureInitialError) throw '配置不是有效的 TOML，请先修复原文件。';
       if (cmd === 'choose') window.fixtureInitialError = false;
-      if (cmd === 'open_chatgpt_installer') return null;
+      if (cmd === 'open_chatgpt_installer') { window.fixtureInstallerArgs = args; return null; }
       if (cmd === 'open_config_file') {
         if (window.fixtureOpenConfigError) throw window.fixtureOpenConfigError;
         window.fixtureOpenedFile = window.fixtureState.file;
@@ -159,7 +159,7 @@ async function fixture(options = {}) {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  if (options.noInstallations) await page.getByRole('button', { name: '前往 Microsoft Store 安装', exact: true }).waitFor();
+  if (options.noInstallations) await page.getByRole('button', { name: '微软商店下载', exact: true }).waitFor();
   else if (options.initialError) await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('status').textContent.includes('TOML'));
   else await page.waitForFunction(() => document.getElementById('key')?.disabled === false && document.getElementById('preview-code')?.textContent);
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
@@ -1215,7 +1215,7 @@ for (const cliOnly of [false, true]) {
     try {
       await page.clock.install();
       const count = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length);
-      if (cliOnly) await page.getByRole('button', { name: '前往商店安装', exact: true }).first().click();
+      if (cliOnly) await page.getByRole('button', { name: '安装桌面版', exact: true }).first().click();
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await page.clock.fastForward(30_000);
       assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'check').length), count);
@@ -1225,12 +1225,29 @@ for (const cliOnly of [false, true]) {
   });
 }
 
+test('React: Windows installation offers a direct download fallback', async () => {
+  const f = await fixture({ platform: 'windows', noInstallations: true }); const { page } = f;
+  try {
+    await page.getByRole('button', { name: '微软商店下载', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.fixtureInstallerArgs.directDownload), false);
+    await page.getByRole('button', { name: '下载安装程序', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.fixtureInstallerArgs.directDownload), true);
+    await page.evaluate(() => {
+      window.fixtureMatching.installations = [{ id: 'desktop', kind: 'desktop', runtimeVersion: '0.153.4' }];
+      window.fixtureMatching.selection = { mode: 'installed', id: 'desktop' };
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.locator('#key').waitFor();
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 for (const kind of ['desktop', 'cli']) {
   test(`React: installation guide stops polling when ${kind} appears`, async () => {
     const f = await fixture({ platform: 'windows', noInstallations: true }); const { page } = f;
     try {
       await page.clock.install();
-      await page.getByRole('button', { name: '前往 Microsoft Store 安装', exact: true }).click();
+      await page.getByRole('button', { name: '微软商店下载', exact: true }).click();
       await page.evaluate(kind => {
         window.fixtureMatching.installations = [{ id: kind, kind, runtimeVersion: '0.153.4' }];
         window.fixtureMatching.selection = { mode: 'installed', id: kind };

@@ -100,7 +100,7 @@ export function toolApi(tool: Tool) {
   deleteBackup: (id: string) =>
     invoke<{ canceled?: boolean }>("delete_backup", { id }),
   openClaudeInstaller: () => invoke<void>("open_claude_installer"),
-  openChatgptInstaller: () => invoke<void>("open_chatgpt_installer"),
+  openChatgptInstaller: (directDownload = false) => invoke<void>("open_chatgpt_installer", { directDownload }),
 };
 
 }

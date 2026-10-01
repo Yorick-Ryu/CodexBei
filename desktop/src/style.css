@@ -297,7 +297,29 @@ h1 {
 }
 .install-card-icon img { width: 52px; height: 52px; }
 .install-card-message { max-width: 420px; margin: 12px 0 24px; color: var(--muted); line-height: 1.7; }
-.install-card-action { min-width: 220px; }
+.install-card-actions { display: flex; gap: 12px; width: 100%; max-width: 332px; }
+.install-card .install-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  padding: 0 8px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-control);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 20px;
+  letter-spacing: normal;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: none;
+}
 .provider-row {
   display: flex;
   align-items: center;

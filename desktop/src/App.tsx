@@ -122,13 +122,13 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     catch { return false; }
   });
   const [claudeInstallHintDismissed, setClaudeInstallHintDismissed] = useState(false);
-  const openInstaller = async () => {
+  const openInstaller = async (directDownload = false) => {
     if (openingInstallerRef.current) return;
     openingInstallerRef.current = true;
     setOpeningInstaller(true);
     setInstallerError("");
     try {
-      await api.openChatgptInstaller();
+      await api.openChatgptInstaller(directDownload);
       setWaitingForChatgptInstall(matching?.installations.length === 0);
     } catch (error) {
       setInstallerError(errorText(error));
@@ -511,7 +511,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const hasCli = !!matching?.installations.some(item => item.kind === "cli");
   const hasDesktop = !!matching?.installations.some(item => item.kind === "desktop");
   const missingDesktop = !isClaude && !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
-  const installerLabel = inspection?.platform === "windows" ? "前往商店安装" : "下载桌面版";
+  const installerLabel = inspection?.platform === "windows" ? "安装桌面版" : "下载桌面版";
   const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
   const missingClaude = isClaude && !!matching && !matching.installations.length;
   const showInstallHint = page === "config" && (missingClaude ? !claudeInstallHintDismissed : missingDesktop && hasCli && !installHintDismissed) && !footerStatus && !installerError && !needsVersionNotice;
@@ -627,14 +627,21 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                         <p className="install-card-message">
                           请先下载安装 ChatGPT 桌面版，完成后开放配置功能。
                         </p>
-                        <button
-                          type="button"
-                          className="primary install-card-action"
-                          disabled={openingInstaller}
-                          onClick={() => void openInstaller()}
-                        >
-                          {inspection?.platform === "windows" ? "前往 Microsoft Store 安装" : "下载桌面版"}
-                        </button>
+                        <div className="install-card-actions">
+                          <button
+                            type="button"
+                            className="primary install-card-action"
+                            disabled={openingInstaller}
+                            onClick={() => void openInstaller()}
+                          >
+                            {inspection?.platform === "windows" ? "微软商店下载" : "下载桌面版"}
+                          </button>
+                          {inspection?.platform === "windows" && (
+                            <button type="button" className="secondary install-card-action" disabled={openingInstaller} onClick={() => void openInstaller(true)}>
+                              下载安装程序
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ) : (
                     <div className="config-card">

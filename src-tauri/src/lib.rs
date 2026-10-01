@@ -10,6 +10,8 @@ mod quota;
 mod redact;
 mod templates;
 mod versions;
+#[cfg(windows)]
+mod windows_installer;
 use config::{Connection, Result, Store, Tool};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -42,21 +44,11 @@ async fn windows_diagnostics(
 }
 
 #[tauri::command]
-fn open_chatgpt_installer() -> Result<()> {
+async fn open_chatgpt_installer(direct_download: Option<bool>) -> Result<()> {
+    let _ = direct_download;
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-
-        std::process::Command::new("cmd")
-            .creation_flags(0x08000000)
-            .args([
-                "/C",
-                "start",
-                "",
-                "ms-windows-store://pdp/?ProductId=9PLM9XGG6VKS",
-            ])
-            .spawn()
-            .map_err(|_| "无法打开 Microsoft Store。".to_string())?;
+        windows_installer::open(direct_download.unwrap_or(false)).await?;
     }
     #[cfg(target_os = "macos")]
     {
