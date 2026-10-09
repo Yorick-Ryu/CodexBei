@@ -12,7 +12,7 @@ mod templates;
 mod versions;
 #[cfg(windows)]
 mod windows_installer;
-use config::{Connection, Result, Store, Tool};
+use config::{Connection, ModelChannel, Result, Store, Tool};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -270,7 +270,7 @@ async fn preview(
     base_url: String,
     model: String,
     keep_official_login: bool,
-    model_channel: String,
+    model_channel: Option<ModelChannel>,
     state: State<'_, AppState>,
 ) -> Result<String> {
     if tool == Some(Tool::Claude) {
@@ -281,7 +281,7 @@ async fn preview(
         &base_url,
         &model,
         keep_official_login,
-        &model_channel,
+        model_channel,
         &template,
     )
 }
@@ -299,6 +299,7 @@ async fn configure(
     mapping: Option<claude::Mapping>,
     connection: Connection,
     keep_official_login: bool,
+    model_channel: Option<ModelChannel>,
     state: State<'_, AppState>,
 ) -> Result<Value> {
     if tool == Some(Tool::Claude) {
@@ -308,18 +309,19 @@ async fn configure(
     let revision = lock(&state.incoming)?.revision;
     let mut service = state.service.lock().await;
     service.refresh(None, true, false).await?;
-    let (revision_before, mut resolved) = {
+    let (revision_before, mut resolved, channel) = {
         let store = lock(&state.store)?;
         (
             store.revision()?,
             store.credentials(&connection.api_key, &connection.base_url)?,
+            store.configuration_channel(model_channel)?,
         )
     };
     resolved.model = connection.model.clone();
     let version = versions::client_version(&service.targets()?)
         .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
     let template = service.current()?;
-    let catalog = if templates::native_catalog(&template) {
+    let catalog = if channel == ModelChannel::Official || templates::native_catalog(&template) {
         None
     } else {
         Some(network::catalog(service.client(), resolved.clone(), &version).await?)
@@ -330,10 +332,10 @@ async fn configure(
     }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision_before)?;
-    let plan = store.prepare(connection, keep_official_login, &template)?;
+    let plan = store.prepare(connection, keep_official_login, &template, Some(channel))?;
     if let Some(catalog) = catalog {
         store.attach_catalog(&plan, &resolved, &catalog)?;
-    } else {
+    } else if channel == ModelChannel::Api {
         store.attach_native_catalog(&plan, &resolved)?;
     }
     let result = store.apply(&plan)?;
@@ -421,7 +423,13 @@ async fn incoming(
     }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision_before)?;
-    let plan = store.prepare(connection.clone(), keep_official_login, &template)?;
+    // A website configuration link explicitly requests activation of its API connection.
+    let plan = store.prepare(
+        connection.clone(),
+        keep_official_login,
+        &template,
+        Some(ModelChannel::Api),
+    )?;
     if let Some(catalog) = catalog {
         store.attach_catalog(&plan, &connection, &catalog)?;
     } else {

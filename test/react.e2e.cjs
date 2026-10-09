@@ -25,7 +25,8 @@ async function fixture(options = {}) {
   const context = await browser.newContext({ viewport: { width: 600, height: 460 }, colorScheme: 'dark' });
   await context.addInitScript({ content: mocks + `
     mockWindows('main');
-    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: 'api', keepOfficialLogin: false, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
+    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: ${JSON.stringify(options.modelChannel || 'api')}, keepOfficialLogin: ${!!options.keepOfficialLogin}, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
+    const configurationChannel = args => args.modelChannel ?? (window.fixtureState.hasKey && window.fixtureState.baseUrl ? window.fixtureState.modelChannel : 'api');
     window.fixtureBackups = [];
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
     window.fixtureClaudeBackups = [];
@@ -120,17 +121,19 @@ async function fixture(options = {}) {
         return window.fixtureOfficialLogin;
       }
       if (cmd === 'preview') {
+        window.fixturePreviewChannel = args.modelChannel ?? null;
         window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
         await new Promise(resolve => setTimeout(resolve, lag));
         if (!args.baseUrl.startsWith('https://')) throw '请输入有效的 HTTPS API 地址。';
-        return 'model_provider = "' + (args.modelChannel === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + (window.fixturePreviewExtra || '');
+        return 'model_provider = "' + (configurationChannel(args) === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + (window.fixturePreviewExtra || '');
       }
       if (cmd === 'configure') {
+        window.fixtureConfigureChannel = args.modelChannel ?? null;
         if (window.fixtureConfigureError) throw window.fixtureConfigureError;
         await new Promise(resolve => setTimeout(resolve, window.fixtureConfigureDelay || 80));
         if (args.connection.apiKey === 'invalid') throw '请提供有效的 API 密钥';
-        Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: 'api', baseUrl: args.connection.baseUrl, model: args.connection.model, keepOfficialLogin: args.keepOfficialLogin });
+        Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: configurationChannel(args), baseUrl: args.connection.baseUrl, model: args.connection.model, keepOfficialLogin: args.keepOfficialLogin });
         window.fixtureBackups.push({ id: 'fixture-id', file: window.fixtureState.file, created: '2026-09-08T06:00:00.000Z', kind: 'configure', existed: false });
         return { backupId: 'fixture-id' };
       }
@@ -147,7 +150,7 @@ async function fixture(options = {}) {
         window.fixtureState.modelChannel = args.channel;
         return { changed: true };
       }
-      if (cmd === 'incoming') { if (!window.fixtureIncoming) return null; window.fixtureIncoming = false; window.fixtureState.hasKey = true; return {}; }
+      if (cmd === 'incoming') { if (!window.fixtureIncoming) return null; window.fixtureIncoming = false; window.fixtureState.hasKey = true; window.fixtureState.modelChannel = 'api'; return {}; }
       if (cmd === 'backups') return [...window.fixtureBackups];
       if (cmd === 'backup_preview') return { ...window.fixtureBackups.find(v => v.id === args.id) };
       if (cmd === 'restore' || cmd === 'delete_backup') { if (window.fixtureDialogError) throw window.fixtureDialogError; return { canceled: true }; }
@@ -165,6 +168,63 @@ async function fixture(options = {}) {
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
+test('React: first API setup and existing official setup share preview and save decisions', async () => {
+  for (const configured of [false, true]) {
+    const f = await fixture({ savedKey: configured ? 'sk-saved-fixture-not-real-key' : '', modelChannel: 'official', keepOfficialLogin: true });
+    const { page } = f;
+    try {
+      if (!configured) await page.locator('#key').fill('sk-first-setup-fixture');
+      const provider = configured ? 'openai' : 'custom';
+      await page.waitForFunction(provider => document.getElementById('preview-code').textContent.includes('model_provider = "' + provider + '"'), provider);
+      assert.equal(await page.evaluate(() => window.fixturePreviewChannel), null);
+      await page.locator('#apply').click();
+      await page.getByRole('heading', { name: '配置完成' }).waitFor();
+      assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
+      assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), configured ? 'official' : 'api');
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  }
+});
+
+test('React: explicit official choice survives tab changes and one-click configuration', async () => {
+  for (const savedKey of ['', 'sk-saved-fixture-not-real-key']) {
+    const f = await fixture({ savedKey, keepOfficialLogin: true }); const { page } = f;
+    try {
+      await page.locator('#key').fill('sk-edited-setup-fixture');
+      await page.getByRole('radio', { name: '官方', exact: true }).click();
+      await page.waitForFunction(() => window.fixturePreviewChannel === 'official' && !document.querySelector('#apply').disabled);
+      await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+      await page.getByRole('tab', { name: 'ChatGPT', exact: true }).click();
+      await page.waitForFunction(() => !document.querySelector('#apply').disabled);
+      await page.locator('#apply').click();
+      await page.getByRole('heading', { name: '配置完成' }).waitFor();
+      assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), 'official');
+      assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'official');
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  }
+});
+
+test('React: website setup activates API and clears an earlier explicit official choice', async () => {
+  const f = await fixture({ keepOfficialLogin: true }); const { page } = f;
+  try {
+    await page.getByRole('radio', { name: '官方', exact: true }).click();
+    await page.waitForFunction(() => window.fixturePreviewChannel === 'official' && !document.querySelector('#apply').disabled);
+    await page.evaluate(async () => {
+      window.fixtureIncoming = true;
+      await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'incoming-changed', payload: null });
+    });
+    await page.getByRole('heading', { name: '配置完成' }).waitFor();
+    await page.locator('#done').click();
+    assert.equal(await page.getByRole('radio', { name: 'API', exact: true }).isChecked(), true);
+    await page.locator('#apply').click();
+    await page.getByRole('heading', { name: '配置完成' }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
+    assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'api');
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: missing official login requires confirmation and cancel keeps the preference off', async () => {
   const f = await fixture({ officialLogin: false }); const { page } = f;
   try {

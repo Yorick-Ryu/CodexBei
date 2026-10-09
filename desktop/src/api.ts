@@ -83,10 +83,10 @@ export function toolApi(tool: Tool) {
   hasOfficialLogin: () => invoke<boolean>("has_official_login"),
   choose: () => invoke<Inspection>("choose"),
   openConfigFile: () => invoke<void>("open_config_file"),
-  preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official", mapping?: Mapping) =>
+  preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official" | undefined, mapping?: Mapping) =>
     invoke<string>("preview", { baseUrl, model, keepOfficialLogin, modelChannel, mapping }),
-  configure: (connection: Connection, keepOfficialLogin: boolean, mapping?: Mapping) =>
-    invoke<Outcome>("configure", { connection, keepOfficialLogin, mapping }),
+  configure: (connection: Connection, keepOfficialLogin: boolean, mapping?: Mapping, modelChannel?: "api" | "official") =>
+    invoke<Outcome>("configure", { connection, keepOfficialLogin, mapping, modelChannel }),
   switchChannel: (channel: "api" | "official") =>
     invoke<Outcome>("switch_channel", { channel }),
   switchTransport: (supportsWebsockets: boolean) =>

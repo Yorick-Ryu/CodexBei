@@ -29,6 +29,46 @@ pub struct Connection {
     pub model: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelChannel {
+    Api,
+    Official,
+}
+impl ModelChannel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Api => "api",
+            Self::Official => "official",
+        }
+    }
+}
+
+fn configuration_channel(doc: &DocumentMut, selected: Option<ModelChannel>) -> ModelChannel {
+    if let Some(channel) = selected {
+        return channel;
+    }
+    // Reading an existing official config is not an explicit choice to stay official.
+    let configured = providers::base(doc, "custom").is_some()
+        && item(
+            doc,
+            &["model_providers", "custom", "experimental_bearer_token"],
+        )
+        .and_then(Item::as_str)
+        .is_some_and(|value| key(value).is_ok());
+    if configured
+        && doc
+            .get("model_provider")
+            .and_then(Item::as_str)
+            .unwrap_or("openai")
+            == "openai"
+    {
+        ModelChannel::Official
+    } else {
+        ModelChannel::Api
+    }
+}
+
 pub fn endpoint(input: &str) -> Result<String> {
     if input.len() > 2048 {
         return Err(err("请输入有效的 HTTPS API 地址。"));
@@ -290,7 +330,13 @@ fn merge(destination: &mut Item, source: &Json) -> Result<()> {
     }
     Ok(())
 }
-fn preset(connection: &Connection, keep: bool, template: &Json, provider: &str) -> Json {
+fn preset(
+    connection: &Connection,
+    keep: bool,
+    template: &Json,
+    provider: &str,
+    channel: ModelChannel,
+) -> Json {
     let mut fields = template["set"].clone();
     fields["model"] = json!(connection.model);
     let custom = &mut fields["model_providers"]["custom"];
@@ -298,12 +344,26 @@ fn preset(connection: &Connection, keep: bool, template: &Json, provider: &str) 
     custom["experimental_bearer_token"] = json!(connection.api_key);
     custom["http_headers"]["x-openai-actor-authorization"] = json!(connection.base_url);
     custom["requires_openai_auth"] = json!(keep);
-    if crate::templates::native_catalog(template) {
+    if crate::templates::native_catalog(template) && channel == ModelChannel::Api {
         custom["model_catalog_url"] = json!(format!("{}/models", connection.base_url));
+    } else if channel == ModelChannel::Official {
+        custom.as_object_mut().unwrap().remove("model_catalog_url");
     }
     let provider_fields = custom.take();
     fields["model_providers"] = json!({ provider: provider_fields });
-    fields["model_provider"] = json!(provider);
+    fields["model_provider"] = json!(if channel == ModelChannel::Official {
+        "openai"
+    } else {
+        provider
+    });
+    if channel == ModelChannel::Official {
+        if let Some(features) = fields.get_mut("features").and_then(Json::as_object_mut) {
+            features.remove("api_key_model_discovery");
+            if features.is_empty() {
+                fields.as_object_mut().unwrap().remove("features");
+            }
+        }
+    }
     fields
 }
 pub fn preview(
@@ -320,19 +380,24 @@ pub fn preview(
     };
     let mut doc = DocumentMut::new();
     let provider_id = providers::for_write(&DocumentMut::new(), &c.base_url)?;
-    let provider = match channel {
-        "api" => provider_id.as_str(),
-        "official" => "openai",
+    let channel = match channel {
+        "api" => ModelChannel::Api,
+        "official" => ModelChannel::Official,
         _ => return Err(err("未知的模型通道。")),
     };
-    merge(doc.as_item_mut(), &preset(&c, keep, template, &provider_id))?;
-    merge(doc.as_item_mut(), &json!({ "model_provider": provider }))?;
-    if channel == "official" && crate::templates::native_catalog(template) {
-        doc.remove("features");
-    }
+    merge(
+        doc.as_item_mut(),
+        &preset(&c, keep, template, &provider_id, channel),
+    )?;
     Ok(doc.to_string())
 }
-fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> Result<Vec<u8>> {
+fn patch(
+    before: Option<&[u8]>,
+    c: &Connection,
+    keep: bool,
+    template: &Json,
+    channel: ModelChannel,
+) -> Result<Vec<u8>> {
     crate::templates::validate(template)?;
     let mut doc = document(before)?;
     if doc.get("profile").is_some() {
@@ -373,7 +438,7 @@ fn patch(before: Option<&[u8]>, c: &Connection, keep: bool, template: &Json) -> 
     let provider = providers::for_write(&doc, &c.base_url)?;
     let transport =
         item(&doc, &["model_providers", &provider, "supports_websockets"]).and_then(Item::as_bool);
-    let mut fields = preset(c, keep, template, &provider);
+    let mut fields = preset(c, keep, template, &provider, channel);
     if let Some(enabled) = transport {
         fields["model_providers"][&provider]["supports_websockets"] = json!(enabled);
     }
@@ -523,6 +588,21 @@ impl Store {
         if doc.get("model_catalog_json").is_none() {
             if let Some(value) = saved.previous_catalog {
                 doc["model_catalog_json"] = toml_edit::value(value);
+            }
+        }
+        Ok(())
+    }
+    fn restore_official_catalog(&self, doc: &mut DocumentMut) -> Result<()> {
+        self.restore_native(doc)?;
+        if doc
+            .get("model_catalog_json")
+            .and_then(Item::as_str)
+            .is_some_and(|path| self.managed_catalog(Path::new(path)))
+        {
+            let previous = self.original_catalog(doc)?;
+            doc.remove("model_catalog_json");
+            if let Some(previous) = previous {
+                doc["model_catalog_json"] = toml_edit::value(previous);
             }
         }
         Ok(())
@@ -754,13 +834,14 @@ impl Store {
         base_url: &str,
         model: &str,
         keep: bool,
-        channel: &str,
+        channel: Option<ModelChannel>,
         template: &Json,
     ) -> Result<String> {
         let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
+        let channel = configuration_channel(&doc, channel);
         let base_url = endpoint(base_url)?;
         let provider = providers::for_write(&doc, &base_url)?;
-        let shown = preview(&base_url, model, keep, channel, template)?;
+        let shown = preview(&base_url, model, keep, channel.as_str(), template)?;
         let mut value: Json = toml_edit::de::from_str(&shown).map_err(|_| err("配置预览无效。"))?;
         let fields = value["model_providers"]["custom"].take();
         value["model_providers"] = json!({ &provider: fields });
@@ -769,7 +850,7 @@ impl Store {
         {
             value["model_providers"][&provider]["supports_websockets"] = json!(enabled);
         }
-        if channel == "api" {
+        if channel == ModelChannel::Api {
             value["model_provider"] = json!(provider);
         }
         let mut result = DocumentMut::new();
@@ -804,13 +885,24 @@ impl Store {
             json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
-    pub fn prepare(&mut self, mut c: Connection, keep: bool, template: &Json) -> Result<String> {
+    pub fn configuration_channel(&self, selected: Option<ModelChannel>) -> Result<ModelChannel> {
+        let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
+        Ok(configuration_channel(&doc, selected))
+    }
+    pub fn prepare(
+        &mut self,
+        mut c: Connection,
+        keep: bool,
+        template: &Json,
+        channel: Option<ModelChannel>,
+    ) -> Result<String> {
         c.base_url = endpoint(&c.base_url)?;
         c.model = model(&c.model)?;
         let file = self.target(&self.selected)?;
         let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        let channel = configuration_channel(&doc, channel);
         if c.api_key.is_empty() {
-            let doc = document(before.as_deref())?;
             let provider = self
                 .saved_provider(&doc, &c.base_url)?
                 .ok_or_else(|| err("API 地址已更改或没有可复用密钥，请填写对应密钥。"))?;
@@ -829,7 +921,16 @@ impl Store {
             .into();
         }
         c.api_key = key(&c.api_key)?;
-        let after = patch(before.as_deref(), &c, keep, template)?;
+        if channel == ModelChannel::Official {
+            self.restore_official_catalog(&mut doc)?;
+        }
+        let after = patch(
+            Some(doc.to_string().as_bytes()),
+            &c,
+            keep,
+            template,
+            channel,
+        )?;
         let id = Uuid::new_v4().to_string();
         self.plans.clear();
         self.plans.insert(
@@ -1027,19 +1128,8 @@ impl Store {
             .and_then(Item::as_str)
             .unwrap_or("openai")
             .to_owned();
-        let managed_catalog = doc
-            .get("model_catalog_json")
-            .and_then(Item::as_str)
-            .is_some_and(|p| self.managed_catalog(Path::new(p)));
         if channel == "official" {
-            self.restore_native(&mut doc)?;
-        }
-        if channel == "official" && managed_catalog {
-            let previous = self.original_catalog(&doc)?;
-            doc.remove("model_catalog_json");
-            if let Some(previous) = previous {
-                doc["model_catalog_json"] = toml_edit::value(previous);
-            }
+            self.restore_official_catalog(&mut doc)?;
         }
         if current == provider
             && doc.to_string().as_bytes() == before.as_deref().unwrap_or_default()
@@ -1222,11 +1312,150 @@ mod tests {
         (dir, s)
     }
     #[test]
+    fn first_configuration_uses_api_even_when_existing_config_is_official() {
+        for before in [
+            None,
+            Some("model = 'old'\n"),
+            Some("model_provider = 'openai'\n"),
+            Some("model_provider = 'openai'\n[model_providers.custom]\nbase_url = 'https://example.com/v1'\n"),
+            Some("model_provider = 'openai'\n[model_providers.custom]\nbase_url = 'https://example.com/v1'\nexperimental_bearer_token = 'invalid'\n"),
+        ] {
+            let (_dir, mut s) = store();
+            if let Some(before) = before {
+                fs::write(&s.selected, before).unwrap();
+            }
+            let c = connection();
+            assert_eq!(s.configuration_channel(None).unwrap(), ModelChannel::Api);
+            let shown = s.preview(&c.base_url, &c.model, true, None, &template()).unwrap();
+            assert_eq!(shown.parse::<DocumentMut>().unwrap()["model_provider"].as_str(), Some("custom"));
+            let id = s.prepare(c, true, &template(), None).unwrap();
+            s.apply(&id).unwrap();
+            assert_eq!(s.inspect().unwrap()["modelChannel"], "api");
+        }
+    }
+
+    #[test]
+    fn reconfiguration_preserves_current_channel_after_reopening_and_updates_api() {
+        for channel in ["api", "official"] {
+            for native in [false, true] {
+                let (_dir, mut s) = store();
+                let mut c = connection();
+                let id = s.prepare(c.clone(), true, &template(), None).unwrap();
+                s.apply(&id).unwrap();
+                s.switch_channel(channel).unwrap();
+                // No in-memory first-run flag or UI selection is needed after restart.
+                let mut s = Store::new(s.root.clone(), s.selected.clone()).unwrap();
+                let template = if native {
+                    serde_json::from_str::<Json>(include_str!("../../templates/bootstrap.json"))
+                        .unwrap()["templates"][1]
+                        .clone()
+                } else {
+                    template()
+                };
+                c.base_url = "https://updated.example/v1".into();
+                c.api_key = "sk-updated-fixture-0123456789".into();
+                let shown = s
+                    .preview(&c.base_url, &c.model, false, None, &template)
+                    .unwrap();
+                let id = s.prepare(c.clone(), false, &template, None).unwrap();
+                s.apply(&id).unwrap();
+                let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+                assert_eq!(s.inspect().unwrap()["modelChannel"], channel);
+                assert_eq!(
+                    doc["model_providers"]["custom"]["base_url"].as_str(),
+                    Some(c.base_url.as_str())
+                );
+                assert_eq!(
+                    doc["model_providers"]["custom"]["experimental_bearer_token"].as_str(),
+                    Some(c.api_key.as_str())
+                );
+                assert_eq!(
+                    doc["model_provider"].as_str(),
+                    shown.parse::<DocumentMut>().unwrap()["model_provider"].as_str()
+                );
+                if channel == "official" {
+                    assert!(item(&doc, &["features", "api_key_model_discovery"]).is_none());
+                    assert!(
+                        item(&doc, &["model_providers", "custom", "model_catalog_url"]).is_none()
+                    );
+                    assert!(doc.get("model_catalog_json").is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_channel_overrides_first_setup_and_website_links_activate_api() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let id = s
+            .prepare(c.clone(), true, &template(), Some(ModelChannel::Official))
+            .unwrap();
+        s.apply(&id).unwrap();
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+        let link = format!(
+            "codexbei://configure/codex?base_url={}&api_key={}&model={}&preset=codexbei-v1",
+            c.base_url, c.api_key, c.model
+        );
+        let (_, incoming) = parse_tool_link(&link).unwrap().unwrap();
+        let id = s
+            .prepare(incoming, true, &template(), Some(ModelChannel::Api))
+            .unwrap();
+        s.apply(&id).unwrap();
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "api");
+
+        // A different selected file gets its own first-setup decision.
+        let other = s.selected.with_file_name("other.config.toml");
+        fs::write(&other, "model_provider = 'openai'\n").unwrap();
+        s.choose(other).unwrap();
+        assert_eq!(s.configuration_channel(None).unwrap(), ModelChannel::Api);
+    }
+
+    #[test]
+    fn saving_official_preserves_original_catalog_settings_for_both_templates() {
+        for native in [false, true] {
+            let (_dir, mut s) = store();
+            fs::write(&s.selected, "model_catalog_json = '/original/models.json'\n[features]\napi_key_model_discovery = false\nother_feature = true\n").unwrap();
+            let c = connection();
+            let t = template();
+            let id = s.prepare(c.clone(), true, &t, None).unwrap();
+            let catalog = json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
+            s.attach_catalog(&id, &c, &catalog).unwrap();
+            s.apply(&id).unwrap();
+            let t = if native {
+                let id = s.prepare_api_switch().unwrap();
+                s.attach_native_catalog(&id, &c).unwrap();
+                s.apply(&id).unwrap();
+                serde_json::from_str::<Json>(include_str!("../../templates/bootstrap.json"))
+                    .unwrap()["templates"][1]
+                    .clone()
+            } else {
+                t
+            };
+            s.switch_channel("official").unwrap();
+            let catalog_bytes = fs::read(s.catalog_path().unwrap()).unwrap();
+            let id = s.prepare(c, true, &t, None).unwrap();
+            s.apply(&id).unwrap();
+            let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+            assert_eq!(doc["model_provider"].as_str(), Some("openai"));
+            assert_eq!(
+                doc["model_catalog_json"].as_str(),
+                Some("/original/models.json")
+            );
+            assert_eq!(
+                doc["features"]["api_key_model_discovery"].as_bool(),
+                Some(false)
+            );
+            assert_eq!(doc["features"]["other_feature"].as_bool(), Some(true));
+            assert_eq!(fs::read(s.catalog_path().unwrap()).unwrap(), catalog_bytes);
+        }
+    }
+    #[test]
     fn channel_switch_catalog_sync_does_not_create_backups() {
         for native in [false, true] {
             let (_dir, mut s) = store();
             let c = connection();
-            let plan = s.prepare(c.clone(), false, &template()).unwrap();
+            let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
             s.apply(&plan).unwrap();
             let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
             s.switch_channel("official").unwrap();
@@ -1258,7 +1487,7 @@ mod tests {
         let c = connection();
         let catalog =
             json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true}]});
-        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
         s.attach_catalog(&plan, &c, &catalog).unwrap();
         s.apply(&plan).unwrap();
         let bytes = fs::read(s.catalog_path().unwrap()).unwrap();
@@ -1306,7 +1535,7 @@ mod tests {
             .unwrap()["templates"][1]
             .clone();
         let c = connection();
-        let plan = s.prepare(c.clone(), true, &native).unwrap();
+        let plan = s.prepare(c.clone(), true, &native, None).unwrap();
         s.attach_native_catalog(&plan, &c).unwrap();
         s.apply(&plan).unwrap();
         assert!(!s.catalog_path().unwrap().exists());
@@ -1340,7 +1569,7 @@ mod tests {
     fn late_native_plan_cannot_overwrite_switch_or_edits() {
         let (_dir, mut s) = store();
         let c = connection();
-        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
         s.apply(&plan).unwrap();
         let plan = s.prepare_api_switch().unwrap();
         s.attach_native_catalog(&plan, &c).unwrap();
@@ -1352,7 +1581,7 @@ mod tests {
     fn late_catalog_does_not_write_after_switching_to_official() {
         let (_dir, mut s) = store();
         let c = connection();
-        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        let plan = s.prepare(c.clone(), true, &template(), None).unwrap();
         s.apply(&plan).unwrap();
         let revision = s.revision().unwrap();
         let plan = s.prepare_api_switch().unwrap();
@@ -1369,7 +1598,7 @@ mod tests {
     fn upgrade_from_config_without_catalog_preserves_settings() {
         let (_dir, mut s) = store();
         let c = connection();
-        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        let plan = s.prepare(c.clone(), true, &template(), None).unwrap();
         s.apply(&plan).unwrap();
         let before = document(read(&s.selected).unwrap().as_deref()).unwrap();
         assert!(before.get("model_catalog_json").is_none());
@@ -1392,7 +1621,7 @@ mod tests {
         let c = connection();
         let catalog =
             json!({"models":[{"slug":"gpt-6-luna","visibility":"list","supported_in_api":true}]});
-        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
         s.attach_catalog(&plan, &c, &catalog).unwrap();
         s.apply(&plan).unwrap();
         let backups = fs::read_dir(s.root.join("backups")).unwrap().count();
@@ -1424,7 +1653,7 @@ mod tests {
         .unwrap();
         let catalog = json!({"models":[{"slug":"gpt-6-sol","visibility":"list","supported_in_api":true,"base_instructions":"preserve me"}]});
         let c = connection();
-        let plan = s.prepare(c.clone(), false, &template()).unwrap();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
         s.attach_catalog(&plan, &c, &catalog).unwrap();
         s.apply(&plan).unwrap();
         let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
@@ -1501,6 +1730,7 @@ mod tests {
                 &connection(),
                 false,
                 &template(),
+                ModelChannel::Api,
             )
             .unwrap();
             let actual: Json =
@@ -1537,7 +1767,14 @@ mod tests {
     #[test]
     fn preserves_other_settings_comments_and_inline_tables() {
         let source = b"# User settings\nmodel = 'old' # chosen\n[mcp_servers.demo]\ncommand = 'node'\nenv = { SECRET = 'private-test-value' }\n[model_providers.custom]\nbase_url = 'https://old.example/v1'\nhttp_headers = { Authorization = 'old', X-Other = 'preserve' }\nenv_key = 'OLD_KEY'\n";
-        let result = patch(Some(source), &connection(), true, &template()).unwrap();
+        let result = patch(
+            Some(source),
+            &connection(),
+            true,
+            &template(),
+            ModelChannel::Api,
+        )
+        .unwrap();
         let text = String::from_utf8(result.clone()).unwrap();
         assert!(text.contains("# User settings") && text.contains("# chosen"));
         let doc = document(Some(&result)).unwrap();
@@ -1568,7 +1805,7 @@ mod tests {
     #[test]
     fn snapshots_restore_exact_bytes_and_missing_file() {
         let (_dir, mut s) = store();
-        let id = s.prepare(connection(), false, &template()).unwrap();
+        let id = s.prepare(connection(), false, &template(), None).unwrap();
         let first = s.apply(&id).unwrap();
         assert!(s.apply(&id).is_err());
         let before = read(&s.selected).unwrap().unwrap();
@@ -1584,10 +1821,10 @@ mod tests {
     #[test]
     fn detects_edits_and_corrupted_backups() {
         let (_dir, mut s) = store();
-        let id = s.prepare(connection(), false, &template()).unwrap();
+        let id = s.prepare(connection(), false, &template(), None).unwrap();
         fs::write(&s.selected, "model = 'external'\n").unwrap();
         assert!(s.apply(&id).is_err());
-        let id = s.prepare(connection(), false, &template()).unwrap();
+        let id = s.prepare(connection(), false, &template(), None).unwrap();
         let result = s.apply(&id).unwrap();
         let bid = result["backupId"].as_str().unwrap();
         let (_, hash) = s.restore_state(bid).unwrap();
@@ -1650,8 +1887,10 @@ mod tests {
         assert!(shown.contains("http_headers = {"));
         assert!(!shown.contains("[model_providers.custom.http_headers]"));
         assert!(!shown.contains("[model_providers]\n"));
-        let saved =
-            String::from_utf8(patch(None, &connection(), false, &template()).unwrap()).unwrap();
+        let saved = String::from_utf8(
+            patch(None, &connection(), false, &template(), ModelChannel::Api).unwrap(),
+        )
+        .unwrap();
         assert!(saved.contains("http_headers = {"));
         assert!(!saved.contains("[model_providers.custom.http_headers]"));
         let summary = crate::redact::preview(saved.as_bytes()).unwrap();
@@ -1661,11 +1900,11 @@ mod tests {
     #[test]
     fn backup_summary_describes_saved_state_without_credentials() {
         let (_dir, mut s) = store();
-        let id = s.prepare(connection(), true, &template()).unwrap();
+        let id = s.prepare(connection(), true, &template(), None).unwrap();
         s.apply(&id).unwrap();
         let mut next = connection();
         next.base_url = "https://next.example/v1".into();
-        let id = s.prepare(next, false, &template()).unwrap();
+        let id = s.prepare(next, false, &template(), None).unwrap();
         let result = s.apply(&id).unwrap();
         let id = result["backupId"].as_str().unwrap();
         let rows = s.list().unwrap();
@@ -1684,7 +1923,7 @@ mod tests {
     fn keys_never_leave_inspection_and_cannot_cross_gateway() {
         let (_dir, mut s) = store();
         let c = connection();
-        let id = s.prepare(c.clone(), false, &template()).unwrap();
+        let id = s.prepare(c.clone(), false, &template(), None).unwrap();
         let result = s.apply(&id).unwrap();
         assert!(!s.inspect().unwrap().to_string().contains(&c.api_key));
         assert!(!s
@@ -1695,7 +1934,7 @@ mod tests {
         let mut changed = c;
         changed.api_key.clear();
         changed.base_url = "https://another.example/v1".into();
-        assert!(s.prepare(changed, false, &template()).is_err());
+        assert!(s.prepare(changed, false, &template(), None).is_err());
         assert!(!preview(
             "https://example.com",
             "gpt-6-astra",
@@ -1713,11 +1952,11 @@ mod tests {
         assert_eq!(initial["modelChannel"], "api");
         assert_eq!(initial["supportsWebsockets"], false);
         let c = connection();
-        let plan = s.prepare(c.clone(), true, &template()).unwrap();
+        let plan = s.prepare(c.clone(), true, &template(), None).unwrap();
         s.apply_with_backup(&plan, false).unwrap();
         assert_eq!(s.inspect().unwrap()["supportsWebsockets"], true);
         let initial = fs::read(&s.selected).unwrap();
-        let stale = s.prepare(c.clone(), true, &template()).unwrap();
+        let stale = s.prepare(c.clone(), true, &template(), None).unwrap();
         let result = s.switch_transport(false).unwrap();
         assert_eq!(result["changed"], true);
         assert!(result.get("backupId").is_none());
@@ -1725,12 +1964,20 @@ mod tests {
         assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
         assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
         assert_eq!(s.inspect().unwrap()["modelChannel"], "api");
-        let preview = s.preview(&c.base_url, &c.model, true, "api", &template()).unwrap();
+        let preview = s
+            .preview(
+                &c.base_url,
+                &c.model,
+                true,
+                Some(ModelChannel::Api),
+                &template(),
+            )
+            .unwrap();
         assert!(preview.contains("supports_websockets = false"));
         let saved = fs::read(&s.selected).unwrap();
         assert_eq!(s.switch_transport(false).unwrap()["changed"], false);
         assert_eq!(fs::read(&s.selected).unwrap(), saved);
-        let plan = s.prepare(c, true, &template()).unwrap();
+        let plan = s.prepare(c, true, &template(), None).unwrap();
         s.apply_with_backup(&plan, false).unwrap();
         assert_eq!(s.inspect().unwrap()["supportsWebsockets"], false);
         s.switch_transport(true).unwrap();
@@ -1757,7 +2004,7 @@ mod tests {
     fn switches_model_channel_immediately_without_backups_or_losing_credentials() {
         let (_dir, mut s) = store();
         let c = connection();
-        let id = s.prepare(c.clone(), true, &template()).unwrap();
+        let id = s.prepare(c.clone(), true, &template(), None).unwrap();
         s.apply(&id).unwrap();
         let initial = s.inspect().unwrap();
         assert_eq!(initial["modelChannel"], "api");
@@ -1798,7 +2045,7 @@ mod tests {
         let (_dir, mut s) = store();
         for content in ["not TOML", "profile = 'work'", "model_providers = 'wrong'"] {
             fs::write(&s.selected, content).unwrap();
-            assert!(s.prepare(connection(), false, &template()).is_err());
+            assert!(s.prepare(connection(), false, &template(), None).is_err());
             assert_eq!(fs::read_to_string(&s.selected).unwrap(), content);
         }
         assert!(s.choose(s.root.join("auth.json")).is_err());
@@ -1812,7 +2059,7 @@ mod tests {
             fs::{symlink, PermissionsExt},
         };
         let (_dir, mut s) = store();
-        let id = s.prepare(connection(), false, &template()).unwrap();
+        let id = s.prepare(connection(), false, &template(), None).unwrap();
         s.apply(&id).unwrap();
         assert_eq!(
             fs::metadata(&s.selected).unwrap().permissions().mode() & 0o777,
@@ -1832,7 +2079,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let default = root.path().join("codex/config.toml");
         let mut store = Store::new(root.path().join("data"), default.clone()).unwrap();
-        let id = store.prepare(connection(), false, &template()).unwrap();
+        let id = store
+            .prepare(connection(), false, &template(), None)
+            .unwrap();
         store.apply(&id).unwrap();
         assert!(default.is_file());
         assert!(store
@@ -1848,7 +2097,8 @@ mod tests {
             Some(b"[model_reasoning_effort]\nimportant='keep'\n"),
             &connection(),
             false,
-            &t
+            &t,
+            ModelChannel::Api,
         )
         .is_err());
     }
@@ -1864,7 +2114,7 @@ mod tests {
                 &connection().base_url,
                 &connection().model,
                 true,
-                "api",
+                Some(ModelChannel::Api),
                 &template(),
             )
             .unwrap();
@@ -1874,7 +2124,9 @@ mod tests {
             shown["model_providers"]["custom"]["name"].as_str(),
             Some("OpenAI")
         );
-        let id = store.prepare(connection(), true, &template()).unwrap();
+        let id = store
+            .prepare(connection(), true, &template(), None)
+            .unwrap();
         store.apply(&id).unwrap();
         let after = document(read(&store.selected).unwrap().as_deref()).unwrap();
         for provider in ["example", "example-2"] {
@@ -1888,7 +2140,9 @@ mod tests {
             after["model_providers"]["custom"]["name"].as_str(),
             Some("OpenAI")
         );
-        let id = store.prepare(connection(), true, &template()).unwrap();
+        let id = store
+            .prepare(connection(), true, &template(), None)
+            .unwrap();
         store.apply(&id).unwrap();
         store.switch_channel("official").unwrap();
         let mut reopened = Store::new(store.root.clone(), store.selected.clone()).unwrap();

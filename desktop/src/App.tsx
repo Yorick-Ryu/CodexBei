@@ -57,7 +57,7 @@ const displayPath = (path = "") => {
   return path;
 };
 
-type Draft = { apiKey: string; baseUrl: string; model: string; mapping: Mapping; keep: boolean; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
+type Draft = { apiKey: string; baseUrl: string; model: string; mapping: Mapping; keep: boolean; selectedChannel?: "api" | "official"; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
 
 export function App() {
   const drafts = useRef<Partial<Record<Tool, Draft>>>({});
@@ -86,6 +86,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [baseUrl, setBaseUrl] = useState(initialDraft.current?.baseUrl ?? defaultBase);
   const [model, setModel] = useState(initialDraft.current?.model ?? defaultModel);
   const [keep, setKeep] = useState(initialDraft.current?.keep ?? false);
+  const [selectedChannel, setSelectedChannel] = useState(initialDraft.current?.selectedChannel);
   const [officialLoginConfirmOpen, setOfficialLoginConfirmOpen] = useState(false);
   const [visibleKey, setVisibleKey] = useState(false);
   const [busy, setBusy] = useState(true);
@@ -181,6 +182,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   keepRef.current = keep;
   const acceptInspection = useCallback((data: Inspection) => {
     setInspection(data);
+    setSelectedChannel(undefined);
     setApiKey(data.apiKey || "");
     setVisibleKey(false);
     loadedKey.current = data.apiKey && data.baseUrl ? { value: data.apiKey, baseUrl: data.baseUrl } : null;
@@ -197,6 +199,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setModel(draft.model);
       setMapping(draft.mapping);
       setKeep(draft.keep);
+      if (draft.inspection.file === data.file) setSelectedChannel(draft.selectedChannel);
       keepRef.current = draft.keep;
       setExpanded(draft.expanded);
     }
@@ -204,8 +207,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       data.platform === "macos" ? "darwin" : data.platform;
   }, [defaultBase, defaultModel]);
   useEffect(() => {
-    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, mapping, keep, expanded, inspection, matching, preview, previewError };
-  }, [inspection, activeTool, apiKey, baseUrl, model, mapping, keep, expanded, matching, preview, previewError, drafts]);
+    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, mapping, keep, selectedChannel, expanded, inspection, matching, preview, previewError };
+  }, [inspection, activeTool, apiKey, baseUrl, model, mapping, keep, selectedChannel, expanded, matching, preview, previewError, drafts]);
   const changeBaseUrl = (value: string) => {
     const saved = loadedKey.current;
     if (saved && apiKey === saved.value && value.trim().replace(/\/+$/, "") !== saved.baseUrl.replace(/\/+$/, "")) {
@@ -299,6 +302,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           throw error;
         }
         // A channel switch only changes routing; preserve unsaved form edits.
+        setSelectedChannel(channel);
         setInspection(await api.inspect());
         setStatusSuccess(true);
         setStatus("切换成功，新对话生效");
@@ -385,7 +389,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     // Clearing it here collapses the page and clamps WebKit's scroll position.
     setPreviewPending(true);
     setPreviewError("");
-    void api.preview(baseUrl, model, keep, inspection?.modelChannel ?? "api", mapping).then(
+    void api.preview(baseUrl, model, keep, selectedChannel, mapping).then(
       (value) => {
         if (active) {
           setPreview(value);
@@ -406,7 +410,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     return () => {
       active = false;
     };
-  }, [baseUrl, model, keep, matching?.template?.digest, inspection?.modelChannel, inspection?.supportsWebsockets, inspection?.file, mapping, api]);
+  }, [baseUrl, model, keep, selectedChannel, matching?.template?.digest, inspection?.modelChannel, inspection?.hasKey, inspection?.supportsWebsockets, inspection?.file, mapping, api]);
   useEffect(() => {
     if (!waitingForChatgptInstall) return;
     let active = true;
@@ -612,6 +616,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             { apiKey, baseUrl, model },
                             keep,
                             mapping,
+                            selectedChannel,
                           );
                           await completed(result);
                         } finally {
