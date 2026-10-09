@@ -34,13 +34,14 @@ function createStore(credentialsFile) {
   const url = key => `https://${config.account_id}.r2.cloudflarestorage.com/${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
   return {
     async head(key) {
-      const response = await client.fetch(url(key), { method: 'HEAD', signal: AbortSignal.timeout(15000) });
+      const response = await client.fetch(url(key), { method: 'HEAD', headers: { 'Accept-Encoding': 'identity' }, signal: AbortSignal.timeout(15000) });
       if (response.status === 404) return null;
       if (!response.ok) throw Error(`R2 metadata read failed (${response.status}): ${key}`);
       return response;
     },
     async get(key) {
-      const response = await client.fetch(url(key), { signal: AbortSignal.timeout(180000) });
+      // Keep the original object size and strong ETag for validation and conditional activation.
+      const response = await client.fetch(url(key), { headers: { 'Accept-Encoding': 'identity' }, signal: AbortSignal.timeout(180000) });
       if (response.status === 404) return null;
       if (!response.ok) throw Error(`R2 read failed (${response.status}): ${key}`);
       return response;
