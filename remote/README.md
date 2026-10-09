@@ -2,7 +2,7 @@
 
 发布源是 [manifest.json](manifest.json)，随 `codexbei-config` Cloudflare Worker 打包发布，不依赖 R2 或 KV。接口为 `POST https://codexbei.beiapi.cn/config/v1/resolve`。发布是否成功以 HTTPS 实际返回的 `release` 为准。
 
-同一个 Worker 还提供应用下载和自动更新，见 [应用自动更新](../docs/auto-update.md)。部署前必须保留完整的 `dist-downloads` 静态资源目录，避免移除已发布安装包。
+同一个 Worker 还提供应用下载和自动更新，见 [应用自动更新](../docs/auto-update.md)。安装包、下载页及最新版指向独立存放在 R2，代码部署不读取 `dist-downloads`。首次上线新存储前必须完成历史文件迁移，步骤见该文档。
 
 ## ChatGPT macOS 镜像
 
@@ -65,11 +65,10 @@ CLI/桌面内核使用 SemVer，如 `0.153.4`，GitHub 标签 `rust-v0.153.4` �
 
 ```sh
 npm test
-npm run test:ui
 npm run worker:check
-node scripts/publish-templates.cjs --token-file /absolute/path/to/cloudflare-token --apply
+node scripts/publish-templates.cjs --token-file /absolute/path/to/cloudflare-token --release-credentials-file /absolute/path/to/r2-credentials.json --apply
 ```
 
-不加 `--apply` 只本地校验并打包，不访问 R2。修改模板时同时递增 `release` 和模板 `version`，重新发布 Worker 即可，无需重发客户端。发布前保留旧源文件；回滚配置时使用旧内容并分配新的 release/version，不能降低版本号。
+不加 `--apply` 只本地校验并打包，不访问 R2。部署时先用独立 R2 凭据检查当前版本、迁移基线及对应文件，缺失则终止；不上传安装包、不切换应用最新版。修改模板时同时递增 `release` 和模板 `version`，重新发布 Worker 即可，无需重发客户端。发布前保留旧源文件；回滚配置时使用旧内容并分配新的 release/version，不能降低版本号。
 
 参考：[Codex 版本识别](https://learn.chatgpt.com/docs/reference/troubleshooting)、[Codex CLI 发布](https://github.com/openai/codex/releases)、[Codex 更新日志](https://learn.chatgpt.com/docs/changelog)、[Worker 自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。

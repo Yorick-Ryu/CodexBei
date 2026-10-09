@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRightIcon, RefreshIcon } from "./icons";
 import { toolApi, type Tool, type Inspection, type Quota, type QuotaRow } from "./api";
 
@@ -23,9 +23,11 @@ type QuotaEntry = { identity: string; settled: boolean; result?: QuotaResult; pr
 // Session-only cache survives tool-tab remounts. Keep just the current identity
 // per source; credentials and quota snapshots are never persisted to storage.
 const quotaCache = new Map<Tool, QuotaEntry>();
+const retryDelays = [5000, 15000, 30000];
 function loadQuota(tool: Tool, channel: "api", identity: string, force: boolean): QuotaEntry {
   const cached = quotaCache.get(tool);
-  if (!force && cached?.identity === identity) return cached;
+  // Share pending requests and successful snapshots, but allow failed queries to recover.
+  if (cached?.identity === identity && (!cached.settled || (!force && cached.result?.data))) return cached;
   const entry: QuotaEntry = { identity, settled: false, result: cached?.identity === identity ? cached.result : undefined, promise: Promise.resolve({ identity }) };
   entry.promise = toolApi(tool).quota(channel).then(data => {
     if (!data || data.channel !== channel || !Array.isArray(data.rows)) throw new Error("Invalid quota source");
@@ -42,6 +44,7 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
   const [refresh, setRefresh] = useState(0);
   const [walletError, setWalletError] = useState("");
   const [plansOpen, setPlansOpen] = useState(false);
+  const retryCount = useRef(0);
   const cached = quotaCache.get(tool);
   const initial = cached?.identity === identity ? cached.result : undefined;
   const [result, setResult] = useState<QuotaResult | undefined>(initial);
@@ -58,6 +61,31 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
   }, [tool, channel, identity, refresh]);
   useEffect(() => { setPlansOpen(false); }, [identity]);
   const current = result?.identity === identity ? result : undefined;
+  useEffect(() => {
+    if (current?.error === undefined) { retryCount.current = 0; return; }
+    if (loading) return;
+    const canRetry = () => document.visibilityState !== "hidden" && navigator.onLine;
+    const delay = retryDelays[retryCount.current];
+    const timer = delay === undefined ? undefined : window.setTimeout(() => {
+      if (!canRetry()) return;
+      retryCount.current += 1;
+      setRefresh(value => value + 1);
+    }, delay);
+    const retryOnReturn = () => {
+      if (!canRetry()) return;
+      retryCount.current = 0;
+      setRefresh(value => value + 1);
+    };
+    window.addEventListener("online", retryOnReturn);
+    window.addEventListener("focus", retryOnReturn);
+    document.addEventListener("visibilitychange", retryOnReturn);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("online", retryOnReturn);
+      window.removeEventListener("focus", retryOnReturn);
+      document.removeEventListener("visibilitychange", retryOnReturn);
+    };
+  }, [current, loading, identity]);
   if (!current?.data || (!current.data.rows.length && !current.data.groups?.some(group => group.rows.length))) return null;
   return <aside className="quota-panel" aria-label="API 额度">
     <section className="quota-source quota-api" aria-label="API 额度详情" aria-busy={loading}>

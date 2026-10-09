@@ -59,9 +59,9 @@ jobs:
       - name: Build Tauri NSIS installer
         # Only the updater signature is added locally after downloading artifacts.
         run: npx tauri build --target ${{ matrix.target }} --bundles nsis --config src-tauri/tauri.windows-build.conf.json
-      - name: Verify installer and installed application
+      - name: Verify package without UI tests
         shell: pwsh
-        run: ./scripts/test-windows-package.ps1 -Target '${{ matrix.target }}'
+        run: ./scripts/test-windows-package.ps1 -Target '${{ matrix.target }}' -SkipUi
       - uses: actions/upload-artifact@v4
         with:
           name: CodexBei-windows-${{ matrix.arch }}

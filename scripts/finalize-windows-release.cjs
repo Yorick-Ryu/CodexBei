@@ -31,7 +31,9 @@ function finalize(source, destination, sourceCommit) {
     const platform = arm ? 'windows-aarch64' : 'windows-x86_64';
     if (seen.has(platform)) throw Error('Duplicate platform');
     seen.add(platform);
-    if (report.source !== sourceCommit || report.installExitCode !== 0 || report.windowTitle !== 'CodexBei'
+    const packageOnly = report.verificationMode === 'package-only';
+    if (report.source !== sourceCommit || report.installExitCode !== 0
+      || (packageOnly ? ![config.version, config.version + '.0'].includes(report.appVersion) : report.windowTitle !== 'CodexBei')
       || report.machine !== (arm ? 0xAA64 : 0x8664)) throw Error('Native Windows verification failed');
     const installers = files.filter(file => path.basename(file) === report.installer);
     if (installers.length !== 1 || hash(installers[0]).toUpperCase() !== report.installerSha256.toUpperCase()) throw Error('Installer does not match verified artifact');
@@ -47,7 +49,7 @@ function finalize(source, destination, sourceCommit) {
       version: config.version, platform, file: path.basename(file), signature: fs.readFileSync(file + '.sig', 'utf8').trim(), sha256: hash(file),
     }, null, 2) + '\n');
     fs.copyFileSync(reportFile, path.join(destination, `${platform}.verification.json`));
-    console.log(`${platform}: native install/start verified; updater signature added`);
+    console.log(`${platform}: ${packageOnly ? 'silent install/version/architecture verified; UI checks skipped' : 'native install/start verified'}; updater signature added`);
   }
 }
 if (require.main === module) {

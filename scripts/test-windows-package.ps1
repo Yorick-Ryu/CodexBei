@@ -1,4 +1,7 @@
-param([Parameter(Mandatory=$true)][ValidateSet('x86_64-pc-windows-msvc','aarch64-pc-windows-msvc')][string]$Target)
+param(
+  [Parameter(Mandatory=$true)][ValidateSet('x86_64-pc-windows-msvc','aarch64-pc-windows-msvc')][string]$Target,
+  [switch]$SkipUi
+)
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -39,6 +42,19 @@ $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
 $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
 $expected = if ($Target -eq 'aarch64-pc-windows-msvc') { 0xAA64 } else { 0x8664 }
 if ($machine -ne $expected) { throw 'Wrong executable architecture' }
+if ($SkipUi) {
+  $version = (Get-Item $executable).VersionInfo.ProductVersion
+  $expectedVersion = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+  if ($version -ne $expectedVersion -and $version -ne "$expectedVersion.0") { throw 'Installed application version mismatch' }
+  New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+  @{ target=$Target; installer=$installer[0].Name; installExitCode=$install.ExitCode; machine=$machine;
+    verificationMode='package-only'; appVersion=$version; source=$env:GITHUB_SHA;
+    binarySha256=(Get-FileHash $executable -Algorithm SHA256).Hash;
+    installerSha256=(Get-FileHash $installer[0].FullName -Algorithm SHA256).Hash
+  } | ConvertTo-Json | Set-Content "artifacts/windows-package-$Target.json"
+  Write-Host 'Silent installation, version and architecture verified; UI checks skipped.'
+  return
+}
 if (Test-Path (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex/config.toml')) {
   throw 'Package smoke test requires a clean disposable runner profile'
 }

@@ -5,21 +5,27 @@ const { spawnSync } = require('node:child_process');
 const { validateManifest } = require('../worker/lib/template-policy.cjs');
 const { resolveResponse } = require('../worker/lib/version-request.cjs');
 const { validateAppRelease } = require('../worker/updates.cjs');
+const { createStore } = require('./lib/release-store.cjs');
+const { checkDeployment } = require('./publish-app-release.cjs');
 const root = path.resolve(__dirname, '..');
 async function main() {
   const args = process.argv.slice(2);
-  const allowed = new Set(['--validate-only', '--token-file', '--apply', '--preserve-triggers']);
-  let tokenFile, attachDomain = false;
+  const allowed = new Set(['--validate-only', '--token-file', '--release-credentials-file', '--apply', '--preserve-triggers']);
+  let tokenFile, releaseCredentialsFile, attachDomain = false;
   for (let i = 0; i < args.length; i++) {
     if (!allowed.has(args[i])) throw Error('Unknown argument');
     if (args[i] === '--token-file') tokenFile = args[++i];
+    else if (args[i] === '--release-credentials-file') releaseCredentialsFile = args[++i];
   }
   const manifest = validateManifest(JSON.parse(fs.readFileSync(path.join(root, 'remote/manifest.json'), 'utf8')));
-  validateAppRelease(JSON.parse(fs.readFileSync(path.join(root, 'remote/app-release.json'), 'utf8')));
+  // This archived feed protects the release served by the former static-assets deployment.
+  const legacyRelease = validateAppRelease(JSON.parse(fs.readFileSync(path.join(root, 'remote/app-release.json'), 'utf8')));
   console.log(`Validated release ${manifest.release} (${manifest.templates.length} templates)`);
   if (args.includes('--validate-only')) return;
   const env = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
   if (args.includes('--apply')) {
+    const releaseVersion = await checkDeployment(createStore(releaseCredentialsFile), legacyRelease);
+    console.log(`Independent release storage verified: ${releaseVersion}`);
     if (!tokenFile) throw Error('Provide --token-file for deployment');
     const stat = fs.lstatSync(tokenFile);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw Error('Token file must be a regular private file (600)');
@@ -53,7 +59,6 @@ async function main() {
     temporary = fs.mkdtempSync(path.join(root, '.wrangler/deploy-'));
     const file = path.join(temporary, 'wrangler.json');
     fs.writeFileSync(file, JSON.stringify({ ...config, ...(args.includes('--preserve-triggers') ? { triggers: undefined } : {}), routes: [], main: path.resolve(root, config.main),
-      ...(config.assets ? { assets: { ...config.assets, directory: path.resolve(root, config.assets.directory) } } : {}),
       $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
     configArgs = ['--config', file];
   }
