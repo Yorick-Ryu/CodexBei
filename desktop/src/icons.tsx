@@ -1,5 +1,5 @@
 import {
-  ArrowRight, Check, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, History, Monitor, Moon,
+  ArrowRight, Info, Check, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, History, Monitor, Moon,
   RefreshCw, Settings, SlidersHorizontal, Sun, X, type LucideIcon,
 } from "lucide-react";
 
@@ -26,3 +26,5 @@ export const MoonIcon = appIcon(Moon);
 export const SunIcon = appIcon(Sun);
 
 export const RefreshIcon = appIcon(RefreshCw);
+
+export const InfoIcon = appIcon(Info);

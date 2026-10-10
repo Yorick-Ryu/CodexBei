@@ -1,11 +1,13 @@
 import {
   useCallback,
+  useId,
   useMemo,
   type MutableRefObject,
   useEffect,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -23,7 +25,8 @@ import {
 } from "./api";
 import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { VersionPicker } from "./VersionPicker";
-import { CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
+import { RefreshIcon, InfoIcon, CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
+import { Select } from "./Select";
 import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
 import { QuotaCard } from "./QuotaCard";
@@ -31,6 +34,36 @@ import { ThemeSelector } from "./ThemeSelector";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
 import claude from "../assets/agents/claude-code.svg";
+
+function FieldInfo({ label, description }: { label: string; description: string }) {
+  const tooltipId = useId();
+  const [position, setPosition] = useState<{ left: number; top: number; above: boolean; arrowLeft: number } | null>(null);
+  useEffect(() => {
+    if (!position) return;
+    const close = () => setPosition(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [position]);
+  const show = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const above = rect.top >= 92;
+    const center = rect.left + rect.width / 2;
+    const left = Math.max(12, Math.min(center - 100, window.innerWidth - 212));
+    setPosition({ left, top: above ? rect.top - 8 : rect.bottom + 8, above, arrowLeft: Math.max(12, Math.min(center - left, 188)) });
+  };
+  return <>
+    <button type="button" className="text-button field-info" aria-label={`${label}说明`} aria-describedby={position ? tooltipId : undefined}
+      onMouseEnter={event => show(event.currentTarget)} onMouseLeave={() => setPosition(null)}
+      onFocus={event => show(event.currentTarget)} onBlur={() => setPosition(null)}
+      onKeyDown={event => { if (event.key === "Escape") setPosition(null); }}
+      onClick={event => { event.preventDefault(); if (!position) show(event.currentTarget); }}><InfoIcon /></button>
+    {position && createPortal(<span id={tooltipId} role="tooltip" className="field-tooltip" data-above={position.above || undefined} style={{ left: position.left, top: position.top, transform: position.above ? "translateY(-100%)" : undefined }}>{description}<span className="field-tooltip-arrow" style={{ left: position.arrowLeft }} /></span>, document.body)}
+  </>;
+}
 
 const toolTabs = [
   { id: "codex", name: "ChatGPT", icon: chatgpt, iconClass: "chatgpt-icon", disabled: false },
@@ -41,7 +74,7 @@ const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
 const errorText = (error: unknown) =>
   typeof error === "string" ? error : "操作未完成，请重试。";
-const configureFirstNotice = "请点击一键配置";
+const configureFirstNotice = "请先保存连接配置";
 // Match known credential failures, rather than routing any mention of a key here.
 const isKeyError = (message: string) => [
   "请输入 API 密钥。",
@@ -64,7 +97,7 @@ const configuredSpeed = (tier?: string | null): Speed | undefined => {
   if (tier === "default") return "standard";
   return undefined;
 };
-type Draft = { apiKey: string; baseUrl: string; model: string; speed?: Speed; mapping: Mapping; keep: boolean; selectedChannel?: "api" | "official"; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
+type Draft = { apiKey: string; baseUrl: string; model: string; speed?: Speed; mapping: Mapping; keep: boolean; selectedChannel?: "api" | "official"; expanded: boolean; page?: "config" | "home"; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
 
 export function App() {
   const drafts = useRef<Partial<Record<Tool, Draft>>>({});
@@ -89,6 +122,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [mapping, setMapping] = useState<Mapping>(initialDraft.current?.mapping ?? {});
   const [inspection, setInspection] = useState<Inspection | null>(initialDraft.current?.inspection ?? null);
   const [apiKey, setApiKey] = useState(initialDraft.current?.apiKey ?? "");
+  const inspectedOnce = useRef(false);
   const loadedKey = useRef<{ value: string; baseUrl: string } | null>(null);
   const [baseUrl, setBaseUrl] = useState(initialDraft.current?.baseUrl ?? defaultBase);
   const [model, setModel] = useState(initialDraft.current?.model ?? defaultModel);
@@ -103,7 +137,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [channelSwitching, setChannelSwitching] = useState(false);
   const [transportSwitching, setTransportSwitching] = useState(false);
   const [speedSwitching, setSpeedSwitching] = useState(false);
-  const [actionTooltip, setActionTooltip] = useState<"provider" | "transport" | "speed" | null>(null);
   const [previewChannel, setPreviewChannel] = useState<string>();
   const [loginPreviewPending, setLoginPreviewPending] = useState(false);
   const [status, setStatus] = useState("");
@@ -114,14 +147,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   }, [fileError]);
   const [statusSuccess, setStatusSuccess] = useState(false);
   const [successNoticeId, setSuccessNoticeId] = useState(0);
-  useEffect(() => {
-    if (!statusSuccess || !status) return;
-    const timeout = setTimeout(() => {
-      setStatus("");
-      setStatusSuccess(false);
-    }, 3000);
-    return () => clearTimeout(timeout);
-  }, [status, statusSuccess, successNoticeId]);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [matching, setMatching] = useState<Matching | null>(initialDraft.current?.matching ?? null);
   const [waitingForChatgptInstall, setWaitingForChatgptInstall] = useState(false);
   const [openingInstaller, setOpeningInstaller] = useState(false);
@@ -163,11 +189,18 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     setVersionOpen(false);
   };
   const [expanded, setExpanded] = useState(initialDraft.current?.expanded ?? false);
+  const [settingsOverflowReady, setSettingsOverflowReady] = useState(false);
+  useEffect(() => {
+    setSettingsOverflowReady(false);
+    if (!expanded) return;
+    const timer = window.setTimeout(() => setSettingsOverflowReady(true), 360);
+    return () => window.clearTimeout(timer);
+  }, [expanded]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelStatus, setModelStatus] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelRefresh, setModelRefresh] = useState(0);
-  const [page, setPage] = useState<"config" | "success" | "history">("config");
+  const [page, setPage] = useState<"config" | "home" | "history">(initialDraft.current?.page ?? "config");
   const selectedTool = toolTabs.find(tool => tool.id === activeTool)!;
   const [preview, setPreview] = useState(initialDraft.current?.preview ?? "");
   const [previewError, setPreviewError] = useState(initialDraft.current?.previewError ?? "");
@@ -182,7 +215,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [dialogError, setDialogError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const baseUrlInput = useRef<HTMLInputElement>(null);
-  const successTitle = useRef<HTMLHeadingElement>(null);
+  const homeTitle = useRef<HTMLHeadingElement>(null);
   const historyTitle = useRef<HTMLHeadingElement>(null);
   const busyRef = useRef(true);
   const keepRef = useRef(false);
@@ -203,6 +236,10 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     keepRef.current = data.keepOfficialLogin;
     const draft = initialDraft.current;
     initialDraft.current = undefined;
+    if (!inspectedOnce.current) {
+      setPage(draft?.page ?? (data.hasKey && data.baseUrl ? "home" : "config"));
+      inspectedOnce.current = true;
+    }
     if (draft) {
       setApiKey(draft.apiKey);
       setBaseUrl(draft.baseUrl);
@@ -218,8 +255,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       data.platform === "macos" ? "darwin" : data.platform;
   }, [defaultBase, defaultModel]);
   useEffect(() => {
-    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, inspection, matching, preview, previewError };
-  }, [inspection, activeTool, apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, matching, preview, previewError, drafts]);
+    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, page: page === "history" ? (inspection.hasKey && inspection.baseUrl ? "home" : "config") : page, inspection, matching, preview, previewError };
+  }, [inspection, activeTool, apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, page, matching, preview, previewError, drafts]);
   const changeBaseUrl = (value: string) => {
     const saved = loadedKey.current;
     if (saved && apiKey === saved.value && value.trim().replace(/\/+$/, "") !== saved.baseUrl.replace(/\/+$/, "")) {
@@ -234,7 +271,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     async (outcome?: Outcome) => {
       setApiKey("");
       setVisibleKey(false);
-      setPage("success");
+      setPage("home");
       setVersionOpen(false);
       setVersionDraft(null);
       dialog.current?.close();
@@ -280,26 +317,25 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setFileError(errorText(error));
     }
   });
-  const applyLoginPreference = (enabled: boolean) => {
-    setPreviewPending(true);
-    setLoginPreviewPending(true);
+  const applyLoginPreference = async (enabled: boolean) => {
+    await api.switchLoginPreference(enabled);
+    const saved = await api.inspect();
+    setInspection(saved);
     setKeep(enabled);
     keepRef.current = enabled;
-    setActionTooltip(null);
+    setPreviewPending(true);
+    setLoginPreviewPending(true);
+    setStatusSuccess(true);
+    setStatus(`${enabled ? "已开启" : "已关闭"}保留官方登录，重启 ChatGPT 后生效`);
+    setSuccessNoticeId(value => value + 1);
   };
   const changeLoginPreference = (enabled: boolean) => {
-    if (!enabled) {
-      applyLoginPreference(false);
-      return;
-    }
-    setActionTooltip(null);
     void run(async () => {
-      if (await api.hasOfficialLogin()) applyLoginPreference(true);
+      if (!enabled || await api.hasOfficialLogin()) await applyLoginPreference(enabled);
       else setOfficialLoginConfirmOpen(true);
-    }, false, false);
+    });
   };
   const switchChannel = (channel: "api" | "official") => {
-    if (!keep) return;
     void run(async () => {
       setChannelSwitching(true);
       try {
@@ -316,7 +352,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         setSelectedChannel(channel);
         setInspection(await api.inspect());
         setStatusSuccess(true);
-        setStatus("切换成功，新对话生效");
+        setStatus(`模型供应商已切换为 ${channel === "api" ? "API" : "官方"}，新对话生效`);
         setSuccessNoticeId(value => value + 1);
       } finally {
         setChannelSwitching(false);
@@ -334,7 +370,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         setPreviewPending(true);
         setSpeed(next);
         setStatusSuccess(true);
-        setStatus("切换成功，新对话生效");
+        setStatus(`响应速度已切换为${next === "fast" ? "快速" : "标准"}，新对话生效`);
         setSuccessNoticeId(value => value + 1);
       } finally {
         setSpeedSwitching(false);
@@ -349,7 +385,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         // Refresh saved state without replacing unsaved key, model or URL edits.
         setInspection(await api.inspect());
         setStatusSuccess(true);
-        setStatus("切换成功，新对话生效");
+        setStatus(`已${supportsWebsockets ? "启用" : "关闭"} WebSocket，新对话生效`);
         setSuccessNoticeId(value => value + 1);
       } finally {
         setTransportSwitching(false);
@@ -516,7 +552,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     modelRefresh,
   ]);
   useEffect(() => {
-    if (page === "success") successTitle.current?.focus();
+    if (page === "home") homeTitle.current?.focus();
     if (page === "history") historyTitle.current?.focus();
   }, [page]);
   const showBackup = (id: string) =>
@@ -543,6 +579,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const softwareUpdate = useSoftwareUpdate({ busy, run });
   const hasCli = !!matching?.installations.some(item => item.kind === "cli");
   const hasDesktop = !!matching?.installations.some(item => item.kind === "desktop");
+  const connectedToolName = !isClaude && hasCli && !hasDesktop ? "Codex CLI" : selectedTool.name;
   const missingDesktop = !isClaude && !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
   const installerLabel = inspection?.platform === "windows" ? "安装桌面版" : "下载桌面版";
   const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
@@ -550,7 +587,9 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const showInstallHint = page === "config" && (missingClaude ? !claudeInstallHintDismissed : missingDesktop && hasCli && !installHintDismissed) && !footerStatus && !installerError && !needsVersionNotice;
   const showNotice = !!(footerStatus || installerError || needsVersionNotice || showInstallHint);
   const noticeKind = footerStatus ? (statusSuccess ? "success" : footerStatus === configureFirstNotice ? "info" : "error") : (installerError || needsVersionNotice ? "error" : "info");
+  useEffect(() => setNoticeDismissed(false), [status, installerError, needsVersionNotice, showInstallHint, successNoticeId]);
   const closeNotice = () => {
+    setNoticeDismissed(true);
     if (footerStatus) { setStatus(""); setStatusSuccess(false); }
     else if (installerError) setInstallerError("");
     else if (showInstallHint) {
@@ -559,6 +598,30 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       try { localStorage.setItem("codexbei.desktop-install-hint-dismissed", "true"); } catch { /* Keep dismissal for this session. */ }
     }
   };
+  const connectionControls = !isClaude ? (<div className="action-options">
+      <div className="login-option preference-row">
+        <span className="field-caption">保留官方登录<FieldInfo label="保留官方登录" description="保留 ChatGPT 官方账号登录。立即保存，重启 ChatGPT 后生效。" /></span>
+        <input id="keep-official-login" aria-label="保留官方登录" type="checkbox" role="switch" checked={keep} onChange={event => changeLoginPreference(event.target.checked)} disabled={disabled} />
+      </div>
+      <div className="channel-option provider-option">
+        <span className="option-caption provider-caption"><span className="setting-title">模型供应商
+          <FieldInfo label="模型供应商" description="切换模型供应商，新对话生效" /></span>
+        </span>
+        <Select id="model-channel" aria-label="模型供应商" value={inspection?.modelChannel ?? "api"} disabled={disabled} onChange={event => switchChannel(event.target.value as "api" | "official")}>
+          <option value="api">API</option><option value="official">官方</option>
+        </Select>
+      </div>
+      <div className="channel-option transport-option">
+        <div className="login-option preference-row">
+          <span className="field-caption"><span className="setting-title">启用 WebSocket<FieldInfo label="启用 WebSocket" description="使用 WebSocket 传输，需要服务商支持；关闭时使用 HTTP。立即保存，新对话生效。" /></span></span>
+          <input id="transport-protocol" aria-label="启用 WebSocket" type="checkbox" role="switch" checked={!!inspection?.supportsWebsockets} disabled={disabled || !inspection?.baseUrl} onChange={event => switchTransport(event.target.checked)} />
+        </div>
+      </div>
+      <div className="channel-option speed-option">
+        <span className="option-caption"><span className="setting-title">响应速度<FieldInfo label="响应速度" description="标准为默认速度；快速需要服务商支持。立即保存，新对话生效。" /></span></span>
+        <Select id="speed" aria-label="响应速度" value={speed} disabled={disabled} onChange={event => switchSpeed(event.target.value as Speed)}><option value="standard">标准</option><option value="fast">快速</option><option value="ultrafast" disabled>超快</option></Select>
+      </div>
+    </div>) : null;
   return (
     <>
       <header className="app-header" data-history={page === "history" || undefined}>
@@ -604,8 +667,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           </div>
         )}
       </header>
-      <div className="content-scroll" onScrollCapture={() => setActionTooltip(null)}>
-        <main className={page !== "history" ? "config-main" : undefined} data-restore-ready={restoringDraft.current && !!apiKey.trim() && !!preview && !previewError && !!matching && !matching.needsSelection || undefined} data-restoring={(initializing || previewPending) && restoringDraft.current || undefined} data-channel-updating={channelUpdating || undefined} data-has-key={!!apiKey} data-has-base-url={!!baseUrl} data-template-update={!!matching?.templateUpdateAvailable}>
+      <div className="content-scroll">
+        <main data-page={page} data-settings-expanded={page === "config" && expanded || undefined} className={page !== "history" ? "config-main" : undefined} data-restore-ready={restoringDraft.current && !!apiKey.trim() && !!preview && !previewError && !!matching && !matching.needsSelection || undefined} data-restoring={(initializing || previewPending) && restoringDraft.current || undefined} data-channel-updating={channelUpdating || undefined} data-has-key={!!apiKey} data-has-base-url={!!baseUrl} data-template-update={!!matching?.templateUpdateAvailable}>
           {page !== "history" ? (
             <div id="configuration-page">
               <section
@@ -613,28 +676,27 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                 role="tabpanel"
                 aria-labelledby={`${activeTool}-tab`}
               >
-                {page === "success" ? (
-                  <div id="success">
-                    <div className="success-icon">
-                      <CheckIcon />
+                {page === "home" && <div id="connection-home" aria-labelledby="home-title">
+                  <div className="connection-summary">
+                    <div className="connection-summary-top">
+                      <h1 id="home-title" className="config-title" tabIndex={-1} ref={homeTitle}>
+                        <img className={selectedTool.iconClass} src={selectedTool.icon} alt="" />
+                        {connectedToolName} 已就绪
+                      </h1>
+                      <button id="edit-connection" type="button" className="text-button settings-toggle" disabled={busy} onClick={() => { setExpanded(true); setPage("config"); }}><SettingsIcon />修改配置</button>
                     </div>
-                    <h1 ref={successTitle} id="success-title" tabIndex={-1}>
-                      配置完成
-                    </h1>
-                    <p>
-                      {isClaude ? "Claude Code 配置已保存，新会话生效。" : hasCli && !hasDesktop ? "Codex CLI 配置已保存，新会话生效。" : "请彻底退出并重新打开 ChatGPT，即可开始使用。"}
-                    </p>
-                    <button
-                      className="primary"
-                      id="done"
-                      onClick={() => setPage("config")}
-                    >
-                      完成
-                    </button>
                   </div>
-                ) : (
+                  {connectionControls && <><h2 className="home-section-title">快速配置</h2>{connectionControls}</>}
+                  <div className="home-balance">
+                    <h2 className="home-section-title">余额</h2>
+                    <QuotaCard inspection={inspection!} tool={activeTool} />
+                  </div>
+
+
+                </div>}
                   <form
                     id="configure"
+                    hidden={page === "home"}
                     aria-busy={busy}
                     onSubmit={(event) => {
                       event.preventDefault();
@@ -648,7 +710,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             selectedChannel,
                             speed,
                           );
-                          await completed(result);
+                          if (!result.canceled) await completed(result);
                         } finally {
                           setConfiguring(false);
                         }
@@ -696,16 +758,54 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                           onClick={() => setExpanded(value => !value)}
                         >
                           <SettingsIcon />
-                          {expanded ? "更少设置" : "更多设置"}
+                          {expanded ? "折叠" : "展开"}
                         </button>
                       </div>
+                      <h2 className="config-section-title connection-section-title">API 连接</h2>
+                      <div className="credentials-card">
                       <div className="credential-field">
+                            <div className="label-row"><span className="setting-title"><label htmlFor="base-url">API 地址</label><FieldInfo label="API 地址" description="填写服务商提供的 API 地址。" /></span></div>
+                            <div className="key-control base-url-control">
+                              <input
+                                id="base-url"
+                                aria-label="API 地址"
+                                ref={baseUrlInput}
+                                type="url"
+                                value={baseUrl}
+                                onChange={(e) => changeBaseUrl(e.target.value)}
+                                disabled={disabled}
+                                required
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                              <div className="key-actions">
+                                <button
+                                  id="clear-base-url"
+                                  type="button"
+                                  className="key-action"
+                                  aria-label="清空 API 地址"
+                                  title="清空 API 地址"
+                                  aria-controls="base-url"
+                                  disabled={disabled || !baseUrl}
+                                  onClick={() => {
+                                    changeBaseUrl("");
+                                    baseUrlInput.current?.focus({ preventScroll: true });
+                                  }}
+                                >
+                                  <CloseIcon />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="field-feedback" aria-hidden="true" />
+                      </div>
+                      <div className="credential-field api-key-field">
                         <div className="label-row">
-                          <label htmlFor="key">API 密钥</label>
+                          <span className="setting-title"><label htmlFor="key">API 密钥</label><FieldInfo label="API 密钥" description="填写此服务商的 API 密钥。" /></span>
                         </div>
                         <div className="key-control">
                           <input
                             id="key"
+                            aria-label="API 密钥"
                             type={visibleKey ? "text" : "password"}
                             value={apiKey}
                             onChange={(e) => {
@@ -715,8 +815,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             autoComplete="off"
                             spellCheck={false}
                             required
-                            disabled={disabled}
-                            aria-describedby={keyError ? "key-help" : undefined}
+                            disabled={configuring || !inspection}
+                            aria-describedby="key-help"
                             aria-invalid={!!keyError}
                             aria-errormessage={keyError ? "key-help" : undefined}
                           />
@@ -749,31 +849,25 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                           </div>
                         </div>
                         <p id="key-help" className={`field-feedback${keyError ? " error" : ""}`} role="status" aria-live="polite">
-                          {keyError || ""}
+                          {keyError}
                         </p>
                       </div>
-                      <div id="settings" className="settings-collapse" data-expanded={expanded}
+                      </div>
+                      <div id="settings" className="settings-collapse" data-expanded={expanded} data-overflow-ready={settingsOverflowReady}
                         aria-hidden={!expanded} ref={element => { if (element) element.inert = !expanded; }}>
                         <div className="settings-clip">
                           <div className="settings-body">
+                            <h2 className="config-section-title">快速配置</h2>
+                            <div className="quick-config-card">
+                            <div className="settings-field-row model-field-row">
                             <div className="label-row model-label">
-                              <label htmlFor="model">模型</label>
-                              <button
-                                type="button"
-                                id="refresh-models"
-                                className="text-button"
-                                disabled={disabled || modelsLoading}
-                                aria-busy={modelsLoading || busy}
-                                title="刷新可选模型，点击一键配置后保存"
-                                onClick={() => void run(async () => {
-                                  setModelRefresh(v => v + 1);
-                                })}
-                              >
-                                {modelsLoading ? "刷新中…" : "刷新"}
-                              </button>
+                              <span className="setting-title"><label htmlFor="model">模型</label><FieldInfo label="模型" description="选择对话使用的模型，保存配置后新对话生效。" /></span>
+
                             </div>
-                            <select
+                            <div className="model-controls">
+                            <Select
                               id="model"
+                              aria-label="模型"
                               value={model}
                               onChange={(e) => {
                                 setPreviewPending(true);
@@ -789,7 +883,23 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                   </option>
                                 ),
                               )}
-                            </select>
+                            </Select>
+                              <button
+                                type="button"
+                                id="refresh-models"
+                                aria-label={modelsLoading ? "正在刷新模型" : "刷新模型"}
+                                className="text-button"
+                                disabled={disabled || modelsLoading}
+                                aria-busy={modelsLoading || busy}
+                                title="刷新可选模型，点击保存后生效"
+                                onClick={() => void run(async () => {
+                                  setModelRefresh(v => v + 1);
+                                })}
+                              >
+                                <RefreshIcon />
+                              </button>
+                            </div>
+                            </div>
                             <p
                               id="models-help"
                               className="field-feedback"
@@ -798,53 +908,27 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             >
                               {!isKeyError(modelStatus) && modelStatus}
                             </p>
+                            {connectionControls}
                             {isClaude && (["opus", "sonnet", "haiku"] as const).map(tier => (
-                              <div key={tier}>
-                                <label htmlFor={`mapping-${tier}`}>{tier[0].toUpperCase() + tier.slice(1)} 模型</label>
-                                <select id={`mapping-${tier}`} value={mapping[tier] || ""} disabled={disabled}
+                              <div key={tier} className="settings-field-row">
+                                <span className="setting-title"><label htmlFor={`mapping-${tier}`}>{tier[0].toUpperCase() + tier.slice(1)} 模型</label><FieldInfo label={`${tier} 模型`} description="为此类型选择专用模型，也可以跟随所选模型。" /></span>
+                                <Select aria-label={`${tier} 模型`} id={`mapping-${tier}`} value={mapping[tier] || ""} disabled={disabled}
                                   onChange={event => { setPreviewPending(true); setMapping(value => ({...value, [tier]: event.target.value || undefined})); }}>
                                   <option value="">跟随所选模型</option>
                                   {[...new Set([model, mapping[tier], ...availableModels].filter((v): v is string => !!v))].map(value => <option key={value} value={value}>{value}</option>)}
-                                </select>
+                                </Select>
                                 <p className="field-feedback" aria-hidden="true" />
                               </div>
                             ))}
-                            <label htmlFor="base-url">API 地址</label>
-                            <div className="key-control base-url-control">
-                              <input
-                                id="base-url"
-                                ref={baseUrlInput}
-                                type="url"
-                                value={baseUrl}
-                                onChange={(e) => changeBaseUrl(e.target.value)}
-                                disabled={disabled}
-                                required
-                                autoComplete="off"
-                                spellCheck={false}
-                              />
-                              <div className="key-actions">
-                                <button
-                                  id="clear-base-url"
-                                  type="button"
-                                  className="key-action"
-                                  aria-label="清空 API 地址"
-                                  title="清空 API 地址"
-                                  aria-controls="base-url"
-                                  disabled={disabled || !baseUrl}
-                                  onClick={() => {
-                                    changeBaseUrl("");
-                                    baseUrlInput.current?.focus({ preventScroll: true });
-                                  }}
-                                >
-                                  <CloseIcon />
-                                </button>
-                              </div>
                             </div>
-                            <p className="field-feedback" aria-hidden="true" />
-                            <label htmlFor="target">配置文件</label>
+                            <h2 className="config-section-title">更多</h2>
+                            <div className="more-config-card">
+                            <div className="settings-field-row config-file-row">
+                            <span className="setting-title"><label htmlFor="target">配置文件</label><FieldInfo label="配置文件" description="配置保存到此文件，可打开查看或更改位置。" /></span>
                             <div className="path-row">
                               <input
                                 id="target"
+                                aria-label="配置文件"
                                 aria-describedby={fileError ? "file-error" : undefined}
                                 value={displayPath(inspection?.file)}
                                 title={displayPath(inspection?.file)}
@@ -874,15 +958,20 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 更改
                               </button>
                             </div>
+                            </div>
                             <p id="file-error" ref={fileErrorRef} className="field-feedback error file-error" role="alert">{fileError}</p>
-                            <p className="preview-heading">配置预览</p>
+                            <p className="preview-heading">配置预览<FieldInfo label="配置预览" description="查看将要写入的配置，密钥已隐藏。" /></p>
                             <div id="preview" aria-busy={previewPending}>
                               <div className="preview-meta">
                                 <div className="version-row">
-                                  <span id="version-info" className="connection">
-                                    {matching?.installations.length
-                                      ? matching.installations.map(installationLabel).join(" / ")
-                                      : "未检测到已安装版本"}
+                                  <span id="version-info" className="connection selected-version">
+                                    {matching?.selection.mode === "manual"
+                                      ? installationLabel(matching.selection)
+                                      : matching?.selection.mode === "installed"
+                                        ? matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")
+                                        : matching?.installations.length
+                                          ? installationLabel(matching.installations.find(v => v.kind === "desktop" && v.runtimeVersion) || matching.installations.find(v => v.runtimeVersion) || matching.installations[0])
+                                          : "未检测到已安装版本"}
                                   </span>
                                   {missingDesktop && (
                                     <button
@@ -906,13 +995,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                     选择 ChatGPT 版本
                                   </button>}
                                 </div>
-                                {matching && matching.selection.mode !== "auto" && (
-                                  <p className="preview-version selected-version">
-                                    当前选择：{matching.selection.mode === "manual"
-                                      ? installationLabel(matching.selection)
-                                      : matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")}
-                                  </p>
-                                )}
                                 {!isClaude && <div className="template-version-row">
                                   <p id="preview-version" className="preview-version">
                                     {matching?.offline ? (
@@ -946,154 +1028,14 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 {previewError || preview}
                               </pre>
                             </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div className="action-row">
-                        {!isClaude && <div className="action-options">
-                          <label className="login-option">
-                            <input
-                              id="keep-official-login"
-                              type="checkbox"
-                              checked={keep}
-                              onChange={(e) => changeLoginPreference(e.target.checked)}
-                              disabled={disabled}
-                            />
-                            保留官方登录
-                          </label>
-                          <div className="channel-option">
-                            <div
-                              id="model-channel"
-                              className="channel-segments"
-                              data-channel={inspection?.modelChannel ?? "api"}
-                              role="radiogroup"
-                              aria-label="提供商"
-                              aria-busy={channelUpdating}
-                              aria-disabled={disabled || !keep}
-                              aria-describedby={actionTooltip === "provider" ? "provider-tooltip" : undefined}
-                              tabIndex={!keep ? 0 : undefined}
-                              onMouseEnter={() => setActionTooltip("provider")}
-                              onMouseLeave={() => setActionTooltip(null)}
-                              onFocus={() => setActionTooltip("provider")}
-                              onBlur={(event) => {
-                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") setActionTooltip(null);
-                              }}
-                            >
-                              {([
-                                ["api", "API"],
-                                ["official", "官方"],
-                              ] as const).map(([channel, label]) => (
-                                <label className="channel-segment" key={channel}>
-                                  <input
-                                    type="radio"
-                                    name="model-channel"
-                                    value={channel}
-                                    checked={(inspection?.modelChannel ?? "api") === channel}
-                                    disabled={disabled || !keep}
-                                    onChange={() => switchChannel(channel)}
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              ))}
-                              {actionTooltip === "provider" && (
-                                <span id="provider-tooltip" className="channel-tooltip" role="tooltip">
-                                  {keep ? "提供商" : "请先打开保留官方登录"}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="channel-option transport-option">
-                            <div
-                              id="transport-protocol"
-                              className="channel-segments"
-                              data-channel={inspection?.supportsWebsockets ? "ws" : "http"}
-                              role="radiogroup"
-                              aria-label="传输协议"
-                              aria-busy={transportSwitching}
-                              aria-disabled={disabled || !inspection?.baseUrl}
-                              aria-describedby={actionTooltip === "transport" ? "transport-tooltip" : undefined}
-                              tabIndex={!inspection?.baseUrl ? 0 : undefined}
-                              onMouseEnter={() => setActionTooltip("transport")}
-                              onMouseLeave={() => setActionTooltip(null)}
-                              onFocus={() => setActionTooltip("transport")}
-                              onBlur={(event) => {
-                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Escape") setActionTooltip(null);
-                              }}
-                            >
-                              {([
-                                [false, "HTTP"],
-                                [true, "WS"],
-                              ] as const).map(([enabled, label]) => (
-                                <label className="channel-segment" key={label}>
-                                  <input
-                                    type="radio"
-                                    name="transport-protocol"
-                                    value={label.toLowerCase()}
-                                    checked={!!inspection?.supportsWebsockets === enabled}
-                                    disabled={disabled || !inspection?.baseUrl}
-                                    onChange={() => switchTransport(enabled)}
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              ))}
-                              {actionTooltip === "transport" && (
-                                <span id="transport-tooltip" className="channel-tooltip" role="tooltip">
-                                  传输协议
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="channel-option speed-option">
-                            <div id="speed" className="channel-segments" data-channel={speed}
-                              role="radiogroup" aria-label="速度" aria-disabled={disabled} aria-busy={speedSwitching}
-                              aria-describedby={actionTooltip === "speed" ? "speed-tooltip" : undefined}
-                              onMouseEnter={() => setActionTooltip("speed")}
-                              onMouseLeave={() => setActionTooltip(null)}
-                              onFocus={() => setActionTooltip("speed")}
-                              onBlur={event => {
-                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
-                              }}
-                              onKeyDown={event => {
-                                if (event.key === "Escape") setActionTooltip(null);
-                              }}>
-                              {([["standard", "标准"], ["fast", "Fast"]] as const).map(([value, label]) => (
-                                <label className="channel-segment" key={value}>
-                                  <input type="radio" name="speed" value={value} checked={speed === value}
-                                    disabled={disabled}
-                                    onChange={() => switchSpeed(value)} />
-                                  <span>{label}</span>
-                                </label>
-                              ))}
-                              {actionTooltip === "speed" && (
-                                <span id="speed-tooltip" className="channel-tooltip" role="tooltip">
-                                  速度
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>}
-                        <button
-                          id="apply"
-                          data-ready={applyReady}
-                          data-login-preview-pending={loginPreviewPending && !busy || undefined}
-                          type="submit"
-                          className="primary"
-                          disabled={disabled || !applyReady || previewPending}
-                        >
-                          {configuring ? "处理中…" : "一键配置"}
-                        </button>
-                      </div>
+
                     </div>
                     )}
                   </form>
-                )}
-                {page === "config" && inspection && <QuotaCard inspection={inspection} tool={activeTool} />}
               </section>
             </div>
           ) : (
@@ -1104,7 +1046,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                   className="history-back"
                   disabled={busy}
                   aria-label="返回配置"
-                  onClick={() => setPage("config")}
+                  onClick={() => setPage(inspection?.hasKey && inspection.baseUrl ? "home" : "config")}
                 >
                   <ChevronLeftIcon />
                 </button>
@@ -1161,8 +1103,26 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           )}
         </main>
       </div>
-      <div className="status-region" hidden={!showNotice}>
-        <div id="status" className={noticeKind} hidden={!showNotice}
+      {page === "config" && inspection && (isClaude || !!matching?.installations.length) && (
+                      <div className="config-footer">
+                      {inspection?.hasKey && <button id="cancel-edit" type="button" disabled={busy} className="text-button cancel-edit" onClick={() => { acceptInspection(inspection); setPage("home"); }}>取消</button>}
+                        <button
+                          id="apply"
+                          data-ready={applyReady}
+                          data-login-preview-pending={loginPreviewPending && !busy || undefined}
+                          type="submit"
+                          form="configure"
+                          className="primary"
+                          disabled={disabled || !applyReady || previewPending}
+                        >
+                          {configuring ? "保存中…" : "保存"}
+                        </button>
+                      </div>
+      )}
+      <Modal id="notification-dialog" title={noticeKind === "success" ? "配置已更新" : noticeKind === "error" ? "操作提示" : "提示"}
+        closeLabel="关闭提示" descriptionId="status"
+        open={showNotice && !noticeDismissed && !versionOpen && !officialLoginConfirmOpen && !selectedBackup} onClose={closeNotice}>
+        <div id="status" className={noticeKind}
           role={noticeKind === "error" ? "alert" : "status"}>
           <span>
             {footerStatus || installerError || (needsVersionNotice ? (
@@ -1180,10 +1140,9 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
               </>
             ))}
           </span>
-          {(footerStatus || installerError || showInstallHint) && <button type="button" className="status-close" aria-label="关闭提示"
-            onClick={closeNotice}><CloseIcon /></button>}
         </div>
-      </div>
+        <div className="modal-actions"><button type="button" className="primary" onClick={closeNotice}>知道了</button></div>
+      </Modal>
       <Modal id="official-login-confirm" title="开启保留官方登录"
         descriptionId="official-login-confirm-description"
         open={officialLoginConfirmOpen} onClose={() => setOfficialLoginConfirmOpen(false)}>
@@ -1191,7 +1150,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={() => {
             setOfficialLoginConfirmOpen(false);
-            applyLoginPreference(true);
+            void run(() => applyLoginPreference(true));
           }}>仍要开启</button>
           <button type="button" className="primary" onClick={() => setOfficialLoginConfirmOpen(false)}>保持关闭</button>
         </div>

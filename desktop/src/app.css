@@ -69,3 +69,197 @@
 .settings-update-row:disabled { opacity: 1; cursor: default; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .update-ring { animation: none; } }
+
+/* First connection and everyday management share the same native window. */
+main.config-main { padding: 28px 30px 24px; }
+#configuration-page { margin-block: 0; }
+.page-intro { margin-bottom: 24px; }
+.section-kicker { color: var(--muted); font-size: 11px; margin: 0 0 10px; }
+.page-intro h1 { font-size: 25px; font-weight: 550; letter-spacing: -.6px; margin: 0; outline: none; }
+.page-subtitle { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 9px 0 0; }
+#configure .provider-row { background: transparent; padding: 0; border: 0; border-radius: 0; align-items: flex-start; }
+#configure .config-title { font-size: 21px; font-weight: 550; }
+#configure { --config-field-gap: 24px; }
+#configure .credential-field { padding: var(--config-field-gap) 0 0; }
+#configure .credential-field.api-key-field { padding-top: 0; }
+#configure .field-feedback { min-height: calc(var(--config-field-gap) - 6px); height: auto; line-height: 18px; margin: 3px 0; white-space: normal; }
+#configure .action-row { display: flex; flex-direction: column; align-items: stretch; padding: 0; }
+#apply, .start-using { width: 100%; height: 42px; border-radius: 8px; }
+.cancel-edit { display: block; margin: 16px auto 0; }
+.config-footer { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 10px; padding: 8px 32px; border-top: 1px solid var(--border); background: var(--bg); }
+.config-footer > button, .config-footer #apply { flex: 0 0 auto; width: auto; min-width: 72px; height: 30px; padding: 0 12px; font-size: 12px; }
+.config-footer .cancel-edit { margin: 0; border: 1px solid var(--control-border); border-radius: 8px; color: var(--text); }
+.config-footer + .status-region { bottom: 80px; }
+#notification-dialog { width: min(360px, calc(100vw - 48px)); }
+#notification-dialog #status { display: block; margin: 0; padding: 0; max-height: none; border: 0; background: transparent; box-shadow: none; color: var(--text); font-size: 13px; line-height: 1.7; }
+#notification-dialog #status .text-button { margin-left: 6px; color: var(--text); }
+#notification-dialog .modal-actions { margin-top: 20px; }
+.connection-summary { margin-bottom: 24px; }
+.connection-summary .config-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 21px; font-weight: 550; outline: none; }
+.connection-summary .config-title img { width: 26px; height: 26px; flex-shrink: 0; }
+.connection-summary-top { display: flex; align-items: flex-start; gap: 10px; }
+.configured-symbol { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 50%; color: var(--success); background: var(--success-bg); }
+.connection-summary-top strong { font-size: 14px; font-weight: 550; }
+.connection-summary-top small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+.connection-summary-top .text-button { margin-left: auto; white-space: nowrap; }
+.connection-meta { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.connection-meta div { min-width: 0; }
+.connection-meta span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 6px; }
+.connection-meta strong { display: block; font-size: 11px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.action-options { display: flex; flex-direction: column; align-items: stretch; gap: 0; width: 100%; border: 1px solid var(--border); border-radius: 10px; }
+.channel-option { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-top: 1px solid var(--border); gap: 12px; }
+.option-caption { font-size: 12px; color: var(--text); }
+.option-caption small { display: block; font-size: 10px; color: var(--muted); margin-top: 5px; }
+.action-options .login-option { margin: 13px 15px; }
+#configure .action-options { border: 0; border-radius: 0; gap: 24px; margin-bottom: 24px; }
+#configure .action-options .login-option { margin: 0; }
+#configure .channel-option { flex-direction: column; align-items: flex-start; gap: 6px; padding: 0; border: 0; }
+#configure .option-caption { font-size: 12px; color: var(--label); }
+#configure .option-caption small { display: none; }
+#configure .channel-option select { width: 100%; }
+#configure .channel-option.provider-option { flex-direction: row; align-items: center; justify-content: space-between; }
+.provider-caption { display: inline-flex; align-items: center; gap: 6px; }
+.provider-option select { width: min(260px, 60%); }
+.provider-option .select-trigger { width: min(260px, 60%); }
+.provider-help { display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--muted); }
+.provider-help svg { width: 14px; height: 14px; }
+#connection-home .action-options > .login-option { display: flex; padding: 8px 15px; border: 0; }
+#connection-home .channel-option:first-of-type { border-top: 0; }
+#connection-home .channel-option { position: relative; }
+#connection-home .action-options { border: 1px solid var(--border); border-radius: 10px; padding: 0; }
+#connection-home .channel-option { padding: 8px 15px; border: 0; gap: 16px; }
+#connection-home .provider-option, #connection-home .speed-option, #connection-home .transport-option { border-top: 1px solid var(--border); }
+#connection-home .option-caption { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; }
+#connection-home .channel-option > .select-control { flex: 0 0 150px; width: 150px; max-width: 50%; }
+#connection-home .channel-option .select-trigger { width: 100%; }
+.setting-title { display: inline-flex; align-items: center; gap: 6px; }
+#configure .setting-title > label { margin: 0; }
+#connection-home .option-caption, #connection-home .field-caption { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--text); }
+#connection-home .action-options > * { height: 48px; }
+.action-options > .login-option { order: 0; }
+.action-options > .transport-option { order: 1; }
+.action-options > .provider-option { order: 2; }
+.action-options > .speed-option { order: 3; }
+#connection-home .select-trigger, #configure .action-options .select-trigger { height: 32px; }
+#connection-home .select-menu, #configure .action-options .select-menu { border-radius: var(--radius-control); padding: 0; }
+#connection-home .select-option, #configure .action-options .select-option { height: 32px; min-height: 32px; padding: 0 11px; border-radius: 0; }
+#connection-home .select-option:first-child, #configure .action-options .select-option:first-child { border-radius: calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px) 0 0; }
+#connection-home .select-option:last-child, #configure .action-options .select-option:last-child { border-radius: 0 0 calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px); }
+#connection-home .preference-row { display: flex; justify-content: space-between; width: 100%; margin: 0; cursor: default; }
+#connection-home .preference-row input[role="switch"] { flex: 0 0 44px; width: 44px; height: 24px; padding: 0; border: 0; border-radius: 24px; background: var(--border-strong); position: relative; cursor: pointer; }
+#connection-home .preference-row input[role="switch"]::before { content: ""; position: absolute; width: 20px; height: 20px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: #fff; opacity: 1; transform: translateX(0); }
+#connection-home .preference-row input[role="switch"]:checked { background: var(--accent); }
+#connection-home .preference-row input[role="switch"]:checked::before { transform: translateX(20px); }
+#connection-home .quota-panel { margin-top: 16px; margin-bottom: 20px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: transparent; }
+#connection-home .quota-source { margin-bottom: 0; }
+#connection-home .home-section-title { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
+#connection-home .home-balance { margin-top: 20px; }
+#connection-home .home-balance:not(:has(.quota-panel)) { display: none; }
+#connection-home .home-balance .quota-panel { margin-top: 0; }
+#connection-home .quota-heading { height: auto; min-height: 24px; margin-bottom: 0; }
+.start-using { margin-top: 20px; }
+.home-links { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.connection-help-copy p { font-size: 12px; line-height: 1.9; color: var(--muted); margin: 0 0 12px; }
+@media(max-width:500px) {
+  main.config-main { padding: 24px; }
+  .page-intro h1 { font-size: 23px; }
+  .connection-summary { padding: 15px; }
+  .connection-summary-top small { font-size: 10px; }
+  .connection-meta { grid-template-columns: 1fr 1fr; gap: 12px; }
+}
+
+body[data-ui-preview] { align-items: center; justify-content: center; }
+body[data-ui-preview] #root { width: min(600px, 100vw); height: min(520px, 100dvh); flex: none; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+
+main.config-main[data-page="config"] { padding: 120px 32px 24px; }
+main.config-main[data-page="config"][data-settings-expanded] { padding-top: 28px; }
+main[data-page="config"] #configuration-page { margin-block: 0; }
+
+/* Keep each setting name beside its value, with help next to the name. */
+#configure .credential-field { display: grid; grid-template-columns: 142px minmax(0, 1fr); column-gap: 16px; align-items: center; }
+#configure .credential-field .label-row { margin: 0; }
+#configure .credential-field > .field-feedback { grid-column: 2; }
+#configure .config-section-title { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
+#configure .connection-section-title { margin-top: 24px; }
+#configure .credentials-card { margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; }
+#configure .credentials-card .credential-field { padding: 8px 15px; }
+#configure .credentials-card .credential-field + .credential-field { border-top: 1px solid var(--border); }
+#configure .credentials-card .field-feedback:empty { display: none; }
+#configure .credentials-card .field-feedback:not(:empty) { min-height: 18px; margin: 6px 0 0; }
+#configure #preview { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+#configure #preview .preview-meta { margin: 0; padding: 12px 15px; }
+#configure #preview pre { margin: 0; padding: 12px 15px; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+#configure .more-config-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+#configure .more-config-card .config-file-row { padding: 12px 15px; }
+#configure .more-config-card #file-error:empty { display: none; }
+#configure .more-config-card #file-error:not(:empty) { padding: 0 15px; }
+#configure .more-config-card .preview-heading { padding: 12px 15px 0; border-top: 1px solid var(--border); }
+#configure .more-config-card #preview { margin-top: 0; border: 0; border-radius: 0; }
+#configure label:not(.channel-segment), #configure .option-caption, .field-caption, #configure .preview-heading { display: flex; align-items: center; gap: 6px; }
+.field-info { display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--muted); flex-shrink: 0; }
+.field-info svg { width: 14px; height: 14px; }
+#configure .settings-field-row { display: grid; grid-template-columns: 142px minmax(0, 1fr); align-items: center; gap: 16px; }
+#configure .settings-field-row > label, #configure .model-label { margin: 0; }
+#configure .settings-field-row > .field-feedback { grid-column: 2; }
+#configure label:not(.channel-segment), #configure .option-caption, #configure .field-caption, #configure .preview-heading { font-size: 14px; font-weight: 500; color: var(--text); }
+#configure input:not([type="checkbox"]):not([type="radio"]), #configure select { font-size: 14px; }
+#configure .field-info svg { width: 15px; height: 15px; }
+#configure .model-label { flex-wrap: wrap; justify-content: flex-start; }
+#configure .model-label #refresh-models { font-size: 10px; }
+#configure .action-options { gap: 0; margin-bottom: 24px; }
+#configure .action-options > .channel-option, #configure .preference-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; height: 48px; padding: 8px 0; border: 0; margin: 0; gap: 16px; }
+#configure .transport-option > .preference-row { height: auto; padding: 0; }
+#configure .quick-config-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 24px; }
+#configure .quick-config-card .settings-field-row { min-height: 48px; padding: 8px 15px; }
+#configure .quick-config-card .settings-field-row:not(:first-child) { border-top: 1px solid var(--border); }
+#configure .quick-config-card .action-options { margin: 0; }
+#configure .quick-config-card .action-options > .channel-option, #configure .quick-config-card .action-options > .preference-row { padding: 8px 15px; border-top: 1px solid var(--border); }
+#configure .quick-config-card .select-trigger { height: 32px; }
+#configure .quick-config-card .model-controls #refresh-models { flex-basis: 32px; width: 32px; height: 32px; }
+#configure .quick-config-card .field-feedback:empty { display: none; }
+#configure .quick-config-card > .field-feedback:not(:empty) { min-height: 18px; padding: 0 15px; margin: 0 0 8px; }
+#configure .channel-option select { width: min(260px, 60%); }
+#configure .channel-option .select-trigger { width: min(260px, 60%); }
+#configure .preference-row input { flex-shrink: 0; }
+#configure .preference-row { cursor: default; }
+#configure .preference-row input { cursor: pointer; }
+#configure .preference-row input[role="switch"] { flex: 0 0 44px; width: 44px; height: 24px; padding: 0; border: 0; border-radius: 24px; background: var(--border-strong); position: relative; transition: background 160ms ease; }
+#configure .preference-row input[role="switch"]::before { content: ""; display: block; position: absolute; width: 20px; height: 20px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #00000025; opacity: 1; transform: translateX(0); transition: transform 160ms ease; }
+#configure .preference-row input[role="switch"]:checked { background: var(--accent); }
+#configure .preference-row input[role="switch"]:checked::before { opacity: 1; transform: translateX(20px); }
+#configure .action-options > .transport-option { padding: 0; border: 0; }
+#configure .path-row { min-width: 0; }
+.field-info:hover, .field-info:focus-visible { color: var(--text); }
+.field-tooltip { position: fixed; z-index: 1000; box-sizing: border-box; width: 200px; max-width: calc(100vw - 24px); padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: 0 4px 16px #00000020; font-size: 12px; font-weight: 400; line-height: 1.6; white-space: normal; pointer-events: none; }
+.field-tooltip-arrow { position: absolute; width: 7px; height: 7px; top: -4px; background: var(--surface); border-top: 1px solid var(--border-strong); border-left: 1px solid var(--border-strong); transform: translateX(-50%) rotate(45deg); }
+.field-tooltip[data-above] .field-tooltip-arrow { top: auto; bottom: -4px; transform: translateX(-50%) rotate(225deg); }
+.select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; height: 38px; padding: 0 11px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--input); color: var(--text); font-size: 14px; font-weight: 400; text-align: left; }
+#configure .select-trigger { display: flex; }
+.select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-trigger > svg { flex-shrink: 0; color: var(--muted); }
+.select-trigger:hover:not(:disabled) { border-color: var(--border-strong); background: var(--input); }
+.select-trigger:focus, .select-trigger[aria-expanded="true"] { outline: none; border-color: var(--focus); }
+.select-control { position: relative; width: 100%; min-width: 0; }
+.provider-option > .select-control, #configure .channel-option > .select-control { flex: 0 0 150px; width: 150px; max-width: 50%; }
+.provider-option .select-control .select-trigger, #configure .channel-option .select-control .select-trigger { width: 100%; }
+#configure .settings-collapse[data-expanded="true"][data-overflow-ready="true"] .settings-clip { overflow: visible; }
+/* Earlier dropdown rows cover later controls; portal tooltips stay above all rows. */
+.action-options > .provider-option { position: relative; z-index: 2; }
+.action-options > .speed-option { position: relative; z-index: 1; }
+.model-field-row { position: relative; z-index: 3; }
+.select-menu { position: absolute; top: calc(100% + 6px); left: 0; width: 100%; max-height: 240px; z-index: 10; box-sizing: border-box; padding: 0; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface); color: var(--text); box-shadow: 0 6px 20px #00000024; outline: none; }
+.select-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 32px; min-height: 32px; padding: 0 11px; border: 0; border-radius: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 400; text-align: left; }
+.select-option:first-child { border-radius: calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px) 0 0; }
+.select-option:last-child { border-radius: 0 0 calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px); }
+.select-option > span { overflow-wrap: anywhere; }
+.select-option[data-focus], .select-option:hover:not([data-disabled]) { background: var(--hover); }
+.select-option[data-disabled] { color: var(--subtle); cursor: not-allowed; }
+.select-option svg { flex-shrink: 0; }
+.model-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#configure .model-controls #refresh-models { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; padding: 0; border: 1px solid var(--control-border); border-radius: var(--radius-control); color: var(--muted); }
+#refresh-models[aria-busy="true"] svg { animation: quota-refresh-spin 1s linear infinite; }
+@media(max-width:480px) {
+  #configure .credential-field, #configure .settings-field-row { grid-template-columns: 110px minmax(0, 1fr); column-gap: 10px; }
+  #configure .path-row { flex-wrap: wrap; }
+  #configure .path-row input { flex-basis: 100%; }
+}

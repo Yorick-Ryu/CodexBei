@@ -1,7 +1,9 @@
 // Browser-only visual fixture. This module is unreachable in production builds.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 mockWindows("main");
-let supportsWebsockets = true;
+const firstConnection = new URLSearchParams(location.search).get("screen") === "first";
+let supportsWebsockets = false;
+let connection = { apiKey: firstConnection ? "" : "demo-preview-key", hasKey: !firstConnection, baseUrl: "https://api.beiapi.cn/v1", model: "gpt-6-astra", serviceTier: "default", modelChannel: "api", keepOfficialLogin: false };
 const installations = [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
 mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
@@ -16,17 +18,26 @@ mockIPC(async (cmd, raw) => {
   }
   if (cmd === "inspect") return {
     file: "C:\\Users\\Example\\.codex\\config.toml", testMode: true,
-    baseUrl: "https://api.beiapi.cn/v1", model: "gpt-5.6-sol", hasKey: true,
-    apiKey: "sk-preview-placeholder", modelChannel: "api", keepOfficialLogin: false, supportsWebsockets, platform: "windows",
+    ...connection, supportsWebsockets, platform: "windows",
   };
+  if (cmd === "configure") {
+    const next = args.connection as {apiKey:string;baseUrl:string;model:string};
+    if (!next.apiKey.trim()) throw "请输入 API 密钥。";
+    connection = {...connection, ...next, hasKey:true, keepOfficialLogin:args.keepOfficialLogin === true};
+    return {};
+  }
+  if (cmd === "switch_login_preference") { connection.keepOfficialLogin = args.enabled === true; return {}; }
+  if (cmd === "switch_speed") { connection.serviceTier = args.speed === "fast" ? "fast" : "default"; return {}; }
+  if (cmd === "switch_channel") { connection.modelChannel = args.channel === "official" ? "official" : "api"; return {}; }
+  if (cmd === "quota") return {channel:"api",rows:[{label:"余额",value:"$128.50"},{label:"密钥余额",value:"不限额"}],groups:[]};
   if (cmd === "has_official_login") return false;
   if (cmd === "switch_transport") { supportsWebsockets = args.supportsWebsockets === true; return { changed: true }; }
   if (cmd === "check") return {
     installations, selection: { mode: "auto" }, template: { id: "preview", version: "1.0.0", digest: "preview" },
     latestTemplate: null, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: "0.153.4",
   };
-  if (cmd === "models") return ["gpt-5.6-sol"];
-  if (cmd === "preview") return `model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nwire_api = "responses"\nsupports_websockets = ${supportsWebsockets}\nexperimental_bearer_token = "（已隐藏）"`;
+  if (cmd === "models") return ["gpt-6-astra"];
+  if (cmd === "preview") return `model_provider = "custom"\nmodel = "${String(args.model)}"\n\n[model_providers.custom]\nbase_url = "https://api.beiapi.cn/v1"\nwire_api = "responses"\nsupports_websockets = ${supportsWebsockets}\nexperimental_bearer_token = "（已隐藏）"`;
   if (cmd === "windows_diagnostics") {
     await new Promise(resolve => setTimeout(resolve, 650));
     return {
@@ -64,4 +75,5 @@ mockIPC(async (cmd, raw) => {
   void args;
   throw "界面预览不执行文件操作。";
 }, { shouldMockEvents: true });
-document.title = "CodexBei · Windows 界面热预览";
+document.body.dataset.uiPreview = "true";
+document.title = "CodexBei · UI 预览（示例数据）";

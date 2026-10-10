@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "codexbei-desktop"
-version = "0.1.5"
+version = "0.1.6-alpha.1"
 dependencies = [
  "chrono",
  "dirs",

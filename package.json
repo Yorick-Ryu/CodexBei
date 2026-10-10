@@ -1,6 +1,6 @@
 {
   "name": "codexbei",
-  "version": "0.1.5",
+  "version": "0.1.6-alpha.1",
   "private": true,
   "description": "CodexBei 桌面配置助手",
   "author": "BeiAPI",
@@ -23,6 +23,7 @@
     "build:ui-icons": "node scripts/build-ui-icons.cjs"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.10",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.11.0",
     "lucide-react": "1.43.0",

@@ -1163,6 +1163,42 @@ impl Store {
         self.plans.clear();
         Ok(json!({ "file": file, "changed": true }))
     }
+    pub fn switch_login_preference(&mut self, enabled: bool) -> Result<Json> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
+        }
+        let provider = self
+            .api_provider(&doc)?
+            .unwrap_or_else(|| "custom".to_owned());
+        if item(
+            &doc,
+            &["model_providers", &provider, "requires_openai_auth"],
+        )
+        .and_then(Item::as_bool)
+            == Some(enabled)
+        {
+            return Ok(json!({ "file": file, "changed": false }));
+        }
+        merge(
+            doc.as_item_mut(),
+            &json!({ "model_providers": { &provider: { "requires_openai_auth": enabled } } }),
+        )?;
+        let after = doc.to_string().into_bytes();
+        document(Some(&after))?;
+        if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
+            return Err(err(CHANGED));
+        }
+        private_dir(file.parent().ok_or_else(|| err("配置目录无效。"))?)?;
+        atomic_write(&file, &after, 0o600)?;
+        if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
+            return Err(err("登录设置写入后校验失败，请重新读取配置后重试。"));
+        }
+        self.plans.clear();
+        Ok(json!({ "file": file, "changed": true }))
+    }
     pub fn switch_channel(&mut self, channel: &str) -> Result<Json> {
         let file = self.target(&self.selected)?;
         let before = read(&file)?;
@@ -2165,6 +2201,25 @@ mod tests {
         )
         .unwrap()
         .contains("sk-"));
+    }
+    #[test]
+    fn login_preference_is_immediate_and_preserves_credentials() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        let stale = s.prepare(c.clone(), false, &template(), None).unwrap();
+        assert_eq!(s.switch_login_preference(true).unwrap()["changed"], true);
+        assert_eq!(s.inspect().unwrap()["keepOfficialLogin"], true);
+        assert!(s.apply_with_backup(&stale, false).is_err());
+        assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
+        s.switch_channel("official").unwrap();
+        s.switch_login_preference(false).unwrap();
+        let saved = s.inspect().unwrap();
+        assert_eq!(saved["keepOfficialLogin"], false);
+        assert_eq!(saved["modelChannel"], "official");
+        assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
+        assert_eq!(s.switch_login_preference(false).unwrap()["changed"], false);
     }
     #[test]
     fn switches_transport_without_backups_and_preserves_selection_on_configure() {

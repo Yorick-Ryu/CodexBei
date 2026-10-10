@@ -91,6 +91,7 @@ export function toolApi(tool: Tool) {
     invoke<Outcome>("configure", { connection, keepOfficialLogin, mapping, modelChannel, ...(tool === "codex" ? { speed } : {}) }),
   switchChannel: (channel: "api" | "official") =>
     invoke<Outcome>("switch_channel", { channel }),
+  switchLoginPreference: (enabled: boolean) => invoke<Outcome>("switch_login_preference", { enabled }),
   switchSpeed: (speed: Speed) => invoke<Outcome>("switch_speed", { speed }),
   switchTransport: (supportsWebsockets: boolean) =>
     invoke<Outcome>("switch_transport", { supportsWebsockets }),

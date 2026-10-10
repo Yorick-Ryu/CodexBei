@@ -374,6 +374,17 @@ fn switch_transport(
     lock(&state.store)?.switch_transport(supports_websockets)
 }
 #[tauri::command]
+fn switch_login_preference(
+    tool: Option<Tool>,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<Value> {
+    if tool == Some(Tool::Claude) {
+        return Err("Claude Code 不支持此登录设置。".into());
+    }
+    lock(&state.store)?.switch_login_preference(enabled)
+}
+#[tauri::command]
 async fn switch_channel(
     tool: Option<Tool>,
     channel: String,
@@ -727,6 +738,7 @@ pub fn run() {
             configure,
             switch_channel,
             switch_transport,
+            switch_login_preference,
             switch_speed,
             incoming,
             incoming_tool,
