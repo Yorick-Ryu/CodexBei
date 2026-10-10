@@ -1,6 +1,6 @@
 [package]
 name = "codexbei-desktop"
-version = "0.1.6-alpha.1"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.88"
 
@@ -41,4 +41,5 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 panic = "abort"
-strip = true
+# Avoid malformed proc-macro dylibs with the current macOS linker.
+strip = false
