@@ -16,7 +16,7 @@ pub struct Mapping {
 }
 
 pub fn endpoint(value: &str) -> Result<String> {
-    // Share HTTPS/credential/query validation with Codex, then remove its API suffix.
+    // Share HTTP(S)/credential/query validation with Codex, then remove its API suffix.
     let value = config::endpoint(value)?;
     Ok(value.strip_suffix("/v1").unwrap_or(&value).to_owned())
 }
@@ -160,7 +160,8 @@ impl Store {
     }
     pub fn inspect(&self) -> Result<Value> {
         let file = self.target(&self.selected)?;
-        let doc = document(config::read(&file)?.as_deref())?;
+        let bytes = config::read(&file)?;
+        let doc = document(bytes.as_deref())?;
         let env = &doc["env"];
         let base = env["ANTHROPIC_BASE_URL"]
             .as_str()
@@ -170,7 +171,7 @@ impl Store {
             .and_then(|v| config::key(v).ok())
             .unwrap_or_default();
         Ok(
-            json!({"file":file,"baseUrl":base,"apiKey":key,"hasKey":!key.is_empty(),"model":env["ANTHROPIC_MODEL"],
+            json!({"file":file,"revision":config::digest(bytes.as_deref()),"baseUrl":base,"apiKey":key,"hasKey":!key.is_empty(),"model":env["ANTHROPIC_MODEL"],
             "mapping":{"opus":env["ANTHROPIC_DEFAULT_OPUS_MODEL"],"sonnet":env["ANTHROPIC_DEFAULT_SONNET_MODEL"],"haiku":env["ANTHROPIC_DEFAULT_HAIKU_MODEL"]},
             "keepOfficialLogin":false,"modelChannel":"api","platform":std::env::consts::OS}),
         )
@@ -261,6 +262,23 @@ impl Store {
             result["warning"] = json!("配置已保存，但旧备份清理失败。");
         }
         Ok(result)
+    }
+    pub fn update_connection(&self, update: config::ConnectionUpdate) -> Result<Value> {
+        let file = self.target(&self.selected)?;
+        let before = config::read(&file)?;
+        if update.file != file || update.revision != config::digest(before.as_deref()) {
+            return Err("配置在操作期间已变化，请重新读取后重试。".into());
+        }
+        let base = endpoint(&update.base_url)?;
+        let key = config::key(&update.api_key)?;
+        let mut doc = document(before.as_deref())?;
+        doc["env"]["ANTHROPIC_BASE_URL"] = json!(base);
+        doc["env"]["ANTHROPIC_AUTH_TOKEN"] = json!(key);
+        let after = encoded(&doc)?;
+        if before.as_deref() == Some(after.as_slice()) {
+            return Ok(json!({"file":file,"changed":false}));
+        }
+        self.write(&file, before.as_deref(), Some(&after), "configure")
     }
     pub fn configure(&self, connection: Connection, mapping: &Mapping) -> Result<Value> {
         let mut resolved = self.credentials(&connection.api_key, &connection.base_url)?;
@@ -400,7 +418,7 @@ pub async fn check() -> Value {
 }
 
 pub async fn models(connection: Connection) -> Result<Vec<String>> {
-    let response = crate::network::client()?
+    let response = crate::network::api_client()?
         .get(format!("{}/v1/models", endpoint(&connection.base_url)?))
         .header("x-api-key", config::key(&connection.api_key)?)
         .header("anthropic-version", "2023-06-01")
@@ -441,6 +459,26 @@ mod tests {
             model: "claude-test-model".into(),
         };
         (dir, store, connection)
+    }
+    #[test]
+    fn connection_hot_update_preserves_other_env_and_rejects_stale_edits() {
+        let (_dir, store, connection) = fixture();
+        store.configure(connection, &Mapping::default()).unwrap();
+        let before = config::read(&store.selected).unwrap().unwrap();
+        let update = config::ConnectionUpdate {
+            file: store.selected.clone(),
+            revision: config::digest(Some(&before)),
+            base_url: "http://127.0.0.1:8080/v1".into(),
+            api_key: "sk-claude-hot-update-fixture".into(),
+        };
+        store.update_connection(update.clone()).unwrap();
+        let mut expected = document(Some(&before)).unwrap();
+        expected["env"]["ANTHROPIC_BASE_URL"] = json!("http://127.0.0.1:8080");
+        expected["env"]["ANTHROPIC_AUTH_TOKEN"] = json!(update.api_key);
+        let after = config::read(&store.selected).unwrap().unwrap();
+        assert_eq!(document(Some(&after)).unwrap(), expected);
+        assert!(store.update_connection(update).is_err());
+        assert_eq!(config::read(&store.selected).unwrap().unwrap(), after);
     }
     #[test]
     fn merges_only_managed_env_and_restores_exact_original() {
@@ -561,7 +599,10 @@ mod tests {
         assert_eq!(connection.base_url, "https://example.com");
         assert!(config::parse_tool_link(&base.replace("claude-v1", "codexbei-v1")).is_err());
         assert!(config::parse_tool_link(&format!("{base}&model=duplicate")).is_err());
-        assert!(endpoint("http://example.com").is_err());
+        assert_eq!(
+            endpoint("http://example.com/v1/").unwrap(),
+            "http://example.com"
+        );
         assert!(endpoint("https://example.com?secret=value").is_err());
         let codex = base
             .replace("/claude?", "/codex?")

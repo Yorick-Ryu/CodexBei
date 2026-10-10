@@ -29,6 +29,15 @@ pub struct Connection {
     pub model: String,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConnectionUpdate {
+    pub file: PathBuf,
+    pub revision: String,
+    pub base_url: String,
+    pub api_key: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelChannel {
@@ -84,20 +93,17 @@ fn configuration_channel(doc: &DocumentMut, selected: Option<ModelChannel>) -> M
 
 pub fn endpoint(input: &str) -> Result<String> {
     if input.len() > 2048 {
-        return Err(err("请输入有效的 HTTPS API 地址。"));
+        return Err(err("请输入有效的 API 地址。"));
     }
-    let mut url =
-        url::Url::parse(input.trim()).map_err(|_| err("请输入有效的 HTTPS API 地址。"))?;
-    if url.scheme() != "https"
+    let mut url = url::Url::parse(input.trim()).map_err(|_| err("请输入有效的 API 地址。"))?;
+    if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err(err(
-            "API 地址必须使用 HTTPS，且不能包含账号、密码、查询参数或片段。",
-        ));
+        return Err(err("请输入有效的 API 地址。"));
     }
     let path = url.path().trim_end_matches('/');
     let path = if path.ends_with("/v1") {
@@ -913,7 +919,7 @@ impl Store {
             "api"
         };
         Ok(
-            json!({ "file": file, "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
+            json!({ "file": file, "revision": digest(bytes.as_deref()), "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
     pub fn configuration_channel(&self, selected: Option<ModelChannel>) -> Result<ModelChannel> {
@@ -1107,6 +1113,84 @@ impl Store {
             result["backupId"] = json!(backup.id);
         }
         Ok(result)
+    }
+    pub fn update_connection(&mut self, update: ConnectionUpdate) -> Result<Json> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        if update.file != file || update.revision != digest(before.as_deref()) {
+            return Err(err(CHANGED));
+        }
+        let base_url = endpoint(&update.base_url)?;
+        let api_key = key(&update.api_key)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
+        }
+        let provider = self
+            .api_provider(&doc)?
+            .ok_or_else(|| err("请先完成 API 密钥配置。"))?;
+        let old_base =
+            providers::base(&doc, &provider).ok_or_else(|| err("请输入有效的 API 地址。"))?;
+        let old_catalog_url = format!("{old_base}/models");
+        let new_catalog_url = format!("{base_url}/models");
+        let mut native = None;
+        if base_url != old_base {
+            if item(&doc, &["model_providers", &provider, "model_catalog_url"])
+                .and_then(Item::as_str)
+                == Some(old_catalog_url.as_str())
+            {
+                doc["model_providers"][&provider]["model_catalog_url"] =
+                    toml_edit::value(&new_catalog_url);
+                if let Some(mut saved) = self.native_state()? {
+                    if saved.provider == provider && saved.url == old_catalog_url {
+                        saved.url = new_catalog_url;
+                        native = Some((
+                            self.native_state_path()?,
+                            serde_json::to_vec(&saved)
+                                .map_err(|_| err("原生模型目录恢复信息无效。"))?,
+                        ));
+                    }
+                }
+            }
+            if item(
+                &doc,
+                &[
+                    "model_providers",
+                    &provider,
+                    "http_headers",
+                    "x-openai-actor-authorization",
+                ],
+            )
+            .and_then(Item::as_str)
+                == Some(old_base.as_str())
+            {
+                doc["model_providers"][&provider]["http_headers"]["x-openai-actor-authorization"] =
+                    toml_edit::value(&base_url);
+            }
+        }
+        merge(
+            doc.as_item_mut(),
+            &json!({"model_providers": {&provider: {"base_url": base_url, "experimental_bearer_token": api_key}}}),
+        )?;
+        let after = doc.to_string().into_bytes();
+        if before.as_deref() == Some(after.as_slice()) {
+            return Ok(json!({"file": file, "changed": false}));
+        }
+        let id = Uuid::new_v4().to_string();
+        self.plans.clear();
+        self.plans.insert(
+            id.clone(),
+            Plan {
+                file,
+                before,
+                after,
+                created: Instant::now(),
+                template: Json::Null,
+                catalog: None,
+                native,
+            },
+        );
+        self.apply(&id)
     }
     pub fn switch_speed(&mut self, speed: Speed) -> Result<Json> {
         let file = self.target(&self.selected)?;
@@ -1415,6 +1499,98 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = Store::new(dir.path().join("data"), dir.path().join("config.toml")).unwrap();
         (dir, s)
+    }
+    #[test]
+    fn connection_hot_update_preserves_settings_and_rejects_stale_or_invalid_edits() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s
+            .prepare(c.clone(), true, &template(), Some(ModelChannel::Official))
+            .unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        let before = fs::read(&s.selected).unwrap();
+        let original = document(Some(&before)).unwrap();
+        let update = ConnectionUpdate {
+            file: s.selected.clone(),
+            revision: digest(Some(&before)),
+            base_url: c.base_url.clone(),
+            api_key: "sk-hot-update-fixture-only".into(),
+        };
+        let outcome = s.update_connection(update.clone()).unwrap();
+        let after = fs::read(&s.selected).unwrap();
+        let mut expected = original;
+        merge(
+            expected.as_item_mut(),
+            &json!({"model_providers":{"custom":{"experimental_bearer_token":update.api_key}}}),
+        )
+        .unwrap();
+        assert_eq!(
+            document(Some(&after)).unwrap().to_string(),
+            expected.to_string()
+        );
+        assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+        assert!(s.update_connection(update.clone()).is_err());
+        for (base, key) in [
+            ("ftp://example.com", update.api_key.as_str()),
+            (c.base_url.as_str(), "invalid"),
+        ] {
+            assert!(s
+                .update_connection(ConnectionUpdate {
+                    file: s.selected.clone(),
+                    revision: digest(Some(&after)),
+                    base_url: base.into(),
+                    api_key: key.into()
+                })
+                .is_err());
+            assert_eq!(fs::read(&s.selected).unwrap(), after);
+        }
+        let id = outcome["backupId"].as_str().unwrap();
+        let (_, expected_revision) = s.restore_state(id).unwrap();
+        s.restore(id, &expected_revision).unwrap();
+        assert_eq!(fs::read(&s.selected).unwrap(), before);
+    }
+    #[test]
+    fn connection_address_update_keeps_native_catalog_restorable() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
+        s.attach_native_catalog(&plan, &c).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        let revision = s.inspect().unwrap()["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        s.update_connection(ConnectionUpdate {
+            file: s.selected.clone(),
+            revision,
+            base_url: "http://127.0.0.1:8080/v1".into(),
+            api_key: "sk-new-address-fixture-only".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            s.native_state().unwrap().unwrap().url,
+            "http://127.0.0.1:8080/v1/models"
+        );
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            doc["model_providers"]["custom"]["model_catalog_url"].as_str(),
+            Some("http://127.0.0.1:8080/v1/models")
+        );
+        s.switch_channel("official").unwrap();
+        let doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+        assert!(item(&doc, &["model_providers", "custom", "model_catalog_url"]).is_none());
+    }
+    #[test]
+    fn saved_http_api_is_recognized_and_reusable() {
+        let (_dir, mut s) = store();
+        let mut c = connection();
+        c.base_url = "http://127.0.0.1:8080/v1".into();
+        let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
+        s.apply_with_backup(&plan, false).unwrap();
+        let inspected = s.inspect().unwrap();
+        assert_eq!(inspected["baseUrl"], c.base_url);
+        assert_eq!(inspected["hasKey"], true);
+        assert_eq!(s.credentials("", &c.base_url).unwrap().api_key, c.api_key);
     }
     #[test]
     fn missing_or_unrecognized_provider_defaults_to_api_without_writing() {
@@ -2008,8 +2184,15 @@ mod tests {
             endpoint("https://example.com///").unwrap(),
             "https://example.com/v1"
         );
+        assert_eq!(
+            endpoint("http://127.0.0.1:8080/gateway/").unwrap(),
+            "http://127.0.0.1:8080/gateway/v1"
+        );
         for u in [
-            "http://example.com",
+            "ftp://example.com",
+            "http://user:pass@example.com",
+            "http://example.com?key=a",
+            "http://example.com/#test",
             "https://user:pass@example.com",
             "https://example.com?key=a",
             "https://example.com/#test",

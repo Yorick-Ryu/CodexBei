@@ -32,7 +32,7 @@ mockIPC(async (cmd, raw) => {
   if (cmd === "switch_login_preference") { connection.keepOfficialLogin = args.enabled === true; return {}; }
   if (cmd === "switch_speed") { connection.serviceTier = args.speed === "fast" ? "fast" : "default"; return {}; }
   if (cmd === "switch_channel") { connection.modelChannel = args.channel === "official" ? "official" : "api"; return {}; }
-  if (cmd === "quota") return {channel:"api",rows:[{label:"余额",value:"$128.50"},{label:"密钥余额",value:"不限额"}],groups:[]};
+  if (cmd === "quota") return {channel:"api",rows:[{label:"余额",value:"$128.50"},{label:"密钥余额",value:"不限"}],groups:[]};
   if (cmd === "has_official_login") return false;
   if (cmd === "switch_transport") { supportsWebsockets = args.supportsWebsockets === true; return { changed: true }; }
   if (cmd === "check") return {

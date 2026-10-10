@@ -2,8 +2,14 @@ use crate::config::Result;
 use serde_json::Value;
 use std::time::Duration;
 pub fn client() -> Result<reqwest::Client> {
+    build_client(true)
+}
+pub fn api_client() -> Result<reqwest::Client> {
+    build_client(false)
+}
+fn build_client(https_only: bool) -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .https_only(true)
+        .https_only(https_only)
         .timeout(Duration::from_secs(8))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -66,6 +72,11 @@ pub async fn catalog(
         return Err("请先选择 Codex 内核版本。".into());
     }
     let url = format!("{}/models", crate::config::endpoint(&connection.base_url)?);
+    let client = if url.starts_with("http://") {
+        api_client()?
+    } else {
+        client.clone()
+    };
     let response = client
         .get(url)
         .query(&[("client_version", version)])
@@ -91,6 +102,47 @@ pub async fn catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_accepts_http_api_with_https_default_client() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                assert_ne!(count, 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            assert!(String::from_utf8(request)
+                .unwrap()
+                .starts_with("GET /v1/models?client_version=0.154.0 HTTP/1.1"));
+            let body = r#"{"models":[{"slug":"gpt-6-astra","visibility":"list","supported_in_api":true}]}"#;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let value = runtime
+            .block_on(catalog(
+                &client().unwrap(),
+                crate::config::Connection {
+                    base_url: format!("http://{address}/v1"),
+                    api_key: "sk-http-test-fixture-only".into(),
+                    model: "gpt-6-astra".into(),
+                },
+                "0.154.0",
+            ))
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(model_list(&value).unwrap(), vec!["gpt-6-astra"]);
+    }
     #[test]
     fn accepts_only_visible_api_models() {
         let v = serde_json::json!({"models":[{"slug":"gpt-6-astra","visibility":"list","supported_in_api":true},{"slug":"hidden","visibility":"hidden","supported_in_api":true},{"slug":"gpt-6-astra","visibility":"list","supported_in_api":true}]});

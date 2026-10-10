@@ -85,6 +85,7 @@ pub async fn query(source: Source) -> Result<Value> {
             official(&value)
         }
         Source::Api(connection) => {
+            let client = network::api_client()?;
             let base = crate::config::endpoint(&connection.base_url)?;
             let root = base.strip_suffix("/v1").unwrap_or(&base);
             let value = get(
@@ -119,7 +120,7 @@ fn site_snapshot(value: &Value) -> Result<Value> {
         .as_f64()
         .ok_or("余额响应无效。")?;
     let token = if data["token"]["unlimited"] == true {
-        "不限额".to_owned()
+        "不限".to_owned()
     } else {
         amount(
             data["token"]["remaining"]
@@ -166,7 +167,7 @@ mod tests {
         let value = json!({"success":true,"data":{"object":"quota_snapshot","unit":{"display_type":"USD","quota_per_unit":500000},"wallet":{"remaining":64250000},"token":{"unlimited":true,"remaining":null},"subscriptions":[{"id":1,"name":"Plus 月卡","expires_at":123,"windows":[{"name":"主额度","window_duration_seconds":18000,"remaining":12000000,"total":15000000,"used_percent":20,"resets_at":456,"reset_pending":false}]},{"id":2,"name":"Ultra 月卡","windows":[{"name":"周额度","window_duration_seconds":604800,"remaining":480000000,"total":600000000,"used_percent":20,"reset_pending":true}]}]}});
         let parsed = site_snapshot(&value).unwrap();
         assert_eq!(parsed["rows"][0]["value"], "$128.50");
-        assert_eq!(parsed["rows"][1]["value"], "不限额");
+        assert_eq!(parsed["rows"][1]["value"], "不限");
         assert_eq!(parsed["groups"].as_array().unwrap().len(), 2);
         assert_eq!(parsed["groups"][0]["rows"][0]["value"], "$24.00 / $30.00");
         assert_eq!(parsed["groups"][1]["rows"][0]["remaining"], 80.0);

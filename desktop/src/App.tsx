@@ -1,13 +1,11 @@
 import {
   useCallback,
-  useId,
   useMemo,
   type MutableRefObject,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -25,45 +23,18 @@ import {
 } from "./api";
 import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { VersionPicker } from "./VersionPicker";
-import { RefreshIcon, InfoIcon, CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
+import { RefreshIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, EyeIcon, EyeOffIcon } from "./icons";
 import { Select } from "./Select";
 import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
 import { QuotaCard } from "./QuotaCard";
+import { LiveConnectionCard } from "./LiveConnectionCard";
+import { FieldInfo } from "./FieldInfo";
 import { ThemeSelector } from "./ThemeSelector";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
 import claude from "../assets/agents/claude-code.svg";
 
-function FieldInfo({ label, description }: { label: string; description: string }) {
-  const tooltipId = useId();
-  const [position, setPosition] = useState<{ left: number; top: number; above: boolean; arrowLeft: number } | null>(null);
-  useEffect(() => {
-    if (!position) return;
-    const close = () => setPosition(null);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [position]);
-  const show = (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect();
-    const above = rect.top >= 92;
-    const center = rect.left + rect.width / 2;
-    const left = Math.max(12, Math.min(center - 100, window.innerWidth - 212));
-    setPosition({ left, top: above ? rect.top - 8 : rect.bottom + 8, above, arrowLeft: Math.max(12, Math.min(center - left, 188)) });
-  };
-  return <>
-    <button type="button" className="text-button field-info" aria-label={`${label}说明`} aria-describedby={position ? tooltipId : undefined}
-      onMouseEnter={event => show(event.currentTarget)} onMouseLeave={() => setPosition(null)}
-      onFocus={event => show(event.currentTarget)} onBlur={() => setPosition(null)}
-      onKeyDown={event => { if (event.key === "Escape") setPosition(null); }}
-      onClick={event => { event.preventDefault(); if (!position) show(event.currentTarget); }}><InfoIcon /></button>
-    {position && createPortal(<span id={tooltipId} role="tooltip" className="field-tooltip" data-above={position.above || undefined} style={{ left: position.left, top: position.top, transform: position.above ? "translateY(-100%)" : undefined }}>{description}<span className="field-tooltip-arrow" style={{ left: position.arrowLeft }} /></span>, document.body)}
-  </>;
-}
 
 const toolTabs = [
   { id: "codex", name: "ChatGPT", icon: chatgpt, iconClass: "chatgpt-icon", disabled: false },
@@ -134,6 +105,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [busy, setBusy] = useState(true);
   const [initializing, setInitializing] = useState(true);
   const [configuring, setConfiguring] = useState(false);
+  const [connectionSaving, setConnectionSaving] = useState(false);
   const [channelSwitching, setChannelSwitching] = useState(false);
   const [transportSwitching, setTransportSwitching] = useState(false);
   const [speedSwitching, setSpeedSwitching] = useState(false);
@@ -188,7 +160,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     setVersionDraft(null);
     setVersionOpen(false);
   };
-  const [expanded, setExpanded] = useState(initialDraft.current?.expanded ?? false);
+  const expanded = true;
   const [settingsOverflowReady, setSettingsOverflowReady] = useState(false);
   useEffect(() => {
     setSettingsOverflowReady(false);
@@ -216,6 +188,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const dialog = useRef<HTMLDialogElement>(null);
   const baseUrlInput = useRef<HTMLInputElement>(null);
   const homeTitle = useRef<HTMLHeadingElement>(null);
+  const settingsTitle = useRef<HTMLHeadingElement>(null);
   const historyTitle = useRef<HTMLHeadingElement>(null);
   const busyRef = useRef(true);
   const keepRef = useRef(false);
@@ -249,7 +222,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setKeep(draft.keep);
       if (draft.inspection.file === data.file) setSelectedChannel(draft.selectedChannel);
       keepRef.current = draft.keep;
-      setExpanded(draft.expanded);
     }
     document.body.dataset.platform =
       data.platform === "macos" ? "darwin" : data.platform;
@@ -553,6 +525,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   ]);
   useEffect(() => {
     if (page === "home") homeTitle.current?.focus();
+    if (page === "config") settingsTitle.current?.focus();
     if (page === "history") historyTitle.current?.focus();
   }, [page]);
   const showBackup = (id: string) =>
@@ -573,7 +546,19 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const statusKeyError = page === "config" && !statusSuccess && isKeyError(status);
   const keyError = page === "config" ? (statusKeyError ? status : isKeyError(modelStatus) ? modelStatus : "") : "";
   const footerStatus = statusKeyError ? "" : status;
-  const disabled = busy || !inspection;
+  const disabled = busy || connectionSaving || !inspection;
+  const editingConnection = !!(inspection?.hasKey && inspection.baseUrl);
+  const showHome = page === "home" || (page === "config" && !editingConnection && !!inspection && (isClaude || !!matching?.installations.length));
+  const returnHome = () => {
+    if (inspection) acceptInspection(inspection);
+    setStatus("");
+    setFileError("");
+    setPage("home");
+  };
+  const openSettings = () => {
+    setStatus("");
+    setPage("config");
+  };
   const channelUpdating = channelSwitching || transportSwitching || speedSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
@@ -598,29 +583,43 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       try { localStorage.setItem("codexbei.desktop-install-hint-dismissed", "true"); } catch { /* Keep dismissal for this session. */ }
     }
   };
-  const connectionControls = !isClaude ? (<div className="action-options">
+  const liveConnection = (compact = false) => inspection && <LiveConnectionCard inspection={{ ...inspection, baseUrl: inspection.baseUrl || defaultBase }} compact={compact} tool={activeTool} disabled={busy} onSavingChange={setConnectionSaving}
+    onCommit={async (draft, baseline) => {
+      if (baseline.hasKey && baseline.baseUrl) return api.updateConnection({ ...draft, file: baseline.file, revision: baseline.revision });
+      const result = await api.configure({ ...draft, model }, keep, mapping, selectedChannel, speed);
+      if (result.canceled) throw "配置未完成，请重试。";
+      return api.inspect();
+    }}
+    onSaved={data => { acceptInspection(data); setPage("home"); }} />;
+  const connectionControls = (showMore = false) => (!isClaude || showMore) ? (<div className="action-options">
+      {showMore && liveConnection(true)}
+      {!isClaude && <>
       <div className="login-option preference-row">
         <span className="field-caption">保留官方登录<FieldInfo label="保留官方登录" description="保留 ChatGPT 官方账号登录。立即保存，重启 ChatGPT 后生效。" /></span>
-        <input id="keep-official-login" aria-label="保留官方登录" type="checkbox" role="switch" checked={keep} onChange={event => changeLoginPreference(event.target.checked)} disabled={disabled} />
+        <input id="keep-official-login" aria-label="保留官方登录" type="checkbox" role="switch" checked={keep} onChange={event => editingConnection ? changeLoginPreference(event.target.checked) : setKeep(event.target.checked)} disabled={disabled} />
       </div>
       <div className="channel-option provider-option">
         <span className="option-caption provider-caption"><span className="setting-title">模型供应商
           <FieldInfo label="模型供应商" description="切换模型供应商，新对话生效" /></span>
         </span>
-        <Select id="model-channel" aria-label="模型供应商" value={inspection?.modelChannel ?? "api"} disabled={disabled} onChange={event => switchChannel(event.target.value as "api" | "official")}>
+        <Select id="model-channel" aria-label="模型供应商" value={editingConnection ? inspection?.modelChannel ?? "api" : selectedChannel ?? "api"} disabled={disabled} onChange={event => editingConnection ? switchChannel(event.target.value as "api" | "official") : setSelectedChannel(event.target.value as "api" | "official")}>
           <option value="api">API</option><option value="official">官方</option>
         </Select>
       </div>
       <div className="channel-option transport-option">
         <div className="login-option preference-row">
           <span className="field-caption"><span className="setting-title">启用 WebSocket<FieldInfo label="启用 WebSocket" description="使用 WebSocket 传输，需要服务商支持；关闭时使用 HTTP。立即保存，新对话生效。" /></span></span>
-          <input id="transport-protocol" aria-label="启用 WebSocket" type="checkbox" role="switch" checked={!!inspection?.supportsWebsockets} disabled={disabled || !inspection?.baseUrl} onChange={event => switchTransport(event.target.checked)} />
+          <input id="transport-protocol" aria-label="启用 WebSocket" type="checkbox" role="switch" checked={editingConnection ? !!inspection?.supportsWebsockets : true} disabled={disabled || !editingConnection} onChange={event => switchTransport(event.target.checked)} />
         </div>
       </div>
       <div className="channel-option speed-option">
-        <span className="option-caption"><span className="setting-title">响应速度<FieldInfo label="响应速度" description="标准为默认速度；快速需要服务商支持。立即保存，新对话生效。" /></span></span>
-        <Select id="speed" aria-label="响应速度" value={speed} disabled={disabled} onChange={event => switchSpeed(event.target.value as Speed)}><option value="standard">标准</option><option value="fast">快速</option><option value="ultrafast" disabled>超快</option></Select>
+        <span className="option-caption"><span className="setting-title">响应速度<FieldInfo label="响应速度" description="仅在登录官方账户时生效。标准为默认速度；快速需要服务商支持。立即保存，新对话生效。" /></span></span>
+        <Select id="speed" aria-label="响应速度" value={speed} disabled={disabled} onChange={event => editingConnection ? switchSpeed(event.target.value as Speed) : setSpeed(event.target.value as Speed)}><option value="standard">标准</option><option value="fast">快速</option><option value="ultrafast" disabled>超快</option></Select>
       </div>
+      </>}
+      {showMore && <button id="edit-connection" type="button" className="more-settings-row" disabled={disabled} onClick={openSettings}>
+        <span>更多配置</span><ChevronRightIcon />
+      </button>}
     </div>) : null;
   return (
     <>
@@ -642,7 +641,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                     aria-selected={activeTool === tool.id}
                     aria-controls={activeTool === tool.id ? `${activeTool}-panel` : undefined}
                     id={`${tool.id}-tab`}
-                    disabled={(busy && !initializing) || tool.disabled}
+                    disabled={connectionSaving || (busy && !initializing) || tool.disabled}
                     onClick={() => setActiveTool(tool.id)}
                     onKeyDown={event => {
                       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -676,27 +675,27 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                 role="tabpanel"
                 aria-labelledby={`${activeTool}-tab`}
               >
-                {page === "home" && <div id="connection-home" aria-labelledby="home-title">
+                {showHome && <div id="connection-home" aria-labelledby="home-title">
                   <div className="connection-summary">
                     <div className="connection-summary-top">
                       <h1 id="home-title" className="config-title" tabIndex={-1} ref={homeTitle}>
                         <img className={selectedTool.iconClass} src={selectedTool.icon} alt="" />
-                        {connectedToolName} 已就绪
+                        {editingConnection ? `${connectedToolName} 配置` : `${selectedTool.name} 配置`}
                       </h1>
-                      <button id="edit-connection" type="button" className="text-button settings-toggle" disabled={busy} onClick={() => { setExpanded(true); setPage("config"); }}><SettingsIcon />修改配置</button>
                     </div>
                   </div>
-                  {connectionControls && <><h2 className="home-section-title">快速配置</h2>{connectionControls}</>}
-                  <div className="home-balance">
+                  {!editingConnection && liveConnection()}
+                  {editingConnection && <><h2 className="home-section-title">快速配置</h2>{connectionControls(true)}</>}
+                  {editingConnection && <div className="home-balance">
                     <h2 className="home-section-title">余额</h2>
                     <QuotaCard inspection={inspection!} tool={activeTool} />
-                  </div>
+                  </div>}
 
 
                 </div>}
                   <form
                     id="configure"
-                    hidden={page === "home"}
+                    hidden={showHome}
                     aria-busy={busy}
                     onSubmit={(event) => {
                       event.preventDefault();
@@ -744,26 +743,15 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                     <div className="config-card">
                       <div className="provider-row">
                         <div className="provider-info">
-                          <h2 className="config-title">
+                          <h2 className="config-title" tabIndex={editingConnection ? -1 : undefined} ref={editingConnection ? settingsTitle : undefined}>
                             <img className={selectedTool.iconClass} src={selectedTool.icon} alt="" />
-                            配置 {selectedTool.name}
+                            {editingConnection ? `${selectedTool.name} 配置` : `配置 ${selectedTool.name}`}
                           </h2>
                         </div>
-                        <button
-                          id="toggle-settings"
-                          type="button"
-                          className="text-button settings-toggle"
-                          aria-expanded={expanded}
-                          aria-controls="settings"
-                          onClick={() => setExpanded(value => !value)}
-                        >
-                          <SettingsIcon />
-                          {expanded ? "折叠" : "展开"}
-                        </button>
                       </div>
                       <h2 className="config-section-title connection-section-title">API 连接</h2>
                       <div className="credentials-card">
-                      <div className="credential-field">
+                      {expanded && <div className="credential-field">
                             <div className="label-row"><span className="setting-title"><label htmlFor="base-url">API 地址</label><FieldInfo label="API 地址" description="填写服务商提供的 API 地址。" /></span></div>
                             <div className="key-control base-url-control">
                               <input
@@ -797,7 +785,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                               </div>
                             </div>
                             <p className="field-feedback" aria-hidden="true" />
-                      </div>
+                      </div>}
                       <div className="credential-field api-key-field">
                         <div className="label-row">
                           <span className="setting-title"><label htmlFor="key">API 密钥</label><FieldInfo label="API 密钥" description="填写此服务商的 API 密钥。" /></span>
@@ -857,7 +845,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                         aria-hidden={!expanded} ref={element => { if (element) element.inert = !expanded; }}>
                         <div className="settings-clip">
                           <div className="settings-body">
-                            <h2 className="config-section-title">快速配置</h2>
+                            <h2 className="config-section-title">更多配置</h2>
                             <div className="quick-config-card">
                             <div className="settings-field-row model-field-row">
                             <div className="label-row model-label">
@@ -908,7 +896,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             >
                               {!isKeyError(modelStatus) && modelStatus}
                             </p>
-                            {connectionControls}
+                            {connectionControls()}
                             {isClaude && (["opus", "sonnet", "haiku"] as const).map(tier => (
                               <div key={tier} className="settings-field-row">
                                 <span className="setting-title"><label htmlFor={`mapping-${tier}`}>{tier[0].toUpperCase() + tier.slice(1)} 模型</label><FieldInfo label={`${tier} 模型`} description="为此类型选择专用模型，也可以跟随所选模型。" /></span>
@@ -920,8 +908,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 <p className="field-feedback" aria-hidden="true" />
                               </div>
                             ))}
-                            </div>
-                            <h2 className="config-section-title">更多</h2>
                             <div className="more-config-card">
                             <div className="settings-field-row config-file-row">
                             <span className="setting-title"><label htmlFor="target">配置文件</label><FieldInfo label="配置文件" description="配置保存到此文件，可打开查看或更改位置。" /></span>
@@ -1029,6 +1015,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                               </pre>
                             </div>
                             </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1103,9 +1090,9 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           )}
         </main>
       </div>
-      {page === "config" && inspection && (isClaude || !!matching?.installations.length) && (
+      {page === "config" && !showHome && inspection && (isClaude || !!matching?.installations.length) && (
                       <div className="config-footer">
-                      {inspection?.hasKey && <button id="cancel-edit" type="button" disabled={busy} className="text-button cancel-edit" onClick={() => { acceptInspection(inspection); setPage("home"); }}>取消</button>}
+                      {editingConnection && <button id="cancel-edit" type="button" disabled={busy} className="text-button cancel-edit" onClick={returnHome}>取消</button>}
                         <button
                           id="apply"
                           data-ready={applyReady}

@@ -6,6 +6,7 @@ export type Inspection = {
   hasOfficialCredentials?: boolean;
   mapping?: Mapping;
   file: string;
+  revision: string;
   testMode: boolean;
   baseUrl: string | null;
   model: string | null;
@@ -93,6 +94,7 @@ export function toolApi(tool: Tool) {
     invoke<Outcome>("switch_channel", { channel }),
   switchLoginPreference: (enabled: boolean) => invoke<Outcome>("switch_login_preference", { enabled }),
   switchSpeed: (speed: Speed) => invoke<Outcome>("switch_speed", { speed }),
+  updateConnection: (update: { file: string; revision: string; baseUrl: string; apiKey: string }) => invoke<Inspection>("update_connection", { update }),
   switchTransport: (supportsWebsockets: boolean) =>
     invoke<Outcome>("switch_transport", { supportsWebsockets }),
   incoming: (keepOfficialLogin: boolean) =>

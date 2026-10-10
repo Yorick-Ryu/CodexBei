@@ -363,6 +363,21 @@ fn switch_speed(
     lock(&state.store)?.switch_speed(speed)
 }
 #[tauri::command]
+fn update_connection(
+    tool: Option<Tool>,
+    update: config::ConnectionUpdate,
+    state: State<AppState>,
+) -> Result<Value> {
+    if tool == Some(Tool::Claude) {
+        lock(&state.claude)?.update_connection(update)?;
+    } else {
+        let mut store = lock(&state.store)?;
+        let result = store.update_connection(update)?;
+        prune_result(&store, result);
+    }
+    inspect(tool, state)
+}
+#[tauri::command]
 fn switch_transport(
     tool: Option<Tool>,
     supports_websockets: bool,
@@ -736,6 +751,7 @@ pub fn run() {
             open_config_file,
             preview,
             configure,
+            update_connection,
             switch_channel,
             switch_transport,
             switch_login_preference,

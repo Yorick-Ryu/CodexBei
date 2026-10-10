@@ -71,14 +71,14 @@
 @media (prefers-reduced-motion: reduce) { .update-ring { animation: none; } }
 
 /* First connection and everyday management share the same native window. */
-main.config-main { padding: 28px 30px 24px; }
+main.config-main { padding: 28px 32px; }
 #configuration-page { margin-block: 0; }
 .page-intro { margin-bottom: 24px; }
 .section-kicker { color: var(--muted); font-size: 11px; margin: 0 0 10px; }
 .page-intro h1 { font-size: 25px; font-weight: 550; letter-spacing: -.6px; margin: 0; outline: none; }
 .page-subtitle { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 9px 0 0; }
 #configure .provider-row { background: transparent; padding: 0; border: 0; border-radius: 0; align-items: flex-start; }
-#configure .config-title { font-size: 21px; font-weight: 550; }
+#configure .config-title, .connection-summary .config-title { font-size: 21px; font-weight: 550; line-height: 1.4; letter-spacing: -.6px; }
 #configure { --config-field-gap: 24px; }
 #configure .credential-field { padding: var(--config-field-gap) 0 0; }
 #configure .credential-field.api-key-field { padding-top: 0; }
@@ -95,7 +95,7 @@ main.config-main { padding: 28px 30px 24px; }
 #notification-dialog #status .text-button { margin-left: 6px; color: var(--text); }
 #notification-dialog .modal-actions { margin-top: 20px; }
 .connection-summary { margin-bottom: 24px; }
-.connection-summary .config-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 21px; font-weight: 550; outline: none; }
+.connection-summary .config-title { display: flex; align-items: center; gap: 8px; margin: 0; outline: none; }
 .connection-summary .config-title img { width: 26px; height: 26px; flex-shrink: 0; }
 .connection-summary-top { display: flex; align-items: flex-start; gap: 10px; }
 .configured-symbol { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border-radius: 50%; color: var(--success); background: var(--success-bg); }
@@ -140,6 +140,11 @@ main.config-main { padding: 28px 30px 24px; }
 .action-options > .transport-option { order: 1; }
 .action-options > .provider-option { order: 2; }
 .action-options > .speed-option { order: 3; }
+#connection-home .more-settings-row { order: 4; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 15px; border: 0; border-top: 1px solid var(--border); border-radius: 0 0 9px 9px; background: transparent; color: var(--text); font-size: 14px; font-weight: 500; text-align: left; }
+#connection-home .more-settings-row:only-child { border-top: 0; border-radius: 9px; }
+#connection-home .more-settings-row:hover:not(:disabled) { background: var(--hover); }
+#connection-home .more-settings-row svg { width: 16px; height: 16px; color: var(--muted); }
+#configure .config-title:focus { outline: none; }
 #connection-home .select-trigger, #configure .action-options .select-trigger { height: 32px; }
 #connection-home .select-menu, #configure .action-options .select-menu { border-radius: var(--radius-control); padding: 0; }
 #connection-home .select-option, #configure .action-options .select-option { height: 32px; min-height: 32px; padding: 0 11px; border-radius: 0; }
@@ -150,28 +155,52 @@ main.config-main { padding: 28px 30px 24px; }
 #connection-home .preference-row input[role="switch"]::before { content: ""; position: absolute; width: 20px; height: 20px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: #fff; opacity: 1; transform: translateX(0); }
 #connection-home .preference-row input[role="switch"]:checked { background: var(--accent); }
 #connection-home .preference-row input[role="switch"]:checked::before { transform: translateX(20px); }
-#connection-home .quota-panel { margin-top: 16px; margin-bottom: 20px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: transparent; }
+#connection-home .quota-panel { margin-top: 16px; margin-bottom: 20px; padding: 11px 15px; border: 1px solid var(--border); border-radius: 10px; background: transparent; }
 #connection-home .quota-source { margin-bottom: 0; }
 #connection-home .home-section-title { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
 #connection-home .home-balance { margin-top: 20px; }
+.live-connection { margin-bottom: 20px; }
+.live-connection .credentials-card { border: 1px solid var(--border); border-radius: 10px; }
+.live-connection .credential-field { min-height: 48px; display: grid; grid-template-columns: 142px minmax(0, 1fr); column-gap: 16px; align-items: center; padding: 7px 15px; }
+.live-connection .credential-field + .credential-field { border-top: 1px solid var(--border); }
+.live-connection label { margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
+.live-connection input { display: block; height: 32px; font-size: 14px; }
+.live-key-editor { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.live-key-editor .key-control { flex: 1; min-width: 0; }
+.live-connection-save { flex-shrink: 0; height: 32px; min-width: 56px; padding: 0 10px; font-size: 14px; }
+.live-connection .key-actions, #configure .key-actions { top: 50%; transform: translateY(-50%); }
+#live-key { padding-right: 72px; letter-spacing: 1px; }
+#live-key[type="text"] { letter-spacing: 0; }
+.live-connection-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+#connection-home .live-connection-heading .home-section-title { margin: 0; flex-shrink: 0; }
+.connection-save-status { margin: 0; font-size: 11px; line-height: 18px; color: var(--muted); text-align: right; }
+.connection-save-status.error { color: var(--danger); }
+#connection-home .action-options > .live-connection--compact { order: -1; height: auto; margin: 0; }
+.live-connection--compact .credentials-card { border: 0; border-radius: 0; }
+.live-connection--compact .credential-field { min-height: 48px; }
+.live-connection--compact input { height: 32px; }
+.live-connection--compact .connection-save-status { text-align: left; font-weight: 400; }
+.live-connection--compact .connection-save-status:empty { display: none; }
+.live-connection--compact .connection-save-status:not(.error):not(:empty) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#connection-home .action-options > .live-connection + .login-option { border-top: 1px solid var(--border); }
 #connection-home .home-balance:not(:has(.quota-panel)) { display: none; }
-#connection-home .home-balance .quota-panel { margin-top: 0; }
+#connection-home .home-balance .quota-panel { margin: 0; }
 #connection-home .quota-heading { height: auto; min-height: 24px; margin-bottom: 0; }
+#connection-home .quota-heading, #connection-home .quota-heading .quota-inline-item, #connection-home .quota-heading .quota-inline-item strong, #connection-home .quota-plans-toggle, #connection-home .quota-package-count strong, #connection-home .quota-recharge { font-size: 14px; }
+#connection-home .quota-recharge { height: 24px; padding: 0 8px; line-height: 20px; }
 .start-using { margin-top: 20px; }
 .home-links { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
 .connection-help-copy p { font-size: 12px; line-height: 1.9; color: var(--muted); margin: 0 0 12px; }
 @media(max-width:500px) {
-  main.config-main { padding: 24px; }
   .page-intro h1 { font-size: 23px; }
-  .connection-summary { padding: 15px; }
   .connection-summary-top small { font-size: 10px; }
   .connection-meta { grid-template-columns: 1fr 1fr; gap: 12px; }
 }
 
 body[data-ui-preview] { align-items: center; justify-content: center; }
-body[data-ui-preview] #root { width: min(600px, 100vw); height: min(520px, 100dvh); flex: none; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+body[data-ui-preview] #root { width: min(600px, 100vw); height: min(570px, 100dvh); flex: none; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
 
-main.config-main[data-page="config"] { padding: 120px 32px 24px; }
+main.config-main[data-page="config"] { padding: 120px 32px 28px; }
 main.config-main[data-page="config"][data-settings-expanded] { padding-top: 28px; }
 main[data-page="config"] #configuration-page { margin-block: 0; }
 
@@ -182,7 +211,7 @@ main[data-page="config"] #configuration-page { margin-block: 0; }
 #configure .config-section-title { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
 #configure .connection-section-title { margin-top: 24px; }
 #configure .credentials-card { margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; }
-#configure .credentials-card .credential-field { padding: 8px 15px; }
+#configure .credentials-card .credential-field { min-height: 48px; padding: 7px 15px; }
 #configure .credentials-card .credential-field + .credential-field { border-top: 1px solid var(--border); }
 #configure .credentials-card .field-feedback:empty { display: none; }
 #configure .credentials-card .field-feedback:not(:empty) { min-height: 18px; margin: 6px 0 0; }
@@ -193,7 +222,7 @@ main[data-page="config"] #configuration-page { margin-block: 0; }
 #configure .more-config-card .config-file-row { padding: 12px 15px; }
 #configure .more-config-card #file-error:empty { display: none; }
 #configure .more-config-card #file-error:not(:empty) { padding: 0 15px; }
-#configure .more-config-card .preview-heading { padding: 12px 15px 0; border-top: 1px solid var(--border); }
+#configure .more-config-card .preview-heading { min-height: 48px; padding: 7px 15px; border-top: 1px solid var(--border); }
 #configure .more-config-card #preview { margin-top: 0; border: 0; border-radius: 0; }
 #configure label:not(.channel-segment), #configure .option-caption, .field-caption, #configure .preview-heading { display: flex; align-items: center; gap: 6px; }
 .field-info { display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--muted); flex-shrink: 0; }
@@ -202,15 +231,17 @@ main[data-page="config"] #configuration-page { margin-block: 0; }
 #configure .settings-field-row > label, #configure .model-label { margin: 0; }
 #configure .settings-field-row > .field-feedback { grid-column: 2; }
 #configure label:not(.channel-segment), #configure .option-caption, #configure .field-caption, #configure .preview-heading { font-size: 14px; font-weight: 500; color: var(--text); }
-#configure input:not([type="checkbox"]):not([type="radio"]), #configure select { font-size: 14px; }
+#configure input:not([type="checkbox"]):not([type="radio"]), #configure select { height: 32px; font-size: 14px; }
+#configure .path-row button { height: 32px; padding: 0 10px; flex-shrink: 0; }
 #configure .field-info svg { width: 15px; height: 15px; }
 #configure .model-label { flex-wrap: wrap; justify-content: flex-start; }
 #configure .model-label #refresh-models { font-size: 10px; }
 #configure .action-options { gap: 0; margin-bottom: 24px; }
 #configure .action-options > .channel-option, #configure .preference-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; height: 48px; padding: 8px 0; border: 0; margin: 0; gap: 16px; }
 #configure .transport-option > .preference-row { height: auto; padding: 0; }
-#configure .quick-config-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 24px; }
-#configure .quick-config-card .settings-field-row { min-height: 48px; padding: 8px 15px; }
+#configure .quick-config-card { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 24px; overflow: hidden; }
+#configure .quick-config-card .more-config-card { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+#configure .quick-config-card .settings-field-row { min-height: 48px; padding: 7px 15px; }
 #configure .quick-config-card .settings-field-row:not(:first-child) { border-top: 1px solid var(--border); }
 #configure .quick-config-card .action-options { margin: 0; }
 #configure .quick-config-card .action-options > .channel-option, #configure .quick-config-card .action-options > .preference-row { padding: 8px 15px; border-top: 1px solid var(--border); }
@@ -260,6 +291,4 @@ main[data-page="config"] #configuration-page { margin-block: 0; }
 #refresh-models[aria-busy="true"] svg { animation: quota-refresh-spin 1s linear infinite; }
 @media(max-width:480px) {
   #configure .credential-field, #configure .settings-field-row { grid-template-columns: 110px minmax(0, 1fr); column-gap: 10px; }
-  #configure .path-row { flex-wrap: wrap; }
-  #configure .path-row input { flex-basis: 100%; }
 }

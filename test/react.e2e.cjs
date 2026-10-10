@@ -31,8 +31,13 @@ async function fixture(options = {}) {
     window.fixtureState.serviceTier = ${JSON.stringify(options.serviceTier ?? null)};
     const configuredTier = args => args.speed === 'fast' ? 'fast' : args.speed === 'standard' ? 'default' : window.fixtureState.serviceTier;
     window.fixtureBackups = [];
+    window.fixtureState.revision ||= 'fixture-0';
+    window.fixtureConnectionUpdates = [];
+    window.fixtureConnectionActive = 0;
+    window.fixtureConnectionMaxActive = 0;
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
     window.fixtureClaudeBackups = [];
+    window.fixtureClaude.revision = 'claude-0';
     window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
@@ -51,6 +56,11 @@ async function fixture(options = {}) {
         window.fixtureClaudeCalls.push({ cmd, args });
         if (cmd === 'open_claude_installer') return null;
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
+        if (cmd === 'update_connection') {
+          if (args.update.revision !== window.fixtureClaude.revision) throw '配置文件已发生变化，请重新操作。';
+          Object.assign(window.fixtureClaude, {baseUrl:args.update.baseUrl,apiKey:args.update.apiKey,revision:'claude-' + window.fixtureClaudeCalls.length});
+          return {...window.fixtureClaude};
+        }
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
         if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
         if (cmd === 'models') return ['claude-sonnet-test', 'claude-opus-test'];
@@ -112,12 +122,25 @@ async function fixture(options = {}) {
         if (window.fixtureQuotaDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureQuotaDelay));
         if (window.fixtureQuotaError) throw window.fixtureQuotaError;
         if (window.fixtureEmptyQuota) return {channel:'api',rows:[],groups:[]};
-        return args.channel === 'official' ? { channel: 'official', planType: 'plus', rows: [{ label:'5 小时额度',value:'剩余 75%',remaining:window.fixtureOfficialRemaining ?? 75,resetAt:1790711528 },{ label:'每周额度',value:'剩余 67%',remaining:67,resetAt:1791048107 }] } : { channel:'api',rows:[{label:'余额',value:args.tool === 'claude' ? '$64.25' : '$128.50'},{label:'密钥余额',value:'不限额'}],groups:window.fixtureNoPlans ? [] : [
+        return args.channel === 'official' ? { channel: 'official', planType: 'plus', rows: [{ label:'5 小时额度',value:'剩余 75%',remaining:window.fixtureOfficialRemaining ?? 75,resetAt:1790711528 },{ label:'每周额度',value:'剩余 67%',remaining:67,resetAt:1791048107 }] } : { channel:'api',rows:[{label:'余额',value:args.tool === 'claude' ? '$64.25' : '$128.50'},{label:'密钥余额',value:'不限'}],groups:window.fixtureNoPlans ? [] : [
           {id:1,title:'Plus 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$24.00 / $30.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$180.00 / $240.00',remaining:75,resetAt:1791048107}]},
           {id:2,title:'Ultra 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$120.00 / $150.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$960.00 / $1200.00',remaining:80,resetAt:1791048107}]}
         ]};
       }
       if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState, hasOfficialCredentials: window.fixtureOfficialLogin };
+      if (cmd === 'update_connection') {
+        window.fixtureConnectionUpdates.push(args.update);
+        window.fixtureConnectionActive++;
+        window.fixtureConnectionMaxActive = Math.max(window.fixtureConnectionMaxActive, window.fixtureConnectionActive);
+        try {
+          if (window.fixtureConnectionDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureConnectionDelay));
+          if (window.fixtureConnectionError) throw window.fixtureConnectionError;
+          if (args.update.revision !== window.fixtureState.revision) throw '配置文件已发生变化，请重新操作。';
+          Object.assign(window.fixtureState, {apiKey: args.update.apiKey, baseUrl: args.update.baseUrl, revision: 'fixture-' + window.fixtureConnectionUpdates.length});
+          window.fixtureBackups.push({id:'connection-' + window.fixtureConnectionUpdates.length, kind:'configure'});
+          return {...window.fixtureState};
+        } finally { window.fixtureConnectionActive--; }
+      }
       if (cmd === 'has_official_login') {
         if (window.fixtureOfficialLoginDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureOfficialLoginDelay));
         if (window.fixtureOfficialLoginError) throw '无法检测官方登录状态，请重试。';
@@ -129,7 +152,7 @@ async function fixture(options = {}) {
         window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
         await new Promise(resolve => setTimeout(resolve, lag));
-        if (!args.baseUrl.startsWith('https://')) throw '请输入有效的 HTTPS API 地址。';
+        if (!args.baseUrl.startsWith('https://') && !args.baseUrl.startsWith('http://')) throw '请输入有效的 API 地址。';
         const tier = configuredTier(args);
         const speedPreview = tier == null ? '' : String.fromCharCode(10) + 'service_tier = "' + tier + '"';
         return 'model_provider = "' + (configurationChannel(args) === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + speedPreview + (window.fixturePreviewExtra || '');
@@ -182,7 +205,7 @@ async function fixture(options = {}) {
   if (options.home && options.noInstallations) await page.locator("#home-title").waitFor();
   else if (options.noInstallations) await page.getByRole('button', { name: '微软商店下载', exact: true }).waitFor();
   else if (options.initialError) await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('status').textContent.includes('TOML'));
-  else await page.waitForFunction(() => document.getElementById('key')?.disabled === false && document.getElementById('preview-code')?.textContent);
+  else await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('preview-code')?.textContent);
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   if (!options.home && await page.locator('#edit-connection').isVisible()) await page.locator('#edit-connection').click();
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
@@ -196,25 +219,129 @@ async function chooseSetting(page, selector, value) {
 test('React: first connection stays simple, reports key errors and opens the daily home', async () => {
   const f = await fixture({ savedKey: '', home: true, persistSaved:true }); const { page } = f;
   try {
-    assert.equal(await page.locator('#connection-home').count(), 0);
-    assert.equal(await page.locator('#settings').getAttribute('data-expanded'), 'false');
+    assert.equal(await page.locator('#live-key').isVisible(), true);
+    assert.equal(await page.getByRole('heading', {name:'快速配置',exact:true}).count(), 0);
     assert.equal(await page.locator('#speed').isVisible(), false);
-    assert.equal(await page.locator('#apply').isDisabled(), true);
+    assert.equal(await page.locator('#apply').count(), 0);
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('quota')), false);
-    await page.getByRole('heading', {name:'配置 ChatGPT',exact:true}).waitFor();
-    await page.locator('#key').fill('invalid');
-    await page.locator('#apply').click();
-    await page.waitForFunction(() => document.getElementById('key').getAttribute('aria-invalid') === 'true');
-    assert.equal(await page.locator('#connection-home').count(), 0);
-    await page.locator('#key').fill('demo-new-user');
-    await page.locator('#apply').click();
-    await page.locator('#home-title').waitFor();
+    await page.getByRole('heading', {name:'ChatGPT 配置',exact:true}).waitFor();
+    await page.locator('#live-key').fill('invalid');
+    await page.locator('#live-key').press('Enter');
+    await page.waitForFunction(() => document.getElementById('live-key').getAttribute('aria-invalid') === 'true');
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    await page.locator('#live-key').fill('sk-first-connection-fixture-only');
+    await page.locator('#live-key').blur();
+    await page.waitForTimeout(1100);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    await page.locator('#save-connection').click();
+    await page.locator('#edit-connection').waitFor();
+    await page.getByRole('heading', {name:'ChatGPT 配置',exact:true}).waitFor();
     assert.equal(await page.locator('#configure').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'home-title');
     assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
     await page.reload();
     await page.locator('#home-title').waitFor();
-    assert.equal(await page.locator('#edit-connection').isVisible(), true);
+    assert.equal(await page.locator('#edit-connection').textContent(), '更多配置');
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('React: live connection waits for Save or Enter and never saves on idle, blur or navigation', async () => {
+  const f = await fixture({home:true,keepOfficialLogin:true}); const {page}=f;
+  try {
+    const key = page.locator('#live-key');
+    assert.equal(await key.getAttribute('type'),'password');
+    const info = page.locator('#connection-home').getByRole('button', {name:'API 密钥说明', exact:true});
+    await info.hover();
+    const tooltip = page.getByRole('tooltip');
+    await tooltip.waitFor();
+    assert.equal(await tooltip.textContent(), '点击保存或按回车保存');
+    await page.screenshot({path:path.join(output,'live-key-tooltip.png')});
+    await page.locator('#home-title').hover();
+    await tooltip.waitFor({state:'hidden'});
+    await key.fill('invalid'); await key.press('Enter');
+    await page.getByRole('status').filter({hasText:'请提供有效的 API 密钥'}).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),0);
+    await key.fill('sk-manual-final-fixture');
+    await page.locator('#home-title').click();
+    await page.waitForTimeout(1100);
+    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),0);
+    await page.locator('#save-connection').click();
+    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-manual-final-fixture');
+    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),1);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')),false);
+    assert.equal(await page.evaluate(() => window.fixtureState.keepOfficialLogin),true);
+    const quotaRequests = await page.evaluate(() => window.fixtureQuotaRequests);
+    await key.fill('sk-enter-update-fixture'); await key.press('Enter');
+    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-enter-update-fixture');
+    await page.waitForFunction(count => window.fixtureQuotaRequests > count, quotaRequests);
+    assert.equal(await page.locator('#apply').count(),0);
+    await page.screenshot({path:path.join(output,'live-connection-updated.png')});
+    await key.fill('sk-unsaved-navigation-fixture');
+    await page.locator('#edit-connection').click();
+    await page.locator('#base-url').waitFor();
+    await page.waitForTimeout(1100);
+    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),2);
+    assert.equal(await page.locator('#save-connection').count(),0);
+    assert.equal(await page.locator('#key').inputValue(),'sk-enter-update-fixture');
+    assert.deepEqual(f.errors,[]);
+  } finally {await f.close();}
+});
+
+test('React: live connection serializes slow writes and retries errors without losing newer input', async () => {
+  const f = await fixture({home:true}); const {page}=f;
+  try {
+    await page.evaluate(() => {window.fixtureConnectionDelay=1200;});
+    const key=page.locator('#live-key');
+    await key.fill('sk-slow-first-fixture'); await key.press('Enter');
+    await page.waitForFunction(() => window.fixtureConnectionActive === 1);
+    await key.fill('sk-slow-final-fixture');
+    await page.waitForFunction(() => window.fixtureConnectionActive === 0);
+    assert.equal(await page.evaluate(() => window.fixtureState.apiKey),'sk-slow-first-fixture');
+    assert.equal(await key.inputValue(),'sk-slow-final-fixture');
+    await page.locator('#save-connection').click();
+    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-slow-final-fixture');
+    assert.equal(await key.inputValue(),'sk-slow-final-fixture');
+    assert.equal(await page.evaluate(() => window.fixtureConnectionMaxActive),1);
+    await page.evaluate(() => {window.fixtureConnectionDelay=0;window.fixtureConnectionError='测试写入失败';});
+    await key.fill('sk-retry-new-fixture'); await key.press('Enter');
+    await page.getByRole('status').filter({hasText:'测试写入失败'}).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureState.apiKey),'sk-slow-final-fixture');
+    assert.equal(await key.inputValue(),'sk-retry-new-fixture');
+    await page.evaluate(() => {window.fixtureConnectionError='';});
+    await key.press('Enter');
+    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-retry-new-fixture');
+    assert.deepEqual(f.errors,[]);
+  } finally {await f.close();}
+});
+
+test('React: more settings opens the complete configuration, discards edits on return and saves to home', async () => {
+  const f = await fixture({ home: true }); const { page } = f;
+  try {
+    await page.locator('#home-title').waitFor();
+    const more = page.getByRole('button', { name: '更多配置', exact: true });
+    assert.equal(await more.evaluate(el => el === el.parentElement.lastElementChild), true);
+    const speed = await page.locator('#connection-home .speed-option').boundingBox();
+    const entry = await more.boundingBox();
+    assert.ok(entry.y >= speed.y + speed.height);
+    await page.screenshot({ path: path.join(output, 'daily-home-more-settings.png') });
+    await more.click();
+    await page.getByRole('heading', { name: 'ChatGPT 配置', exact: true }).waitFor();
+    assert.equal(await page.locator('#base-url').isVisible(), true);
+    assert.equal(await page.locator('#toggle-settings').count(), 0);
+    await chooseSetting(page, '#model', 'new-model');
+    await page.locator('#cancel-edit').click();
+    await page.locator('#home-title').waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    await more.click();
+    assert.equal(await page.locator('#model').textContent(), 'gpt-6-astra');
+    await chooseSetting(page, '#model', 'new-model');
+    await page.waitForFunction(() => document.getElementById('apply')?.disabled === false);
+    await page.screenshot({ path: path.join(output, 'more-settings-details.png') });
+    await page.locator('#apply').click();
+    await page.locator('#home-title').waitFor();
+    await page.waitForFunction(() => window.fixtureState.model === 'new-model');
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
@@ -261,7 +388,7 @@ test('React: daily home preserves saved selection after a failed immediate switc
 test('React: CLI-only home names Codex', async () => {
   const f=await fixture({home:true,cliOnly:true}); const {page}=f;
   try {
-    assert.match(await page.locator('.connection-summary').innerText(), /Codex CLI 已就绪/);
+    assert.match(await page.locator('.connection-summary').innerText(), /Codex CLI 配置/);
     assert.deepEqual(f.errors,[]);
   } finally {await f.close();}
 });
@@ -276,8 +403,8 @@ test('React: first and daily screens fit small windows in light and dark themes'
         for (const [width,height] of [[460,520],[600,700]]) {
           await page.setViewportSize({width,height});
           assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-          await page.locator(first?'#apply':'#edit-connection').scrollIntoViewIfNeeded();
-          const box=await page.locator(first?'#apply':'#edit-connection').boundingBox();
+          await page.locator(first?'#live-key':'#edit-connection').scrollIntoViewIfNeeded();
+          const box=await page.locator(first?'#live-key':'#edit-connection').boundingBox();
           assert.ok(box.x>=0&&box.x+box.width<=width);
           await page.locator('.content-scroll').evaluate(el=>{el.scrollTop=0});
           await page.screenshot({path:path.join(output,`${first?'first-connection':'daily-home'}-${theme}-${width}.png`)});
@@ -395,7 +522,7 @@ test('React: first API setup and existing official setup share preview and save 
       await page.waitForFunction(provider => document.getElementById('preview-code').textContent.includes('model_provider = "' + provider + '"'), provider);
       assert.equal(await page.evaluate(() => window.fixturePreviewChannel), null);
       await page.locator('#apply').click();
-      await page.getByRole('heading', { name: 'ChatGPT 已就绪' }).waitFor();
+      await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
       assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
       assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), configured ? 'official' : 'api');
       assert.deepEqual(f.errors, []);
@@ -415,7 +542,7 @@ test('React: explicit official choice survives tab changes and one-click configu
       await page.getByRole('tab', { name: 'ChatGPT', exact: true }).click();
       await page.waitForFunction(() => !document.querySelector('#apply').disabled);
       await page.locator('#apply').click();
-      await page.getByRole('heading', { name: 'ChatGPT 已就绪' }).waitFor();
+      await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
       assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), 'official');
       assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'official');
       assert.deepEqual(f.errors, []);
@@ -432,11 +559,11 @@ test('React: website setup activates API and clears an earlier explicit official
       window.fixtureIncoming = true;
       await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'incoming-changed', payload: null });
     });
-    await page.getByRole('heading', { name: 'ChatGPT 已就绪' }).waitFor();
+    await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
     await page.locator('#edit-connection').click();
     assert.equal(await page.getByRole('radio', { name: 'API', exact: true }).isChecked(), true);
     await page.locator('#apply').click();
-    await page.getByRole('heading', { name: 'ChatGPT 已就绪' }).waitFor();
+    await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
     assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
     assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'api');
     assert.deepEqual(f.errors, []);
@@ -1592,7 +1719,7 @@ test('React: Claude tab keeps drafts isolated, previews mapping and configures J
     await page.locator('#mapping-opus').scrollIntoViewIfNeeded();
     await page.screenshot({path: path.join(output, 'claude-settings.png')});
     await page.locator('#apply').click();
-    await page.getByRole('heading', {name:'ChatGPT 已就绪'}).waitFor();
+    await page.getByRole('heading', {name:'ChatGPT 配置'}).waitFor();
     assert.match(await page.locator('#connection-home').innerText(), /Claude Code[\s\S]*新会话生效/);
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
     assert.equal(await page.evaluate(() => window.fixtureClaude.mapping.opus), 'claude-opus-test');
@@ -1614,7 +1741,7 @@ test('React: incoming Claude link selects Claude and never configures Codex', as
       window.fixtureIncomingTool = 'claude';
       await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {event:'incoming-changed',payload:null});
     });
-    await page.getByRole('heading', {name:'ChatGPT 已就绪'}).waitFor();
+    await page.getByRole('heading', {name:'ChatGPT 配置'}).waitFor();
     assert.equal(await page.getByRole('tab', {name:'Claude Code'}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
     assert.deepEqual(f.errors, []);
