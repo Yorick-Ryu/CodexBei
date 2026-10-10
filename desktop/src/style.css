@@ -1182,7 +1182,8 @@ dialog:focus {
   opacity: 1;
 }
 .channel-segments[data-channel="official"]::before,
-.channel-segments[data-channel="ws"]::before {
+.channel-segments[data-channel="ws"]::before,
+.channel-segments[data-channel="fast"]::before {
   transform: translateX(var(--channel-option-width));
 }
 .channel-segments[data-channel][aria-disabled="true"]::before {
@@ -1354,6 +1355,7 @@ main[data-channel-updating] select:disabled {
 .modal-body p { line-height: 1.6; overflow-wrap: anywhere; }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; }
 .modal-actions .secondary { min-height: 36px; }
+#official-login-confirm .modal-actions button { min-width: 0; padding-inline: 12px; }
 
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .settings-theme-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 8px; }

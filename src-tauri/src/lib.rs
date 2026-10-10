@@ -264,6 +264,7 @@ async fn choose(
     inspect(tool, state)
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn preview(
     tool: Option<Tool>,
     mapping: Option<claude::Mapping>,
@@ -271,18 +272,20 @@ async fn preview(
     model: String,
     keep_official_login: bool,
     model_channel: Option<ModelChannel>,
+    speed: Option<config::Speed>,
     state: State<'_, AppState>,
 ) -> Result<String> {
     if tool == Some(Tool::Claude) {
         return lock(&state.claude)?.preview(&base_url, &model, &mapping.unwrap_or_default());
     }
     let template = state.service.lock().await.current()?;
-    lock(&state.store)?.preview(
+    lock(&state.store)?.preview_with_speed(
         &base_url,
         &model,
         keep_official_login,
         model_channel,
         &template,
+        speed,
     )
 }
 fn prune_result(store: &Store, mut result: Value) -> Value {
@@ -300,6 +303,7 @@ async fn configure(
     connection: Connection,
     keep_official_login: bool,
     model_channel: Option<ModelChannel>,
+    speed: Option<config::Speed>,
     state: State<'_, AppState>,
 ) -> Result<Value> {
     if tool == Some(Tool::Claude) {
@@ -332,7 +336,13 @@ async fn configure(
     }
     let mut store = lock(&state.store)?;
     store.check_revision(&revision_before)?;
-    let plan = store.prepare(connection, keep_official_login, &template, Some(channel))?;
+    let plan = store.prepare_with_speed(
+        connection,
+        keep_official_login,
+        &template,
+        Some(channel),
+        speed,
+    )?;
     if let Some(catalog) = catalog {
         store.attach_catalog(&plan, &resolved, &catalog)?;
     } else if channel == ModelChannel::Api {
@@ -340,6 +350,17 @@ async fn configure(
     }
     let result = store.apply(&plan)?;
     Ok(prune_result(&store, result))
+}
+#[tauri::command]
+fn switch_speed(
+    tool: Option<Tool>,
+    speed: config::Speed,
+    state: State<'_, AppState>,
+) -> Result<Value> {
+    if tool == Some(Tool::Claude) {
+        return Err("Claude Code 不支持此速度切换。".into());
+    }
+    lock(&state.store)?.switch_speed(speed)
 }
 #[tauri::command]
 fn switch_transport(
@@ -706,6 +727,7 @@ pub fn run() {
             configure,
             switch_channel,
             switch_transport,
+            switch_speed,
             incoming,
             incoming_tool,
             models,

@@ -44,6 +44,25 @@ impl ModelChannel {
     }
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Speed {
+    Standard,
+    Fast,
+}
+
+impl Speed {
+    fn apply(self, doc: &mut DocumentMut) -> Result<()> {
+        match self {
+            Self::Standard => merge(doc.as_item_mut(), &json!({ "service_tier": "default" })),
+            Self::Fast => merge(
+                doc.as_item_mut(),
+                &json!({ "service_tier": "fast", "features": { "fast_mode": true } }),
+            ),
+        }
+    }
+}
+
 fn configuration_channel(doc: &DocumentMut, selected: Option<ModelChannel>) -> ModelChannel {
     if let Some(channel) = selected {
         return channel;
@@ -829,6 +848,7 @@ impl Store {
         }
         Ok(providers::for_read(doc, base_url))
     }
+    #[cfg(test)]
     pub fn preview(
         &self,
         base_url: &str,
@@ -836,6 +856,17 @@ impl Store {
         keep: bool,
         channel: Option<ModelChannel>,
         template: &Json,
+    ) -> Result<String> {
+        self.preview_with_speed(base_url, model, keep, channel, template, None)
+    }
+    pub fn preview_with_speed(
+        &self,
+        base_url: &str,
+        model: &str,
+        keep: bool,
+        channel: Option<ModelChannel>,
+        template: &Json,
+        speed: Option<Speed>,
     ) -> Result<String> {
         let doc = document(read(&self.target(&self.selected)?)?.as_deref())?;
         let channel = configuration_channel(&doc, channel);
@@ -853,8 +884,17 @@ impl Store {
         if channel == ModelChannel::Api {
             value["model_provider"] = json!(provider);
         }
+        if let Some(tier) = doc.get("service_tier").and_then(Item::as_str) {
+            value["service_tier"] = json!(tier);
+        }
+        if let Some(enabled) = item(&doc, &["features", "fast_mode"]).and_then(Item::as_bool) {
+            value["features"]["fast_mode"] = json!(enabled);
+        }
         let mut result = DocumentMut::new();
         merge(result.as_item_mut(), &value)?;
+        if let Some(speed) = speed {
+            speed.apply(&mut result)?;
+        }
         Ok(result.to_string())
     }
     pub fn inspect(&self) -> Result<Json> {
@@ -882,7 +922,7 @@ impl Store {
             "official"
         };
         Ok(
-            json!({ "file": file, "baseUrl": base, "model": selected_model, "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
+            json!({ "file": file, "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
     pub fn configuration_channel(&self, selected: Option<ModelChannel>) -> Result<ModelChannel> {
@@ -891,10 +931,20 @@ impl Store {
     }
     pub fn prepare(
         &mut self,
+        c: Connection,
+        keep: bool,
+        template: &Json,
+        channel: Option<ModelChannel>,
+    ) -> Result<String> {
+        self.prepare_with_speed(c, keep, template, channel, None)
+    }
+    pub fn prepare_with_speed(
+        &mut self,
         mut c: Connection,
         keep: bool,
         template: &Json,
         channel: Option<ModelChannel>,
+        speed: Option<Speed>,
     ) -> Result<String> {
         c.base_url = endpoint(&c.base_url)?;
         c.model = model(&c.model)?;
@@ -924,13 +974,18 @@ impl Store {
         if channel == ModelChannel::Official {
             self.restore_official_catalog(&mut doc)?;
         }
-        let after = patch(
+        let mut after = patch(
             Some(doc.to_string().as_bytes()),
             &c,
             keep,
             template,
             channel,
         )?;
+        if let Some(speed) = speed {
+            let mut configured = document(Some(&after))?;
+            speed.apply(&mut configured)?;
+            after = configured.to_string().into_bytes();
+        }
         let id = Uuid::new_v4().to_string();
         self.plans.clear();
         self.plans.insert(
@@ -1061,6 +1116,29 @@ impl Store {
             result["backupId"] = json!(backup.id);
         }
         Ok(result)
+    }
+    pub fn switch_speed(&mut self, speed: Speed) -> Result<Json> {
+        let file = self.target(&self.selected)?;
+        let before = read(&file)?;
+        let mut doc = document(before.as_deref())?;
+        if doc.get("profile").is_some() {
+            return Err(err("检测到默认 profile，请选择对应的 .config.toml 文件。"));
+        }
+        speed.apply(&mut doc)?;
+        let after = doc.to_string().into_bytes();
+        document(Some(&after))?;
+        if before.as_deref() == Some(after.as_slice()) {
+            return Ok(json!({ "file": file, "changed": false }));
+        }
+        if digest(read(&file)?.as_deref()) != digest(before.as_deref()) {
+            return Err(err(CHANGED));
+        }
+        atomic_write(&file, &after, 0o600)?;
+        if digest(read(&file)?.as_deref()) != digest(Some(&after)) {
+            return Err(err("速度写入后校验失败，请重新读取配置后重试。"));
+        }
+        self.plans.clear();
+        Ok(json!({ "file": file, "changed": true }))
     }
     pub fn switch_transport(&mut self, supports_websockets: bool) -> Result<Json> {
         let file = self.target(&self.selected)?;
@@ -1310,6 +1388,107 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = Store::new(dir.path().join("data"), dir.path().join("config.toml")).unwrap();
         (dir, s)
+    }
+    #[test]
+    fn speed_switch_is_immediate_preserves_edits_and_invalidates_old_plans() {
+        let (_dir, mut s) = store();
+        fs::write(
+            &s.selected,
+            "# keep comment\nother = 'keep'\n[features]\nmulti_agent = false\n",
+        )
+        .unwrap();
+        let c = connection();
+        let stale = s.prepare(c, false, &template(), None).unwrap();
+        assert_eq!(s.switch_speed(Speed::Fast).unwrap()["changed"], true);
+        assert!(s.apply_with_backup(&stale, false).is_err());
+        let saved = fs::read(&s.selected).unwrap();
+        let doc = document(Some(&saved)).unwrap();
+        assert_eq!(doc["service_tier"].as_str(), Some("fast"));
+        assert_eq!(doc["other"].as_str(), Some("keep"));
+        assert_eq!(doc["features"]["fast_mode"].as_bool(), Some(true));
+        assert_eq!(doc["features"]["multi_agent"].as_bool(), Some(false));
+        assert!(doc.to_string().contains("# keep comment"));
+        assert!(doc.get("model_provider").is_none());
+        assert_eq!(s.switch_speed(Speed::Fast).unwrap()["changed"], false);
+        assert_eq!(fs::read(&s.selected).unwrap(), saved);
+        s.switch_speed(Speed::Standard).unwrap();
+        assert_eq!(s.inspect().unwrap()["serviceTier"], "default");
+        assert_eq!(fs::read_dir(s.root.join("backups")).unwrap().count(), 0);
+        for invalid in ["profile = 'work'\n", "features = false\n", "invalid ["] {
+            fs::write(&s.selected, invalid).unwrap();
+            assert!(s.switch_speed(Speed::Fast).is_err());
+            assert_eq!(fs::read_to_string(&s.selected).unwrap(), invalid);
+        }
+    }
+    #[test]
+    fn speed_choices_match_preview_preserve_other_settings_and_can_be_restored() {
+        let (_dir, mut s) = store();
+        let before = "service_tier = 'priority'\n# my config\nother = 'keep'\n\n[features]\nfast_mode = false\nmulti_agent = false\n";
+        fs::write(&s.selected, before).unwrap();
+        let c = connection();
+        assert_eq!(s.inspect().unwrap()["serviceTier"], "priority");
+        for (speed, expected) in [
+            (Speed::Fast, Some("fast")),
+            (Speed::Standard, Some("default")),
+        ] {
+            let shown = s
+                .preview_with_speed(&c.base_url, &c.model, false, None, &template(), Some(speed))
+                .unwrap();
+            let shown = document(Some(shown.as_bytes())).unwrap();
+            assert_eq!(shown.get("service_tier").and_then(Item::as_str), expected);
+            let id = s
+                .prepare_with_speed(c.clone(), false, &template(), None, Some(speed))
+                .unwrap();
+            assert_eq!(fs::read_to_string(&s.selected).unwrap(), before);
+            let saved = s.apply(&id).unwrap();
+            let bytes = read(&s.selected).unwrap().unwrap();
+            let doc = document(Some(&bytes)).unwrap();
+            assert_eq!(doc.get("service_tier").and_then(Item::as_str), expected);
+            assert_eq!(doc["other"].as_str(), Some("keep"));
+            assert_eq!(
+                item(&doc, &["features", "multi_agent"]).and_then(Item::as_bool),
+                Some(false)
+            );
+            assert!(String::from_utf8(bytes.clone())
+                .unwrap()
+                .contains("# my config"));
+            if matches!(speed, Speed::Fast) {
+                assert_eq!(
+                    item(&doc, &["features", "fast_mode"]).and_then(Item::as_bool),
+                    Some(true)
+                );
+                assert_eq!(
+                    item(&shown, &["features", "fast_mode"]).and_then(Item::as_bool),
+                    Some(true)
+                );
+            }
+            s.restore(saved["backupId"].as_str().unwrap(), &digest(Some(&bytes)))
+                .unwrap();
+            assert_eq!(fs::read_to_string(&s.selected).unwrap(), before);
+        }
+    }
+    #[test]
+    fn omitted_speed_preserves_other_tiers_and_invalid_feature_tables_do_not_write() {
+        let (_dir, mut s) = store();
+        let c = connection();
+        fs::write(&s.selected, "service_tier = 'ultrafast'\n").unwrap();
+        let shown = s
+            .preview(&c.base_url, &c.model, false, None, &template())
+            .unwrap();
+        assert_eq!(
+            document(Some(shown.as_bytes())).unwrap()["service_tier"].as_str(),
+            Some("ultrafast")
+        );
+        let id = s.prepare(c.clone(), false, &template(), None).unwrap();
+        s.apply(&id).unwrap();
+        assert_eq!(s.inspect().unwrap()["serviceTier"], "ultrafast");
+        let before = "features = false\n";
+        fs::write(&s.selected, before).unwrap();
+        assert!(s
+            .prepare_with_speed(c, false, &template(), None, Some(Speed::Fast))
+            .is_err());
+        assert_eq!(fs::read_to_string(&s.selected).unwrap(), before);
+        assert!(serde_json::from_value::<Speed>(json!("unsupported")).is_err());
     }
     #[test]
     fn first_configuration_uses_api_even_when_existing_config_is_official() {

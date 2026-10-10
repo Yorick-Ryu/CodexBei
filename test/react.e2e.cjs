@@ -27,6 +27,8 @@ async function fixture(options = {}) {
     mockWindows('main');
     window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: ${JSON.stringify(options.modelChannel || 'api')}, keepOfficialLogin: ${!!options.keepOfficialLogin}, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     const configurationChannel = args => args.modelChannel ?? (window.fixtureState.hasKey && window.fixtureState.baseUrl ? window.fixtureState.modelChannel : 'api');
+    window.fixtureState.serviceTier = ${JSON.stringify(options.serviceTier ?? null)};
+    const configuredTier = args => args.speed === 'fast' ? 'fast' : args.speed === 'standard' ? 'default' : window.fixtureState.serviceTier;
     window.fixtureBackups = [];
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
     window.fixtureClaudeBackups = [];
@@ -121,21 +123,32 @@ async function fixture(options = {}) {
         return window.fixtureOfficialLogin;
       }
       if (cmd === 'preview') {
+        window.fixturePreviewSpeed = args.speed;
         window.fixturePreviewChannel = args.modelChannel ?? null;
         window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
         await new Promise(resolve => setTimeout(resolve, lag));
         if (!args.baseUrl.startsWith('https://')) throw '请输入有效的 HTTPS API 地址。';
-        return 'model_provider = "' + (configurationChannel(args) === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + (window.fixturePreviewExtra || '');
+        const tier = configuredTier(args);
+        const speedPreview = tier == null ? '' : String.fromCharCode(10) + 'service_tier = "' + tier + '"';
+        return 'model_provider = "' + (configurationChannel(args) === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + speedPreview + (window.fixturePreviewExtra || '');
       }
       if (cmd === 'configure') {
+        window.fixtureConfigureSpeed = args.speed;
         window.fixtureConfigureChannel = args.modelChannel ?? null;
         if (window.fixtureConfigureError) throw window.fixtureConfigureError;
         await new Promise(resolve => setTimeout(resolve, window.fixtureConfigureDelay || 80));
         if (args.connection.apiKey === 'invalid') throw '请提供有效的 API 密钥';
-        Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: configurationChannel(args), baseUrl: args.connection.baseUrl, model: args.connection.model, keepOfficialLogin: args.keepOfficialLogin });
+        Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: configurationChannel(args), baseUrl: args.connection.baseUrl, model: args.connection.model, serviceTier: configuredTier(args), keepOfficialLogin: args.keepOfficialLogin });
         window.fixtureBackups.push({ id: 'fixture-id', file: window.fixtureState.file, created: '2026-09-08T06:00:00.000Z', kind: 'configure', existed: false });
         return { backupId: 'fixture-id' };
+      }
+      if (cmd === 'switch_speed') {
+        await new Promise(resolve => setTimeout(resolve, window.fixtureSpeedDelay || 0));
+        if (window.fixtureSpeedError) throw window.fixtureSpeedError;
+        window.fixtureState.serviceTier = configuredTier(args);
+        window.fixtureSpeedSwitch = args.speed;
+        return { changed: true };
       }
       if (cmd === 'switch_transport') {
         await new Promise(resolve => setTimeout(resolve, window.fixtureTransportDelay || 0));
@@ -168,6 +181,97 @@ async function fixture(options = {}) {
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
+test('React: speed switches immediately and remains saved through tabs and configure', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    assert.equal(await page.locator('#speed').isVisible(), true);
+    assert.equal(await page.locator('#settings').getAttribute('data-expanded'), 'false');
+    assert.equal(await page.locator('#speed').evaluate(el => el.closest('.action-options').querySelector('.transport-option').nextElementSibling.contains(el)), true);
+    assert.equal(await page.locator('#speed').getAttribute('data-channel'), 'standard');
+    assert.deepEqual(await page.locator('#speed .channel-segment span').allTextContents(), ['标准', 'Fast']);
+    assert.deepEqual(await page.locator('#speed').evaluate(el => { return [el.getBoundingClientRect().height, getComputedStyle(el).borderRadius]; }), await page.locator('#transport-protocol').evaluate(el => [el.getBoundingClientRect().height, getComputedStyle(el).borderRadius]));
+    await page.locator('#speed .channel-segment:has(input[value=fast]) span').click();
+    await page.waitForFunction(() => window.fixturePreviewSpeed === 'fast' && document.getElementById('preview-code').textContent.includes('service_tier = "fast"'));
+    assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), 'fast');
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    assert.equal(await page.evaluate(() => window.fixtureConfigureSpeed), undefined);
+    await page.locator('#speed').scrollIntoViewIfNeeded();
+    await page.mouse.move(10, 10);
+    await page.locator('#speed').hover();
+    assert.equal(await page.locator('#speed-tooltip').textContent(), '速度');
+    await page.locator('#claude-tab').click();
+    assert.equal(await page.locator('#speed').count(), 0);
+    await page.locator('#codex-tab').click();
+    await page.waitForFunction(() => document.getElementById('speed')?.dataset.channel === 'fast');
+    for (const scheme of ['dark', 'light']) {
+      await chooseTheme(page, scheme === 'dark' ? '石墨灰' : '雾白');
+      for (const width of [600, 460]) {
+        await page.setViewportSize({ width, height: 460 });
+        await page.locator('#speed').scrollIntoViewIfNeeded();
+        await page.waitForTimeout(180);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        const rect = await page.locator('#speed').boundingBox();
+        assert.ok(rect.x >= 0 && rect.x + rect.width <= width);
+        assert.equal(await page.locator('#apply').isVisible(), true);
+        await page.screenshot({ path: path.join(output, `speed-${scheme}-${width}.png`) });
+      }
+    }
+    for (const [speed, tier] of [['fast', 'fast'], ['standard', 'default']]) {
+      await page.locator('#speed .channel-segment:has(input[value=' + speed + ']) span').click();
+      await page.waitForFunction(speed => window.fixturePreviewSpeed === speed && document.getElementById('configure').getAttribute('aria-busy') === 'false', speed);
+      await page.locator('#apply').click();
+      await page.locator('#success-title').waitFor();
+      assert.equal(await page.evaluate(() => window.fixtureConfigureSpeed), speed);
+      assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), tier);
+      await page.locator('#done').click();
+      assert.equal(await page.locator('#speed').getAttribute('data-channel'), speed);
+    }
+    assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(({args}) => Object.hasOwn(args, 'speed'))), false);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+test('React: speed failures retain selection and unsaved edits while pending changes block writes', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.locator('#key').fill('sk-speed-unsaved-fixture');
+    await page.evaluate(() => { window.fixtureSpeedDelay = 200; window.fixtureSpeedError = '速度保存失败'; });
+    await page.locator('#speed .channel-segment:has(input[value=fast]) span').click();
+    await page.waitForFunction(() => document.getElementById('speed').getAttribute('aria-busy') === 'true');
+    assert.equal(await page.locator('#apply').isDisabled(), true);
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('速度保存失败'));
+    assert.equal(await page.locator('#speed').getAttribute('data-channel'), 'standard');
+    assert.equal(await page.locator('#key').inputValue(), 'sk-speed-unsaved-fixture');
+    await page.evaluate(() => { window.fixtureSpeedError = ''; });
+    await page.locator('#speed .channel-segment:has(input[value=fast]) span').click();
+    await page.waitForFunction(() => document.getElementById('speed').dataset.channel === 'fast' && !document.getElementById('apply').disabled);
+    assert.equal(await page.locator('#key').inputValue(), 'sk-speed-unsaved-fixture');
+    assert.equal(await page.evaluate(() => window.fixtureState.apiKey), 'sk-saved-fixture-not-real-key');
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    await page.locator('#speed input[value=fast]').focus();
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForFunction(() => document.getElementById('speed').dataset.channel === 'standard');
+    assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), 'default');
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+test('React: speed reads legacy Fast and preserves an unrecognized current tier', async () => {
+  for (const [tier, selection] of [['priority', 'fast'], ['ultrafast', null]]) {
+    const f = await fixture({ serviceTier: tier }); const { page } = f;
+    try {
+      assert.equal(await page.locator('#speed').getAttribute('data-channel'), selection);
+      if (!selection) {
+        assert.equal(await page.locator('#speed input:checked').count(), 0);
+        await page.locator('#speed').scrollIntoViewIfNeeded();
+        await page.mouse.move(10, 10);
+        await page.locator('#speed').hover();
+        assert.equal(await page.locator('#speed-tooltip').textContent(), '速度');
+        await page.locator('#apply').click();
+        await page.locator('#success-title').waitFor();
+        assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), 'ultrafast');
+      }
+    } finally { await f.close(); }
+  }
+});
 test('React: first API setup and existing official setup share preview and save decisions', async () => {
   for (const configured of [false, true]) {
     const f = await fixture({ savedKey: configured ? 'sk-saved-fixture-not-real-key' : '', modelChannel: 'official', keepOfficialLogin: true });
@@ -686,10 +790,16 @@ test('React: configuration preview scrolls internally and chains to its parent a
       assert.equal(await page.locator('.content-scroll').evaluate(el => el.scrollTop), middle.outer);
       const bottom = await position('bottom');
       await page.locator('#preview-code').hover();
+      // Start a new wheel gesture after moving the scroll position directly.
+      await page.waitForTimeout(400);
+      await page.mouse.wheel(0, 100);
+      // A fractional bottom pixel may consume the first gesture in Chromium.
+      await page.waitForTimeout(400);
       await page.mouse.wheel(0, 100);
       await page.waitForFunction(y => document.querySelector('.content-scroll').scrollTop > y, bottom.outer);
       const top = await position('top');
       await page.locator('#preview-code').hover();
+      await page.waitForTimeout(400);
       await page.mouse.wheel(0, -100);
       await page.waitForFunction(y => document.querySelector('.content-scroll').scrollTop < y, top.outer);
       assert.equal(await page.evaluate(() => scrollY), 0);
@@ -950,23 +1060,23 @@ test('React: provider tooltip leaves no painted shadow after pointer exit', asyn
       await chooseTheme(page, theme);
       for (const width of [600, 460]) {
         await page.setViewportSize({ width, height: 460 });
-        await page.mouse.move(10, 100);
+        await page.mouse.move(10, 10);
         await page.waitForTimeout(160);
         const clip = await page.locator('#model-channel').evaluate(el => {
           const r = el.getBoundingClientRect();
-          const x = Math.max(0, Math.floor(r.left) - 100), y = Math.ceil(r.bottom) + 4;
+          const x = Math.max(0, Math.floor(r.left) - 100), y = Math.ceil(r.bottom) + 6;
           return { x, y, width: Math.min(300, innerWidth - x), height: Math.min(80, innerHeight - y) };
         });
-        const before = await page.screenshot({ clip });
+        const before = await page.screenshot({ clip, animations: 'disabled' });
         for (let i = 0; i < 3; i++) {
           await page.locator('#model-channel').hover();
           assert.equal(await page.getByRole('tooltip').isVisible(), true);
           await page.getByRole('tooltip').hover();
-          await page.mouse.move(10, 100);
+          await page.mouse.move(10, 10);
           assert.equal(await page.getByRole('tooltip').isVisible(), false);
           await page.waitForTimeout(160);
           assert.equal(await page.locator('#provider-tooltip').count(), 0);
-          const after = await page.screenshot({ clip });
+          const after = await page.screenshot({ clip, animations: 'disabled' });
           if (!after.equals(before)) {
             fs.writeFileSync(path.join(output, 'tooltip-shadow-before.png'), before);
             fs.writeFileSync(path.join(output, 'tooltip-shadow-after.png'), after);

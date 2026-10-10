@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 export type Tool = "codex" | "claude";
 export type Mapping = { opus?: string; sonnet?: string; haiku?: string };
+export type Speed = "standard" | "fast";
 export type Inspection = {
   hasOfficialCredentials?: boolean;
   mapping?: Mapping;
@@ -8,6 +9,7 @@ export type Inspection = {
   testMode: boolean;
   baseUrl: string | null;
   model: string | null;
+  serviceTier?: string | null;
   hasKey: boolean;
   apiKey: string;
   modelChannel: "api" | "official";
@@ -83,12 +85,13 @@ export function toolApi(tool: Tool) {
   hasOfficialLogin: () => invoke<boolean>("has_official_login"),
   choose: () => invoke<Inspection>("choose"),
   openConfigFile: () => invoke<void>("open_config_file"),
-  preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official" | undefined, mapping?: Mapping) =>
-    invoke<string>("preview", { baseUrl, model, keepOfficialLogin, modelChannel, mapping }),
-  configure: (connection: Connection, keepOfficialLogin: boolean, mapping?: Mapping, modelChannel?: "api" | "official") =>
-    invoke<Outcome>("configure", { connection, keepOfficialLogin, mapping, modelChannel }),
+  preview: (baseUrl: string, model: string, keepOfficialLogin: boolean, modelChannel: "api" | "official" | undefined, mapping?: Mapping, speed?: Speed) =>
+    invoke<string>("preview", { baseUrl, model, keepOfficialLogin, modelChannel, mapping, ...(tool === "codex" ? { speed } : {}) }),
+  configure: (connection: Connection, keepOfficialLogin: boolean, mapping?: Mapping, modelChannel?: "api" | "official", speed?: Speed) =>
+    invoke<Outcome>("configure", { connection, keepOfficialLogin, mapping, modelChannel, ...(tool === "codex" ? { speed } : {}) }),
   switchChannel: (channel: "api" | "official") =>
     invoke<Outcome>("switch_channel", { channel }),
+  switchSpeed: (speed: Speed) => invoke<Outcome>("switch_speed", { speed }),
   switchTransport: (supportsWebsockets: boolean) =>
     invoke<Outcome>("switch_transport", { supportsWebsockets }),
   incoming: (keepOfficialLogin: boolean) =>

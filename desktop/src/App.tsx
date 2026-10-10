@@ -13,6 +13,7 @@ import {
   incomingTool,
   type Tool,
   type Mapping,
+  type Speed,
   installationLabel,
   type Backup,
   type BackupPreview,
@@ -57,7 +58,13 @@ const displayPath = (path = "") => {
   return path;
 };
 
-type Draft = { apiKey: string; baseUrl: string; model: string; mapping: Mapping; keep: boolean; selectedChannel?: "api" | "official"; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
+const configuredSpeed = (tier?: string | null): Speed | undefined => {
+  if (!tier || tier === "auto") return "standard";
+  if (tier === "fast" || tier === "priority") return "fast";
+  if (tier === "default") return "standard";
+  return undefined;
+};
+type Draft = { apiKey: string; baseUrl: string; model: string; speed?: Speed; mapping: Mapping; keep: boolean; selectedChannel?: "api" | "official"; expanded: boolean; inspection: Inspection; matching: Matching | null; preview: string; previewError: string };
 
 export function App() {
   const drafts = useRef<Partial<Record<Tool, Draft>>>({});
@@ -85,6 +92,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const loadedKey = useRef<{ value: string; baseUrl: string } | null>(null);
   const [baseUrl, setBaseUrl] = useState(initialDraft.current?.baseUrl ?? defaultBase);
   const [model, setModel] = useState(initialDraft.current?.model ?? defaultModel);
+  const [speed, setSpeed] = useState<Speed | undefined>(initialDraft.current?.speed ?? configuredSpeed(initialDraft.current?.inspection.serviceTier));
   const [keep, setKeep] = useState(initialDraft.current?.keep ?? false);
   const [selectedChannel, setSelectedChannel] = useState(initialDraft.current?.selectedChannel);
   const [officialLoginConfirmOpen, setOfficialLoginConfirmOpen] = useState(false);
@@ -94,7 +102,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const [configuring, setConfiguring] = useState(false);
   const [channelSwitching, setChannelSwitching] = useState(false);
   const [transportSwitching, setTransportSwitching] = useState(false);
-  const [actionTooltip, setActionTooltip] = useState<"provider" | "transport" | null>(null);
+  const [speedSwitching, setSpeedSwitching] = useState(false);
+  const [actionTooltip, setActionTooltip] = useState<"provider" | "transport" | "speed" | null>(null);
   const [previewChannel, setPreviewChannel] = useState<string>();
   const [loginPreviewPending, setLoginPreviewPending] = useState(false);
   const [status, setStatus] = useState("");
@@ -188,6 +197,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     loadedKey.current = data.apiKey && data.baseUrl ? { value: data.apiKey, baseUrl: data.baseUrl } : null;
     setBaseUrl(data.baseUrl || defaultBase);
     setModel(data.model || defaultModel);
+    setSpeed(configuredSpeed(data.serviceTier));
     setMapping(Object.fromEntries(Object.entries(data.mapping || {}).filter(([, value]) => value && value !== data.model)));
     setKeep(data.keepOfficialLogin);
     keepRef.current = data.keepOfficialLogin;
@@ -197,6 +207,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setApiKey(draft.apiKey);
       setBaseUrl(draft.baseUrl);
       setModel(draft.model);
+      setSpeed(draft.speed);
       setMapping(draft.mapping);
       setKeep(draft.keep);
       if (draft.inspection.file === data.file) setSelectedChannel(draft.selectedChannel);
@@ -207,8 +218,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       data.platform === "macos" ? "darwin" : data.platform;
   }, [defaultBase, defaultModel]);
   useEffect(() => {
-    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, mapping, keep, selectedChannel, expanded, inspection, matching, preview, previewError };
-  }, [inspection, activeTool, apiKey, baseUrl, model, mapping, keep, selectedChannel, expanded, matching, preview, previewError, drafts]);
+    if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, inspection, matching, preview, previewError };
+  }, [inspection, activeTool, apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, matching, preview, previewError, drafts]);
   const changeBaseUrl = (value: string) => {
     const saved = loadedKey.current;
     if (saved && apiKey === saved.value && value.trim().replace(/\/+$/, "") !== saved.baseUrl.replace(/\/+$/, "")) {
@@ -312,6 +323,24 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       }
     });
   };
+  const switchSpeed = (next: Speed) => {
+    if (next === speed) return;
+    void run(async () => {
+      setSpeedSwitching(true);
+      try {
+        await api.switchSpeed(next);
+        // Only refresh saved state; keep other unsaved form edits.
+        setInspection(await api.inspect());
+        setPreviewPending(true);
+        setSpeed(next);
+        setStatusSuccess(true);
+        setStatus("切换成功，新对话生效");
+        setSuccessNoticeId(value => value + 1);
+      } finally {
+        setSpeedSwitching(false);
+      }
+    });
+  };
   const switchTransport = (supportsWebsockets: boolean) => {
     void run(async () => {
       setTransportSwitching(true);
@@ -389,7 +418,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     // Clearing it here collapses the page and clamps WebKit's scroll position.
     setPreviewPending(true);
     setPreviewError("");
-    void api.preview(baseUrl, model, keep, selectedChannel, mapping).then(
+    void api.preview(baseUrl, model, keep, selectedChannel, mapping, speed).then(
       (value) => {
         if (active) {
           setPreview(value);
@@ -410,7 +439,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     return () => {
       active = false;
     };
-  }, [baseUrl, model, keep, selectedChannel, matching?.template?.digest, inspection?.modelChannel, inspection?.hasKey, inspection?.supportsWebsockets, inspection?.file, mapping, api]);
+  }, [baseUrl, model, speed, keep, selectedChannel, matching?.template?.digest, inspection?.modelChannel, inspection?.hasKey, inspection?.supportsWebsockets, inspection?.file, mapping, api]);
   useEffect(() => {
     if (!waitingForChatgptInstall) return;
     let active = true;
@@ -509,7 +538,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const keyError = page === "config" ? (statusKeyError ? status : isKeyError(modelStatus) ? modelStatus : "") : "";
   const footerStatus = statusKeyError ? "" : status;
   const disabled = busy || !inspection;
-  const channelUpdating = channelSwitching || transportSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
+  const channelUpdating = channelSwitching || transportSwitching || speedSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
   const hasCli = !!matching?.installations.some(item => item.kind === "cli");
@@ -617,6 +646,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             keep,
                             mapping,
                             selectedChannel,
+                            speed,
                           );
                           await completed(result);
                         } finally {
@@ -1015,6 +1045,34 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                               {actionTooltip === "transport" && (
                                 <span id="transport-tooltip" className="channel-tooltip" role="tooltip">
                                   传输协议
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="channel-option speed-option">
+                            <div id="speed" className="channel-segments" data-channel={speed}
+                              role="radiogroup" aria-label="速度" aria-disabled={disabled} aria-busy={speedSwitching}
+                              aria-describedby={actionTooltip === "speed" ? "speed-tooltip" : undefined}
+                              onMouseEnter={() => setActionTooltip("speed")}
+                              onMouseLeave={() => setActionTooltip(null)}
+                              onFocus={() => setActionTooltip("speed")}
+                              onBlur={event => {
+                                if (!event.currentTarget.contains(event.relatedTarget)) setActionTooltip(null);
+                              }}
+                              onKeyDown={event => {
+                                if (event.key === "Escape") setActionTooltip(null);
+                              }}>
+                              {([["standard", "标准"], ["fast", "Fast"]] as const).map(([value, label]) => (
+                                <label className="channel-segment" key={value}>
+                                  <input type="radio" name="speed" value={value} checked={speed === value}
+                                    disabled={disabled}
+                                    onChange={() => switchSpeed(value)} />
+                                  <span>{label}</span>
+                                </label>
+                              ))}
+                              {actionTooltip === "speed" && (
+                                <span id="speed-tooltip" className="channel-tooltip" role="tooltip">
+                                  速度
                                 </span>
                               )}
                             </div>
