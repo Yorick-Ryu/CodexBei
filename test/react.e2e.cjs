@@ -1929,6 +1929,7 @@ test('React: configuration notices appear in dismissible dialogs', async () => {
     const notice = page.locator('#notification-dialog');
     await notice.getByText('响应速度已切换为快速，新对话生效', {exact:true}).waitFor();
     assert.equal(await notice.evaluate(element => element.open), true);
+    assert.equal(await notice.getByRole('button', {name:'知道了',exact:true}).evaluate(el => el.getBoundingClientRect().height), 30);
     await notice.getByRole('button', {name:'知道了',exact:true}).click();
     assert.equal(await notice.evaluate(element => element.open), false);
     await page.evaluate(() => {window.fixtureSpeedError = '速度设置保存失败，请重试。';});

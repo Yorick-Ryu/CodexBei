@@ -1,10 +1,13 @@
 // Browser-only visual fixture. This module is unreachable in production builds.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 mockWindows("main");
-const firstConnection = new URLSearchParams(location.search).get("screen") === "first";
+const previewParams = new URLSearchParams(location.search);
+const missingInstallation = previewParams.get("screen") === "missing";
+const previewPlatform = previewParams.get("platform") === "darwin" ? "darwin" : "windows";
+const firstConnection = previewParams.get("screen") === "first" || missingInstallation;
 let supportsWebsockets = false;
 let connection = { apiKey: firstConnection ? "" : "demo-preview-key", hasKey: !firstConnection, baseUrl: "https://api.beiapi.cn/v1", model: "gpt-6-astra", serviceTier: "default", modelChannel: "api", keepOfficialLogin: false };
-const installations = [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
+const installations = missingInstallation ? [] : [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
 mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
   if (cmd === "incoming_tool") return null;
@@ -18,7 +21,7 @@ mockIPC(async (cmd, raw) => {
   }
   if (cmd === "inspect") return {
     file: "C:\\Users\\Example\\.codex\\config.toml", testMode: true,
-    ...connection, supportsWebsockets, platform: "windows",
+    ...connection, supportsWebsockets, platform: previewPlatform,
   };
   if (cmd === "configure") {
     const next = args.connection as {apiKey:string;baseUrl:string;model:string};
