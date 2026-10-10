@@ -567,6 +567,13 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const connectedToolName = !isClaude && hasCli && !hasDesktop ? "Codex CLI" : selectedTool.name;
   const missingDesktop = !isClaude && !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
   const installerLabel = inspection?.platform === "windows" ? "安装桌面版" : "下载桌面版";
+  const selectedVersion = matching?.selection.mode === "manual"
+    ? matching.selection
+    : matching?.selection.mode === "installed"
+      ? matching.installations.find(item => matching.selection.mode === "installed" && item.id === matching.selection.id)
+      : matching?.installations.find(item => item.kind === "desktop" && item.runtimeVersion)
+        || matching?.installations.find(item => item.runtimeVersion)
+        || matching?.installations[0];
   const needsVersionNotice = !!(matching?.needsSelection || (versionPending && !versionOpen));
   const missingClaude = isClaude && !!matching && !matching.installations.length;
   const showInstallHint = page === "config" && (missingClaude ? !claudeInstallHintDismissed : missingDesktop && hasCli && !installHintDismissed) && !footerStatus && !installerError && !needsVersionNotice;
@@ -946,70 +953,41 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             </div>
                             </div>
                             <p id="file-error" ref={fileErrorRef} className="field-feedback error file-error" role="alert">{fileError}</p>
+                            <div className="version-settings">
+                              {isClaude ? (
+                                <div className="version-setting-row">
+                                  <span>Claude Code 版本</span>
+                                  <span id="version-info" className="version-setting-value">{selectedVersion?.runtimeVersion || "未检测到已安装版本"}</span>
+                                </div>
+                              ) : (
+                                <div className="version-setting-row kernel-version-row">
+                                  <span className="version-setting-label">Codex 版本<FieldInfo label="Codex 版本" description="选择你正在使用的 Codex 版本，用于匹配对应的配置模板并生成兼容配置。桌面版同时显示应用版本和内核版本。" /></span>
+                                  <button type="button" id="change-version" className="version-selection-button"
+                                    disabled={busy} aria-expanded={versionOpen} aria-haspopup="dialog"
+                                    aria-label="选择 Codex 版本" onClick={() => setVersionOpen(true)}>
+                                    <span id="version-info">{selectedVersion ? installationLabel(selectedVersion) : "未检测到已安装版本"}</span><ChevronRightIcon />
+                                  </button>
+                                </div>
+                              )}
+                              {!isClaude && (
+                                <button type="button" id="update-template" className="version-setting-row template-update"
+                                  disabled={busy || versionPending || !matching?.templateUpdateAvailable}
+                                  aria-label={matching?.templateUpdateAvailable ? "更新配置模板，有可用更新" : "更新配置模板"}
+                                  title={matching?.templateUpdateAvailable ? "更新配置模板与预览" : "暂无可用的配置模板更新"}
+                                  onClick={() => void run(async () => setMatching(await api.updateTemplate()))}>
+                                  <span>配置模板</span>
+                                  <span id="preview-version" className="version-setting-value">
+                                    {matching?.offline
+                                      ? `本地 ${matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新`
+                                      : `当前 ${matching?.template ? `v${matching.template.version}` : "未获取"} · 最新 ${matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}`}
+                                    {matching?.templateUpdateAvailable && <span className="template-update-indicator" aria-hidden="true" />}
+                                    <ChevronRightIcon />
+                                  </span>
+                                </button>
+                              )}
+                            </div>
                             <p className="preview-heading">配置预览<FieldInfo label="配置预览" description="查看将要写入的配置，密钥已隐藏。" /></p>
                             <div id="preview" aria-busy={previewPending}>
-                              <div className="preview-meta">
-                                <div className="version-row">
-                                  <span id="version-info" className="connection selected-version">
-                                    {matching?.selection.mode === "manual"
-                                      ? installationLabel(matching.selection)
-                                      : matching?.selection.mode === "installed"
-                                        ? matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")
-                                        : matching?.installations.length
-                                          ? installationLabel(matching.installations.find(v => v.kind === "desktop" && v.runtimeVersion) || matching.installations.find(v => v.runtimeVersion) || matching.installations[0])
-                                          : "未检测到已安装版本"}
-                                  </span>
-                                  {missingDesktop && (
-                                    <button
-                                      type="button"
-                                      className="text-button"
-                                      disabled={openingInstaller}
-                                      onClick={() => void openInstaller()}
-                                    >
-                                      {installerLabel}
-                                    </button>
-                                  )}
-                                  {!isClaude && <button
-                                    type="button"
-                                    id="change-version"
-                                    className="text-button"
-                                    aria-expanded={versionOpen}
-                                    aria-haspopup="dialog"
-                                    disabled={busy}
-                                    onClick={() => setVersionOpen(true)}
-                                  >
-                                    选择 ChatGPT 版本
-                                  </button>}
-                                </div>
-                                {!isClaude && <div className="template-version-row">
-                                  <p id="preview-version" className="preview-version">
-                                    {matching?.offline ? (
-                                      <>本地模板 {matching.latestTemplate ? `v${matching.latestTemplate.version}` : matching.template ? `v${matching.template.version}` : "未获取"} · 暂时无法检查更新</>
-                                    ) : (
-                                      <>配置模板：当前 {matching?.template ? `v${matching.template.version}` : "未获取"}
-                                        {" · 最新 "}{matching?.latestTemplate ? `v${matching.latestTemplate.version}` : "未获取"}</>
-                                    )}
-                                  </p>
-                                  <button
-                                    type="button"
-                                    id="update-template"
-                                    className="text-button template-update"
-                                    disabled={busy || versionPending || !matching?.templateUpdateAvailable}
-                                    aria-label={matching?.templateUpdateAvailable ? "更新配置模板，有可用更新" : "更新配置模板"}
-                                    title={matching?.templateUpdateAvailable ? "更新配置模板与预览" : "暂无可用的配置模板更新"}
-                                    onClick={() =>
-                                      void run(async () =>
-                                        setMatching(await api.updateTemplate()),
-                                      )
-                                    }
-                                  >
-                                    更新配置模板
-                                    {matching?.templateUpdateAvailable && (
-                                      <span className="template-update-dot" aria-hidden="true" />
-                                    )}
-                                  </button>
-                                </div>}
-                              </div>
                               <pre id="preview-code" aria-label="配置预览">
                                 {previewError || preview}
                               </pre>
