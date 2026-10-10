@@ -1035,7 +1035,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                     )}
                   </form>
                 )}
-                {page === "success" && inspection && <QuotaCard inspection={inspection} tool={activeTool} />}
+                {page === "config" && inspection && <QuotaCard inspection={inspection} tool={activeTool} />}
               </section>
             </div>
           ) : (
