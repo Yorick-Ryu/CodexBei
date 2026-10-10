@@ -75,13 +75,7 @@ fn configuration_channel(doc: &DocumentMut, selected: Option<ModelChannel>) -> M
         )
         .and_then(Item::as_str)
         .is_some_and(|value| key(value).is_ok());
-    if configured
-        && doc
-            .get("model_provider")
-            .and_then(Item::as_str)
-            .unwrap_or("openai")
-            == "openai"
-    {
+    if configured && doc.get("model_provider").and_then(Item::as_str) == Some("openai") {
         ModelChannel::Official
     } else {
         ModelChannel::Api
@@ -913,13 +907,10 @@ impl Store {
         let has_key = item(&doc, &[custom[0], custom[1], "experimental_bearer_token"])
             .and_then(Item::as_str)
             .is_some_and(|v| key(v).is_ok());
-        let model_channel = if doc.is_empty()
-            || (provider.is_some()
-                && doc.get("model_provider").and_then(Item::as_str) == provider.as_deref())
-        {
-            "api"
-        } else {
+        let model_channel = if doc.get("model_provider").and_then(Item::as_str) == Some("openai") {
             "official"
+        } else {
+            "api"
         };
         Ok(
             json!({ "file": file, "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
@@ -1204,7 +1195,7 @@ impl Store {
         let current = doc
             .get("model_provider")
             .and_then(Item::as_str)
-            .unwrap_or("openai")
+            .unwrap_or_default()
             .to_owned();
         if channel == "official" {
             self.restore_official_catalog(&mut doc)?;
@@ -1388,6 +1379,57 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = Store::new(dir.path().join("data"), dir.path().join("config.toml")).unwrap();
         (dir, s)
+    }
+    #[test]
+    fn missing_or_unrecognized_provider_defaults_to_api_without_writing() {
+        for configured in [false, true] {
+            for field in [
+                "",
+                "model_provider = ''\n",
+                "model_provider = 'unknown'\n",
+                "model_provider = 42\n",
+                "model_provider = 'custom'\n",
+                "model_provider = 'openai'\n",
+            ] {
+                let (_dir, mut s) = store();
+                let c = connection();
+                let mut doc = DocumentMut::new();
+                if configured {
+                    let plan = s.prepare(c.clone(), false, &template(), None).unwrap();
+                    s.apply_with_backup(&plan, false).unwrap();
+                    doc = document(read(&s.selected).unwrap().as_deref()).unwrap();
+                    doc.remove("model_provider");
+                }
+                doc["model_reasoning_effort"] = toml_edit::value("high");
+                let before = format!("{field}# existing config\n{doc}");
+                fs::write(&s.selected, &before).unwrap();
+                let official = field.contains("'openai'");
+                assert_eq!(
+                    s.inspect().unwrap()["modelChannel"],
+                    if official { "official" } else { "api" }
+                );
+                assert_eq!(
+                    s.configuration_channel(None).unwrap(),
+                    if configured && official {
+                        ModelChannel::Official
+                    } else {
+                        ModelChannel::Api
+                    }
+                );
+                s.preview(&c.base_url, &c.model, false, None, &template())
+                    .unwrap();
+                assert_eq!(fs::read_to_string(&s.selected).unwrap(), before);
+                if !official {
+                    assert_eq!(s.switch_channel("official").unwrap()["changed"], true);
+                    assert_eq!(s.inspect().unwrap()["modelChannel"], "official");
+                    assert_eq!(
+                        document(read(&s.selected).unwrap().as_deref()).unwrap()["model_provider"]
+                            .as_str(),
+                        Some("openai")
+                    );
+                }
+            }
+        }
     }
     #[test]
     fn speed_switch_is_immediate_preserves_edits_and_invalidates_old_plans() {
