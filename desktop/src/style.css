@@ -407,7 +407,7 @@ input::placeholder {
 }
 #key {
   display: block;
-  padding-right: 72px;
+  padding-right: 68px;
   letter-spacing: 1px;
 }
 #key[type="text"] {
