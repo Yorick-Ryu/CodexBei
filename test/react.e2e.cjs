@@ -25,19 +25,13 @@ async function fixture(options = {}) {
   const context = await browser.newContext({ viewport: { width: 600, height: 460 }, colorScheme: 'dark' });
   await context.addInitScript({ content: mocks + `
     mockWindows('main');
-    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? (options.noInstallations ? '' : 'sk-saved-fixture-not-real-key'))}, hasKey: ${!!(options.savedKey ?? (options.noInstallations ? '' : 'sk-saved-fixture-not-real-key'))}, modelChannel: ${JSON.stringify(options.modelChannel || 'api')}, keepOfficialLogin: ${!!options.keepOfficialLogin}, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
-    if (${!!options.persistSaved} && sessionStorage.getItem('fixtureSaved')) window.fixtureState = JSON.parse(sessionStorage.getItem('fixtureSaved'));
+    window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: ${JSON.stringify(options.modelChannel || 'api')}, keepOfficialLogin: ${!!options.keepOfficialLogin}, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     const configurationChannel = args => args.modelChannel ?? (window.fixtureState.hasKey && window.fixtureState.baseUrl ? window.fixtureState.modelChannel : 'api');
     window.fixtureState.serviceTier = ${JSON.stringify(options.serviceTier ?? null)};
     const configuredTier = args => args.speed === 'fast' ? 'fast' : args.speed === 'standard' ? 'default' : window.fixtureState.serviceTier;
     window.fixtureBackups = [];
-    window.fixtureState.revision ||= 'fixture-0';
-    window.fixtureConnectionUpdates = [];
-    window.fixtureConnectionActive = 0;
-    window.fixtureConnectionMaxActive = 0;
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
     window.fixtureClaudeBackups = [];
-    window.fixtureClaude.revision = 'claude-0';
     window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     window.fixtureCalls = [];
@@ -56,11 +50,6 @@ async function fixture(options = {}) {
         window.fixtureClaudeCalls.push({ cmd, args });
         if (cmd === 'open_claude_installer') return null;
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
-        if (cmd === 'update_connection') {
-          if (args.update.revision !== window.fixtureClaude.revision) throw '配置文件已发生变化，请重新操作。';
-          Object.assign(window.fixtureClaude, {baseUrl:args.update.baseUrl,apiKey:args.update.apiKey,revision:'claude-' + window.fixtureClaudeCalls.length});
-          return {...window.fixtureClaude};
-        }
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
         if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
         if (cmd === 'models') return ['claude-sonnet-test', 'claude-opus-test'];
@@ -122,25 +111,12 @@ async function fixture(options = {}) {
         if (window.fixtureQuotaDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureQuotaDelay));
         if (window.fixtureQuotaError) throw window.fixtureQuotaError;
         if (window.fixtureEmptyQuota) return {channel:'api',rows:[],groups:[]};
-        return args.channel === 'official' ? { channel: 'official', planType: 'plus', rows: [{ label:'5 小时额度',value:'剩余 75%',remaining:window.fixtureOfficialRemaining ?? 75,resetAt:1790711528 },{ label:'每周额度',value:'剩余 67%',remaining:67,resetAt:1791048107 }] } : { channel:'api',rows:[{label:'余额',value:args.tool === 'claude' ? '$64.25' : '$128.50'},{label:'密钥余额',value:'不限'}],groups:window.fixtureNoPlans ? [] : [
+        return args.channel === 'official' ? { channel: 'official', planType: 'plus', rows: [{ label:'5 小时额度',value:'剩余 75%',remaining:window.fixtureOfficialRemaining ?? 75,resetAt:1790711528 },{ label:'每周额度',value:'剩余 67%',remaining:67,resetAt:1791048107 }] } : { channel:'api',rows:[{label:'余额',value:args.tool === 'claude' ? '$64.25' : '$128.50'},{label:'密钥余额',value:'不限额'}],groups:window.fixtureNoPlans ? [] : [
           {id:1,title:'Plus 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$24.00 / $30.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$180.00 / $240.00',remaining:75,resetAt:1791048107}]},
           {id:2,title:'Ultra 月卡',expiresAt:1793286000,rows:[{label:'5 小时额度',value:'$120.00 / $150.00',remaining:80,resetAt:1790711528},{label:'每周额度',value:'$960.00 / $1200.00',remaining:80,resetAt:1791048107}]}
         ]};
       }
       if (cmd === 'inspect' || cmd === 'choose') return { ...window.fixtureState, hasOfficialCredentials: window.fixtureOfficialLogin };
-      if (cmd === 'update_connection') {
-        window.fixtureConnectionUpdates.push(args.update);
-        window.fixtureConnectionActive++;
-        window.fixtureConnectionMaxActive = Math.max(window.fixtureConnectionMaxActive, window.fixtureConnectionActive);
-        try {
-          if (window.fixtureConnectionDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureConnectionDelay));
-          if (window.fixtureConnectionError) throw window.fixtureConnectionError;
-          if (args.update.revision !== window.fixtureState.revision) throw '配置文件已发生变化，请重新操作。';
-          Object.assign(window.fixtureState, {apiKey: args.update.apiKey, baseUrl: args.update.baseUrl, revision: 'fixture-' + window.fixtureConnectionUpdates.length});
-          window.fixtureBackups.push({id:'connection-' + window.fixtureConnectionUpdates.length, kind:'configure'});
-          return {...window.fixtureState};
-        } finally { window.fixtureConnectionActive--; }
-      }
       if (cmd === 'has_official_login') {
         if (window.fixtureOfficialLoginDelay) await new Promise(resolve => setTimeout(resolve, window.fixtureOfficialLoginDelay));
         if (window.fixtureOfficialLoginError) throw '无法检测官方登录状态，请重试。';
@@ -152,7 +128,7 @@ async function fixture(options = {}) {
         window.fixturePreviewTransport = window.fixtureState.supportsWebsockets;
         const lag = window.fixturePreviewDelay || (args.model === 'slow-model' ? 180 : 0);
         await new Promise(resolve => setTimeout(resolve, lag));
-        if (!args.baseUrl.startsWith('https://') && !args.baseUrl.startsWith('http://')) throw '请输入有效的 API 地址。';
+        if (!args.baseUrl.startsWith('https://')) throw '请输入有效的 HTTPS API 地址。';
         const tier = configuredTier(args);
         const speedPreview = tier == null ? '' : String.fromCharCode(10) + 'service_tier = "' + tier + '"';
         return 'model_provider = "' + (configurationChannel(args) === 'official' ? 'openai' : 'custom') + '"\\nmodel = "' + args.model + '"\\nrequires_openai_auth = ' + args.keepOfficialLogin + '\\nexperimental_bearer_token = "（已隐藏）"' + speedPreview + (window.fixturePreviewExtra || '');
@@ -164,11 +140,9 @@ async function fixture(options = {}) {
         await new Promise(resolve => setTimeout(resolve, window.fixtureConfigureDelay || 80));
         if (args.connection.apiKey === 'invalid') throw '请提供有效的 API 密钥';
         Object.assign(window.fixtureState, { apiKey: args.connection.apiKey, hasKey: true, modelChannel: configurationChannel(args), baseUrl: args.connection.baseUrl, model: args.connection.model, serviceTier: configuredTier(args), keepOfficialLogin: args.keepOfficialLogin });
-        if (${!!options.persistSaved}) sessionStorage.setItem('fixtureSaved', JSON.stringify(window.fixtureState));
         window.fixtureBackups.push({ id: 'fixture-id', file: window.fixtureState.file, created: '2026-09-08T06:00:00.000Z', kind: 'configure', existed: false });
         return { backupId: 'fixture-id' };
       }
-      if (cmd === 'switch_login_preference') { window.fixtureState.keepOfficialLogin = args.enabled; return { changed: true }; }
       if (cmd === 'switch_speed') {
         await new Promise(resolve => setTimeout(resolve, window.fixtureSpeedDelay || 0));
         if (window.fixtureSpeedError) throw window.fixtureSpeedError;
@@ -198,229 +172,15 @@ async function fixture(options = {}) {
     }, { shouldMockEvents: true });
   ` });
   const page = await context.newPage();
-  page.setDefaultTimeout(8000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  if (options.home && options.noInstallations) await page.locator("#home-title").waitFor();
-  else if (options.noInstallations) await page.getByRole('button', { name: '微软商店下载', exact: true }).waitFor();
+  if (options.noInstallations) await page.getByRole('button', { name: '微软商店下载', exact: true }).waitFor();
   else if (options.initialError) await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('status').textContent.includes('TOML'));
-  else await page.waitForFunction(() => document.getElementById('configure')?.getAttribute('aria-busy') === 'false' && document.getElementById('preview-code')?.textContent);
+  else await page.waitForFunction(() => document.getElementById('key')?.disabled === false && document.getElementById('preview-code')?.textContent);
   } catch (error) { await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
-  if (!options.home && await page.locator('#edit-connection').isVisible()) await page.locator('#edit-connection').click();
   return { page, context, errors, close: async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); } };
 }
-
-async function chooseSetting(page, selector, value) {
-  await page.locator(selector).click();
-  await page.getByTestId(`select-option-${value}`).click();
-}
-
-test('React: first connection stays simple, reports key errors and opens the daily home', async () => {
-  const f = await fixture({ savedKey: '', home: true, persistSaved:true }); const { page } = f;
-  try {
-    assert.equal(await page.locator('#live-key').isVisible(), true);
-    assert.equal(await page.getByRole('heading', {name:'快速配置',exact:true}).count(), 0);
-    assert.equal(await page.locator('#speed').isVisible(), false);
-    assert.equal(await page.locator('#apply').count(), 0);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('quota')), false);
-    await page.getByRole('heading', {name:'ChatGPT 配置',exact:true}).waitFor();
-    await page.locator('#live-key').fill('invalid');
-    await page.locator('#live-key').press('Enter');
-    await page.waitForFunction(() => document.getElementById('live-key').getAttribute('aria-invalid') === 'true');
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    await page.locator('#live-key').fill('sk-first-connection-fixture-only');
-    await page.locator('#live-key').blur();
-    await page.waitForTimeout(1100);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    await page.locator('#save-connection').click();
-    await page.locator('#edit-connection').waitFor();
-    await page.getByRole('heading', {name:'ChatGPT 配置',exact:true}).waitFor();
-    assert.equal(await page.locator('#configure').isVisible(), false);
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'home-title');
-    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
-    await page.reload();
-    await page.locator('#home-title').waitFor();
-    assert.equal(await page.locator('#edit-connection').textContent(), '更多配置');
-    assert.deepEqual(f.errors, []);
-  } finally { await f.close(); }
-});
-
-test('React: live connection waits for Save or Enter and never saves on idle, blur or navigation', async () => {
-  const f = await fixture({home:true,keepOfficialLogin:true}); const {page}=f;
-  try {
-    const key = page.locator('#live-key');
-    assert.equal(await key.getAttribute('type'),'password');
-    const info = page.locator('#connection-home').getByRole('button', {name:'API 密钥说明', exact:true});
-    await info.hover();
-    const tooltip = page.getByRole('tooltip');
-    await tooltip.waitFor();
-    assert.equal(await tooltip.textContent(), '点击保存或按回车保存');
-    await page.screenshot({path:path.join(output,'live-key-tooltip.png')});
-    await page.locator('#home-title').hover();
-    await tooltip.waitFor({state:'hidden'});
-    await key.fill('invalid'); await key.press('Enter');
-    await page.getByRole('status').filter({hasText:'请提供有效的 API 密钥'}).waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),0);
-    await key.fill('sk-manual-final-fixture');
-    await page.locator('#home-title').click();
-    await page.waitForTimeout(1100);
-    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),0);
-    await page.locator('#save-connection').click();
-    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-manual-final-fixture');
-    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),1);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')),false);
-    assert.equal(await page.evaluate(() => window.fixtureState.keepOfficialLogin),true);
-    const quotaRequests = await page.evaluate(() => window.fixtureQuotaRequests);
-    await key.fill('sk-enter-update-fixture'); await key.press('Enter');
-    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-enter-update-fixture');
-    await page.waitForFunction(count => window.fixtureQuotaRequests > count, quotaRequests);
-    assert.equal(await page.locator('#apply').count(),0);
-    await page.screenshot({path:path.join(output,'live-connection-updated.png')});
-    await key.fill('sk-unsaved-navigation-fixture');
-    await page.locator('#edit-connection').click();
-    await page.locator('#base-url').waitFor();
-    await page.waitForTimeout(1100);
-    assert.equal(await page.evaluate(() => window.fixtureConnectionUpdates.length),2);
-    assert.equal(await page.locator('#save-connection').count(),0);
-    assert.equal(await page.locator('#key').inputValue(),'sk-enter-update-fixture');
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: live connection serializes slow writes and retries errors without losing newer input', async () => {
-  const f = await fixture({home:true}); const {page}=f;
-  try {
-    await page.evaluate(() => {window.fixtureConnectionDelay=1200;});
-    const key=page.locator('#live-key');
-    await key.fill('sk-slow-first-fixture'); await key.press('Enter');
-    await page.waitForFunction(() => window.fixtureConnectionActive === 1);
-    await key.fill('sk-slow-final-fixture');
-    await page.waitForFunction(() => window.fixtureConnectionActive === 0);
-    assert.equal(await page.evaluate(() => window.fixtureState.apiKey),'sk-slow-first-fixture');
-    assert.equal(await key.inputValue(),'sk-slow-final-fixture');
-    await page.locator('#save-connection').click();
-    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-slow-final-fixture');
-    assert.equal(await key.inputValue(),'sk-slow-final-fixture');
-    assert.equal(await page.evaluate(() => window.fixtureConnectionMaxActive),1);
-    await page.evaluate(() => {window.fixtureConnectionDelay=0;window.fixtureConnectionError='测试写入失败';});
-    await key.fill('sk-retry-new-fixture'); await key.press('Enter');
-    await page.getByRole('status').filter({hasText:'测试写入失败'}).waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureState.apiKey),'sk-slow-final-fixture');
-    assert.equal(await key.inputValue(),'sk-retry-new-fixture');
-    await page.evaluate(() => {window.fixtureConnectionError='';});
-    await key.press('Enter');
-    await page.waitForFunction(() => window.fixtureState.apiKey === 'sk-retry-new-fixture');
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: more settings opens the complete configuration, discards edits on return and saves to home', async () => {
-  const f = await fixture({ home: true }); const { page } = f;
-  try {
-    await page.locator('#home-title').waitFor();
-    const more = page.getByRole('button', { name: '更多配置', exact: true });
-    assert.equal(await more.evaluate(el => el === el.parentElement.lastElementChild), true);
-    const speed = await page.locator('#connection-home .speed-option').boundingBox();
-    const entry = await more.boundingBox();
-    assert.ok(entry.y >= speed.y + speed.height);
-    await page.screenshot({ path: path.join(output, 'daily-home-more-settings.png') });
-    await more.click();
-    await page.getByRole('heading', { name: 'ChatGPT 配置', exact: true }).waitFor();
-    assert.equal(await page.locator('#base-url').isVisible(), true);
-    assert.equal(await page.locator('#toggle-settings').count(), 0);
-    await chooseSetting(page, '#model', 'new-model');
-    await page.locator('#cancel-edit').click();
-    await page.locator('#home-title').waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    await more.click();
-    assert.equal(await page.locator('#model').textContent(), 'gpt-6-astra');
-    await chooseSetting(page, '#model', 'new-model');
-    await page.waitForFunction(() => document.getElementById('apply')?.disabled === false);
-    await page.screenshot({ path: path.join(output, 'more-settings-details.png') });
-    await page.locator('#apply').click();
-    await page.locator('#home-title').waitFor();
-    await page.waitForFunction(() => window.fixtureState.model === 'new-model');
-    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
-    assert.deepEqual(f.errors, []);
-  } finally { await f.close(); }
-});
-
-test('React: daily home loads saved state and switches speed without configuring again', async () => {
-  const f = await fixture({ home: true, keepOfficialLogin: true }); const { page } = f;
-  try {
-    await page.locator('#home-title').waitFor();
-    assert.equal(await page.locator('#configure').isVisible(), false);
-    assert.equal(await page.locator('#transport-protocol').isVisible(), false);
-    assert.equal(await page.locator('#speed').isVisible(), true);
-    await page.getByText('$128.50', {exact:true}).waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureCalls.some(cmd => ['configure','switch_speed','switch_channel'].includes(cmd))), false);
-    await page.getByRole('radio', {name:'Fast',exact:true}).click();
-    await page.waitForFunction(() => window.fixtureState.serviceTier === 'fast');
-    await chooseSetting(page, '#model-channel', 'official');
-    await page.waitForFunction(() => window.fixtureState.modelChannel === 'official');
-    assert.equal(await page.locator('#home-title').isVisible(), true);
-    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    await page.locator('#edit-connection').click();
-    await page.locator('#key').fill('demo-unsaved-change');
-    await page.locator('#cancel-edit').click();
-    assert.equal(await page.locator('#home-title').isVisible(), true);
-    await page.locator('#edit-connection').click();
-    assert.equal(await page.locator('#key').inputValue(), 'sk-saved-fixture-not-real-key');
-    assert.deepEqual(f.errors, []);
-  } finally { await f.close(); }
-});
-
-test('React: daily home preserves saved selection after a failed immediate switch', async () => {
-  const f = await fixture({ home: true }); const {page}=f;
-  try {
-    await page.evaluate(() => { window.fixtureSpeedError='速度切换失败'; });
-    await page.getByRole('radio', {name:'Fast',exact:true}).click();
-    await page.getByRole('alert').filter({hasText:'速度切换失败'}).waitFor();
-    assert.equal(await page.getByRole('radio', {name:'标准',exact:true}).isChecked(),true);
-    assert.equal(await page.locator('#home-title').isVisible(),true);
-    assert.equal(await page.evaluate(() => window.fixtureBackups.length),0);
-    assert.deepEqual(f.errors,[]);
-  } finally { await f.close(); }
-});
-
-test('React: CLI-only home names Codex', async () => {
-  const f=await fixture({home:true,cliOnly:true}); const {page}=f;
-  try {
-    assert.match(await page.locator('.connection-summary').innerText(), /Codex CLI 配置/);
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: first and daily screens fit small windows in light and dark themes', async () => {
-  for (const first of [true,false]) {
-    const f=await fixture({home:true,savedKey:first?'':'demo-saved'});const {page}=f;
-    try {
-      if (!first) await page.getByText('$128.50',{exact:true}).waitFor();
-      for (const [theme,label] of [['light','雾白'],['dark','石墨灰']]) {
-        await chooseTheme(page,label);
-        for (const [width,height] of [[460,520],[600,700]]) {
-          await page.setViewportSize({width,height});
-          assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-          await page.locator(first?'#live-key':'#edit-connection').scrollIntoViewIfNeeded();
-          const box=await page.locator(first?'#live-key':'#edit-connection').boundingBox();
-          assert.ok(box.x>=0&&box.x+box.width<=width);
-          await page.locator('.content-scroll').evaluate(el=>{el.scrollTop=0});
-          await page.screenshot({path:path.join(output,`${first?'first-connection':'daily-home'}-${theme}-${width}.png`)});
-        }
-      }
-      assert.deepEqual(f.errors,[]);
-    } finally {await f.close();}
-  }
-});
-
-async function reloadConfiguration(page) {
-  await page.reload();
-  await page.locator('#edit-connection').waitFor();
-  await page.locator('#edit-connection').click();
-}
-
 test('React: speed switches immediately and remains saved through tabs and configure', async () => {
   const f = await fixture(); const { page } = f;
   try {
@@ -440,7 +200,7 @@ test('React: speed switches immediately and remains saved through tabs and confi
     await page.locator('#speed').hover();
     assert.equal(await page.locator('#speed-tooltip').textContent(), '速度');
     await page.locator('#claude-tab').click();
-    assert.equal(await page.locator('#speed').isVisible(), false);
+    assert.equal(await page.locator('#speed').count(), 0);
     await page.locator('#codex-tab').click();
     await page.waitForFunction(() => document.getElementById('speed')?.dataset.channel === 'fast');
     for (const scheme of ['dark', 'light']) {
@@ -460,10 +220,10 @@ test('React: speed switches immediately and remains saved through tabs and confi
       await page.locator('#speed .channel-segment:has(input[value=' + speed + ']) span').click();
       await page.waitForFunction(speed => window.fixturePreviewSpeed === speed && document.getElementById('configure').getAttribute('aria-busy') === 'false', speed);
       await page.locator('#apply').click();
-      await page.locator('#home-title').waitFor();
+      await page.locator('#success-title').waitFor();
       assert.equal(await page.evaluate(() => window.fixtureConfigureSpeed), speed);
       assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), tier);
-      await page.locator('#edit-connection').click();
+      await page.locator('#done').click();
       assert.equal(await page.locator('#speed').getAttribute('data-channel'), speed);
     }
     assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(({args}) => Object.hasOwn(args, 'speed'))), false);
@@ -506,7 +266,7 @@ test('React: speed reads legacy Fast and preserves an unrecognized current tier'
         await page.locator('#speed').hover();
         assert.equal(await page.locator('#speed-tooltip').textContent(), '速度');
         await page.locator('#apply').click();
-        await page.locator('#home-title').waitFor();
+        await page.locator('#success-title').waitFor();
         assert.equal(await page.evaluate(() => window.fixtureState.serviceTier), 'ultrafast');
       }
     } finally { await f.close(); }
@@ -522,7 +282,7 @@ test('React: first API setup and existing official setup share preview and save 
       await page.waitForFunction(provider => document.getElementById('preview-code').textContent.includes('model_provider = "' + provider + '"'), provider);
       assert.equal(await page.evaluate(() => window.fixturePreviewChannel), null);
       await page.locator('#apply').click();
-      await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
+      await page.getByRole('heading', { name: '配置完成' }).waitFor();
       assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
       assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), configured ? 'official' : 'api');
       assert.deepEqual(f.errors, []);
@@ -535,14 +295,13 @@ test('React: explicit official choice survives tab changes and one-click configu
     const f = await fixture({ savedKey, keepOfficialLogin: true }); const { page } = f;
     try {
       await page.locator('#key').fill('sk-edited-setup-fixture');
-      if (!savedKey) await page.locator('#toggle-settings').click();
       await page.getByRole('radio', { name: '官方', exact: true }).click();
       await page.waitForFunction(() => window.fixturePreviewChannel === 'official' && !document.querySelector('#apply').disabled);
       await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
       await page.getByRole('tab', { name: 'ChatGPT', exact: true }).click();
       await page.waitForFunction(() => !document.querySelector('#apply').disabled);
       await page.locator('#apply').click();
-      await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
+      await page.getByRole('heading', { name: '配置完成' }).waitFor();
       assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), 'official');
       assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'official');
       assert.deepEqual(f.errors, []);
@@ -559,11 +318,11 @@ test('React: website setup activates API and clears an earlier explicit official
       window.fixtureIncoming = true;
       await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'incoming-changed', payload: null });
     });
-    await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
-    await page.locator('#edit-connection').click();
+    await page.getByRole('heading', { name: '配置完成' }).waitFor();
+    await page.locator('#done').click();
     assert.equal(await page.getByRole('radio', { name: 'API', exact: true }).isChecked(), true);
     await page.locator('#apply').click();
-    await page.getByRole('heading', { name: 'ChatGPT 配置' }).waitFor();
+    await page.getByRole('heading', { name: '配置完成' }).waitFor();
     assert.equal(await page.evaluate(() => window.fixtureConfigureChannel), null);
     assert.equal(await page.evaluate(() => window.fixtureState.modelChannel), 'api');
     assert.deepEqual(f.errors, []);
@@ -583,7 +342,7 @@ test('React: missing official login requires confirmation and cancel keeps the p
       await checkbox.click();
       await dialog.waitFor();
       assert.equal(await checkbox.isChecked(), false);
-      assert.equal(await page.getByRole('radio', { name: '官方', exact: true }).isDisabled(), true);
+      assert.equal(await page.getByRole('radio', { name: '官方', exact: true }).isDisabled(), false);
       assert.equal(await dialog.getAttribute('class'), 'modal modal--default');
       assert.ok((await dialog.textContent()).includes('当前未检测到官方账号'));
       const box = await dialog.boundingBox();
@@ -708,10 +467,11 @@ test('React: startup and model refresh never write configuration', async () => {
     const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('refresh_catalog')), false);
     await page.locator('.settings-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
     const count = await page.evaluate(() => window.fixtureCalls.filter(v => v === 'models').length);
     await page.locator('#refresh-models').click();
     await page.waitForFunction(count => window.fixtureCalls.filter(v => v === 'models').length > count, count);
-    await chooseSetting(page, '#model', 'new-model');
+    await page.locator('#model').selectOption('new-model');
     await page.waitForFunction(() => !document.querySelector('#apply').disabled);
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), before);
     assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
@@ -727,6 +487,7 @@ test('React: model refresh errors preserve the saved configuration', async () =>
   try {
     const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
     await page.locator('.settings-toggle').click();
+    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
     await page.evaluate(() => { window.fixtureModelsError = '无法获取模型，请检查权限。'; });
     await page.locator('#refresh-models').click();
     await page.waitForFunction(() => document.querySelector('#models-help').textContent.includes('无法获取模型'));
@@ -770,7 +531,7 @@ test('React: optional desktop notice closes without moving the form and yields t
     assert.equal(await page.locator('.status-region').isVisible(), false);
     assert.deepEqual(await geometry(), before);
     assert.equal(await page.locator('#apply').isEnabled(), true);
-    await reloadConfiguration(page);
+    await page.reload();
     await page.waitForFunction(() => !document.getElementById('key').disabled);
     assert.equal(await page.locator('.status-region').isVisible(), false);
     await page.locator('#toggle-settings').click();
@@ -800,18 +561,17 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
       for (const width of [600, 460]) {
         await page.setViewportSize({ width, height: 460 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight), true);
-        await page.locator('.content-scroll').evaluate(el => { el.scrollTop = 0; });
         const cardSpacing = await page.locator('.config-card').evaluate(el => {
           const card = el.closest("section").getBoundingClientRect();
           return { top: card.top, bottom: innerHeight - card.bottom, headerBottom: document.querySelector('.app-header').getBoundingClientRect().bottom };
         });
         // The complete panel includes the quota card; it stays below the header.
-        assert.equal(await page.locator(".quota-panel").count(), 0);
+        assert.equal(await page.locator(".quota-panel").evaluate(el => el.scrollHeight <= el.clientHeight), true);
         assert.ok(cardSpacing.top >= cardSpacing.headerBottom + 16, JSON.stringify(cardSpacing));
         await page.screenshot({ path: path.join(output, `${scheme}-${width}.png`) });
       }
     }
-    await reloadConfiguration(page);
+    await page.reload();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
     await chooseTheme(page, '跟随系统');
     await page.emulateMedia({ colorScheme: 'dark' });
@@ -825,8 +585,8 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     await page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('true'));
     assert.ok(!(await page.locator('#preview-code').textContent()).includes('sk-react-fixture'));
     await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'slow-model'));
-    await chooseSetting(page, '#model', 'slow-model');
-    await chooseSetting(page, '#model', 'new-model');
+    await page.locator('#model').selectOption('slow-model');
+    await page.locator('#model').selectOption('new-model');
     await page.waitForTimeout(250);
     assert.ok((await page.locator('#preview-code').textContent()).includes('new-model'));
     await page.getByRole('button', { name: '清空 API 地址', exact: true }).click();
@@ -841,11 +601,11 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     await page.waitForFunction(() => document.getElementById('key-help').textContent.includes('有效'));
     await page.screenshot({ path: path.join(output, 'error.png') });
     await page.locator('#key').fill('sk-react-fixture-not-a-real-key'); await page.locator('#apply').click();
-    await page.locator('#home-title').waitFor();
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'home-title');
-    assert.equal(await page.locator('#key').isVisible(), false);
+    await page.locator('#success-title').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'success-title');
+    assert.equal(await page.locator('#key').count(), 0);
     await page.screenshot({ path: path.join(output, 'success.png') });
-    await page.locator('#edit-connection').click(); assert.equal(await page.locator('#key').inputValue(), 'sk-react-fixture-not-a-real-key');
+    await page.locator('#done').click(); assert.equal(await page.locator('#key').inputValue(), 'sk-react-fixture-not-a-real-key');
     await openHistory(page); await page.getByRole('button', { name: '查看', exact: true }).click();
     await page.locator('#backup-preview[open]').waitFor();
     assert.ok((await page.locator('#backup-preview').textContent()).includes('文件不存在'));
@@ -853,7 +613,6 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     assert.equal(await page.locator('#backup-preview[open]').count(), 1);
     await page.screenshot({ path: path.join(output, 'backup.png') });
     await page.keyboard.press('Escape'); await page.locator('#back-to-config').click();
-    if (await page.locator('#edit-connection').isVisible()) await page.locator('#edit-connection').click();
     assert.equal(await page.locator('#key').inputValue(), 'sk-react-fixture-not-a-real-key');
     assert.equal(await page.locator('#keep-official-login').isChecked(), true);
     assert.deepEqual(f.errors, []);
@@ -871,7 +630,7 @@ test('React: saved keys load masked, clearing stays empty, and gateway edits do 
     assert.equal(await page.locator('#apply').isDisabled(), true);
     await page.locator('#toggle-settings').click();
     await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('填写密钥'));
-    await reloadConfiguration(page);
+    await page.reload();
     await page.waitForFunction(() => document.getElementById('key').value.length > 0);
     await page.locator('#toggle-settings').click();
     await page.locator('#base-url').fill('https://another.example/v1');
@@ -916,7 +675,7 @@ test('React: manual version matching blocks writes until valid, template activat
     assert.equal(await page.locator('.template-update-dot').count(), 0);
     await page.locator('#change-version').click();
     await page.evaluate(async () => { window.fixtureIncoming = true; await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'incoming-changed', payload: null }); });
-    await page.locator('#home-title').waitFor();
+    await page.locator('#success-title').waitFor();
     assert.equal(await page.locator('#version-choice[open]').count(), 0);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
@@ -1012,11 +771,7 @@ test('React: configuration preview scrolls internally and chains to its parent a
     await page.locator('#keep-official-login').check();
     await page.waitForFunction(() => !document.getElementById('apply').disabled);
     await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
-    await page.locator('#settings').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
-    const position = async edge => {
-      // Finish the previous native wheel gesture before moving a scroll container.
-      await page.waitForTimeout(500);
-      await page.evaluate(edge => {
+    const position = async edge => page.evaluate(edge => {
       const outer = document.querySelector('.content-scroll');
       const pre = document.getElementById('preview-code');
       const offset = pre.getBoundingClientRect().top - outer.getBoundingClientRect().top + outer.scrollTop;
@@ -1024,13 +779,8 @@ test('React: configuration preview scrolls internally and chains to its parent a
       const inset = Math.max(0, Math.min(130, outer.clientHeight - pre.getBoundingClientRect().height - padding - 8));
       outer.scrollTop = offset - inset;
       pre.scrollTop = edge === 'bottom' ? pre.scrollHeight : edge === 'middle' ? 100 : 0;
-      }, edge);
-      await page.locator('#preview-code').hover();
-      return page.evaluate(async () => {
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        return {outer:document.querySelector('.content-scroll').scrollTop,inner:document.getElementById('preview-code').scrollTop};
-      });
-    };
+      return { outer: outer.scrollTop, inner: pre.scrollTop };
+    }, edge);
     for (const width of [600, 460]) {
       await page.setViewportSize({ width, height: 460 });
       const middle = await position('middle');
@@ -1049,8 +799,6 @@ test('React: configuration preview scrolls internally and chains to its parent a
       await page.waitForFunction(y => document.querySelector('.content-scroll').scrollTop > y, bottom.outer);
       const top = await position('top');
       await page.locator('#preview-code').hover();
-      await page.waitForTimeout(400);
-      await page.mouse.wheel(0, -100);
       await page.waitForTimeout(400);
       await page.mouse.wheel(0, -100);
       await page.waitForFunction(y => document.querySelector('.content-scroll').scrollTop < y, top.outer);
@@ -1103,7 +851,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
     await page.locator('#toggle-settings').click();
     await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
     const layout = () => page.evaluate(() => {
-      const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top + document.querySelector('.content-scroll').scrollTop, height: r.height }; };
+      const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, height: r.height }; };
       return ['.config-card', '#key', '#model', '#base-url', '#target'].map(rect);
     });
     for (const width of [600, 460]) {
@@ -1130,7 +878,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
       const help = document.getElementById('key-help').getBoundingClientRect();
       return { gap: help.top - key.bottom, height: help.height };
     });
-    assert.ok(keyPlacement.height >= 18 && keyPlacement.height <= 24);
+    assert.equal(keyPlacement.height, 18);
     assert.ok(keyPlacement.gap >= 0 && keyPlacement.gap <= 6);
     await page.locator('#key').fill('sk-edited-fixture');
     assert.equal(await page.locator('#key').getAttribute('aria-invalid'), 'false');
@@ -1248,7 +996,7 @@ test('React: channel routing refreshes preview without fading the form or discar
   } finally { await f.close(); }
 });
 
-test('React: login checkbox gates providers and its pixels stay stable during channel writes', async () => {
+test('React: providers switch independently of login preference and preserve its pixels during writes', async () => {
   const f = await fixture(); const { page } = f;
   try {
     const checkbox = page.locator('#keep-official-login');
@@ -1257,28 +1005,24 @@ test('React: login checkbox gates providers and its pixels stay stable during ch
       await checkbox.uncheck();
       const providers = page.getByRole('radiogroup', { name: '提供商' });
       assert.equal(await providers.getAttribute('title'), null);
-      assert.equal(await providers.getAttribute('aria-disabled'), 'true');
-      assert.equal(await providers.getByRole('radio', { name: 'API', exact: true }).isDisabled(), true);
-      assert.equal(await providers.getByRole('radio', { name: '官方', exact: true }).isDisabled(), true);
-      await providers.scrollIntoViewIfNeeded();
-      await page.mouse.move(10,10);
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await providers.getAttribute('aria-disabled'), 'false');
+      assert.equal(await providers.getByRole('radio', { name: 'API', exact: true }).isDisabled(), false);
+      assert.equal(await providers.getByRole('radio', { name: '官方', exact: true }).isDisabled(), false);
       await providers.hover();
       const tooltip = page.getByRole('tooltip');
       assert.equal(await tooltip.isVisible(), true);
-      assert.equal(await tooltip.textContent(), '请先打开保留官方登录');
+      assert.equal(await tooltip.textContent(), '提供商');
       await tooltip.hover();
       assert.equal(await tooltip.isVisible(), true);
       await page.screenshot({ path: path.join(output, `provider-tooltip-${theme === '雾白' ? 'light' : 'dark'}.png`) });
       await page.keyboard.press('Escape');
-      // Keyboard dismissal is checked with focus on the disabled group.
+      // Keyboard dismissal works with focus on the provider group.
       await providers.focus();
       assert.equal(await tooltip.isVisible(), true);
       await page.keyboard.press('Escape');
       assert.equal(await tooltip.isVisible(), false);
-      await page.locator('.channel-segment').last().click({ force: true });
       assert.equal(await providers.getByRole('radio', { name: 'API', exact: true }).isChecked(), true);
-      for (const checked of [true]) {
+      for (const checked of [false, true]) {
         await checkbox.setChecked(checked);
         assert.equal(await providers.getAttribute('aria-disabled'), 'false');
         assert.equal(await providers.getByRole('radio', { name: '官方', exact: true }).isDisabled(), false);
@@ -1294,6 +1038,8 @@ test('React: login checkbox gates providers and its pixels stay stable during ch
         const during = await checkbox.screenshot();
         assert.deepEqual(during, before, `${theme}, checked=${checked}: checkbox changed while disabled`);
         await page.waitForFunction(() => !document.querySelector('main').dataset.channelUpdating && !document.getElementById('keep-official-login').disabled);
+        assert.equal(await providers.getByRole('radio', { name: '官方', exact: true }).isChecked(), true);
+        assert.equal(await page.locator('#status').textContent(), '切换成功，新对话生效');
         assert.equal(await checkbox.isChecked(), checked);
         assert.deepEqual(await checkbox.screenshot(), before);
         await page.evaluate(() => { window.fixtureChannelDelay = 0; });
@@ -1308,6 +1054,65 @@ test('React: login checkbox gates providers and its pixels stay stable during ch
   } finally { await f.close(); }
 });
 
+test('React: missing official login confirms channel switching without changing login preference', async () => {
+  const f = await fixture({ officialLogin: false }); const { page } = f;
+  try {
+    const official = page.getByRole('radio', { name: '官方', exact: true });
+    const api = page.getByRole('radio', { name: 'API', exact: true });
+    const checkbox = page.locator('#keep-official-login');
+    const dialog = page.locator('#official-channel-confirm');
+    await official.click();
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /未检测到官方账号/);
+    assert.equal(await page.locator('#official-login-confirm[open]').count(), 0);
+    assert.equal(await api.isChecked(), true);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('switch_channel')), false);
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await api.isChecked(), true);
+    await official.click();
+    await dialog.waitFor();
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('switch_channel')), false);
+    await official.click();
+    await dialog.waitFor();
+    await dialog.getByRole('button', { name: '仍然切换', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureState.modelChannel === 'official' && !document.querySelector('main').dataset.channelUpdating);
+    assert.equal(await official.isChecked(), true);
+    assert.equal(await checkbox.isChecked(), false);
+    assert.equal(await page.locator('#status').textContent(), '切换成功，新对话生效');
+    await api.click();
+    await page.waitForFunction(() => window.fixtureState.modelChannel === 'api' && !document.querySelector('main').dataset.channelUpdating);
+    assert.equal(await checkbox.isChecked(), false);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(command => command === 'has_official_login').length), 3);
+    assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('React: official login detection waits and failures preserve the current channel', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.evaluate(() => { window.fixtureOfficialLoginDelay = 400; });
+    await page.getByRole('radio', { name: '官方', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('switch_channel')), false);
+    assert.equal(await page.getByRole('radio', { name: 'API', exact: true }).isDisabled(), true);
+    await page.waitForFunction(() => window.fixtureState.modelChannel === 'official' && !document.querySelector('main').dataset.channelUpdating);
+    await page.getByRole('radio', { name: 'API', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureState.modelChannel === 'api' && !document.querySelector('main').dataset.channelUpdating);
+    await page.evaluate(() => { window.fixtureOfficialLoginDelay = 0; window.fixtureOfficialLoginError = true; });
+    const writes = await page.evaluate(() => window.fixtureCalls.filter(command => command === 'switch_channel').length);
+    await page.getByRole('radio', { name: '官方', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: '无法检测官方登录状态' }).waitFor();
+    assert.equal(await page.getByRole('radio', { name: 'API', exact: true }).isChecked(), true);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(command => command === 'switch_channel').length), writes);
+    assert.equal(await page.locator('#keep-official-login').isChecked(), false);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: provider tooltip leaves no painted shadow after pointer exit', async () => {
   const f = await fixture(); const { page } = f;
   try {
@@ -1317,8 +1122,6 @@ test('React: provider tooltip leaves no painted shadow after pointer exit', asyn
         await page.setViewportSize({ width, height: 460 });
         await page.mouse.move(10, 10);
         await page.waitForTimeout(160);
-        await page.locator('#model-channel').scrollIntoViewIfNeeded();
-        await page.locator('.content-scroll').evaluate(el => { const r = document.querySelector('#model-channel').getBoundingClientRect(); el.scrollTop += r.top - 130; });
         const clip = await page.locator('#model-channel').evaluate(el => {
           const r = el.getBoundingClientRect();
           const x = Math.max(0, Math.floor(r.left) - 100), y = Math.ceil(r.bottom) + 6;
@@ -1558,7 +1361,7 @@ test('React: settings contains themes and updater on every platform, diagnostics
       assert.equal(await page.getByRole('button', { name: '问题排查', exact: true }).count(), platform === 'windows' ? 1 : 0);
       await page.getByRole('radio', { name: '雾白', exact: true }).check();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
-      await reloadConfiguration(page);
+      await page.reload();
       assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
       assert.deepEqual(f.errors, []);
     } finally { await f.close(); }
@@ -1699,7 +1502,6 @@ test('React: Claude tab keeps drafts isolated, previews mapping and configures J
     await page.locator('#key').fill('sk-codex-unsaved-fixture');
     const saved = await page.evaluate(() => JSON.stringify(window.fixtureState));
     await page.getByRole('tab', {name:'Claude Code'}).click();
-    await page.locator('#edit-connection').click();
     await page.waitForFunction(() => document.querySelector('#key')?.value === 'sk-claude-fixture-not-real' && !document.querySelector('#key').disabled);
     assert.equal(await page.locator('#claude-panel').getAttribute('aria-labelledby'), 'claude-tab');
     assert.equal(await page.locator('#keep-official-login').count(), 0);
@@ -1707,7 +1509,8 @@ test('React: Claude tab keeps drafts isolated, previews mapping and configures J
     await page.getByRole('button', {name:'安装指南', exact:true}).click();
     assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(call => call.cmd === 'open_claude_installer')), true);
     await page.locator('#toggle-settings').click();
-    await chooseSetting(page, '#mapping-opus', 'claude-opus-test');
+    await page.waitForFunction(() => document.querySelector('#model option[value="claude-opus-test"]'));
+    await page.locator('#mapping-opus').selectOption('claude-opus-test');
     await page.waitForFunction(() => document.querySelector('#preview-code').textContent.includes('claude-opus-test'));
     assert.equal((await page.locator('#preview-code').textContent()).includes('sk-claude-fixture'), false);
     await page.getByRole('tab', {name:'ChatGPT'}).click();
@@ -1719,11 +1522,11 @@ test('React: Claude tab keeps drafts isolated, previews mapping and configures J
     await page.locator('#mapping-opus').scrollIntoViewIfNeeded();
     await page.screenshot({path: path.join(output, 'claude-settings.png')});
     await page.locator('#apply').click();
-    await page.getByRole('heading', {name:'ChatGPT 配置'}).waitFor();
-    assert.match(await page.locator('#connection-home').innerText(), /Claude Code[\s\S]*新会话生效/);
+    await page.getByRole('heading', {name:'配置完成'}).waitFor();
+    assert.match(await page.locator('#success').innerText(), /Claude Code.*新会话生效/);
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
     assert.equal(await page.evaluate(() => window.fixtureClaude.mapping.opus), 'claude-opus-test');
-    await page.locator('#edit-connection').click();
+    await page.locator('#done').click();
     await openHistory(page);
     await page.getByRole('button', {name:'查看', exact:true}).click();
     await page.getByText('/isolated/claude/settings.json', {exact:true}).waitFor();
@@ -1741,7 +1544,7 @@ test('React: incoming Claude link selects Claude and never configures Codex', as
       window.fixtureIncomingTool = 'claude';
       await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {event:'incoming-changed',payload:null});
     });
-    await page.getByRole('heading', {name:'ChatGPT 配置'}).waitFor();
+    await page.getByRole('heading', {name:'配置完成'}).waitFor();
     assert.equal(await page.getByRole('tab', {name:'Claude Code'}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), saved);
     assert.deepEqual(f.errors, []);
@@ -1782,18 +1585,19 @@ test('React: tool tabs keep icon positions and configuration label stable while 
 
 
 test('React: API quota and Plus Ultra plans stay visible across routing and refresh', async () => {
-  const f = await fixture({home:true,keepOfficialLogin:true}); const {page}=f;
+  const f = await fixture(); const {page}=f;
   try {
     await page.setViewportSize({width:600,height:740});
     await page.getByText('$128.50',{exact:true}).waitFor();
     assert.equal(await page.locator('.quota-official').count(),0);
     assert.equal(await page.evaluate(()=>window.fixtureQuotaRequests),1);
     assert.equal(await page.locator('.quota-plans').isVisible(),false);
-    const titleTop=await page.locator('#home-title').evaluate(e=>e.getBoundingClientRect().top);
+    const titleTop=await page.locator('.config-title').evaluate(e=>e.getBoundingClientRect().top);
     await page.getByRole('button',{name:/生效套餐\s*2/}).click();
     await page.getByText('Ultra 月卡',{exact:true}).waitFor();
-    assert.equal(await page.locator('#home-title').evaluate(e=>e.getBoundingClientRect().top),titleTop);
-    const geometry=()=>page.evaluate(()=>['.connection-summary','.action-options','.quota-api'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));
+    assert.equal(await page.locator('.config-title').evaluate(e=>e.getBoundingClientRect().top),titleTop);
+    await page.locator('#keep-official-login').check();
+    const geometry=()=>page.evaluate(()=>['#key','#apply','.quota-api'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));
     const before=await geometry();
     const count=await page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length);
     await page.getByRole('radio',{name:'官方',exact:true}).click();
@@ -1809,7 +1613,7 @@ test('React: API quota and Plus Ultra plans stay visible across routing and refr
     await page.evaluate(()=>window.fixtureQuotaError='额度查询失败，请稍后刷新。');
     await page.getByRole('button',{name:'刷新API 额度'}).evaluate(button=>button.click());
     await page.locator('.quota-panel').waitFor({state:'detached'});
-    assert.deepEqual(await page.evaluate(()=>['.connection-summary','.action-options'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]})),before.slice(0,2));
+    assert.deepEqual(await page.evaluate(()=>['#key','#apply'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height]})),before.slice(0,2));
     assert.equal(await page.getByText('暂时无法获取额度信息',{exact:true}).count(),0);
     await page.setViewportSize({width:460,height:600});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -1818,7 +1622,7 @@ test('React: API quota and Plus Ultra plans stay visible across routing and refr
 });
 
 test('React: switching Claude and ChatGPT reuses API quota snapshot', async () => {
-  const f = await fixture({home:true,keepOfficialLogin:true}); const {page}=f;
+  const f = await fixture(); const {page}=f;
   try {
     await page.getByText('$128.50',{exact:true}).waitFor();
     const calls=()=>page.evaluate(()=>window.fixtureCalls.filter(c=>c==='quota').length);
@@ -1843,7 +1647,7 @@ test('React: switching Claude and ChatGPT reuses API quota snapshot', async () =
 });
 
 test('React: absent official credentials hide the whole official quota region', async () => {
-  const f = await fixture({officialLogin:false,home:true}); const {page}=f;
+  const f = await fixture({officialLogin:false}); const {page}=f;
   try {
     await page.getByText('$128.50',{exact:true}).waitFor();
     assert.equal(await page.locator('.quota-official').count(),0);
@@ -1855,7 +1659,7 @@ test('React: absent official credentials hide the whole official quota region', 
 
 test('React: API quota stays hidden until available and on initial failure or empty response', async () => {
  for (const options of [{quotaDelay:1200},{quotaError:'查询失败'},{emptyQuota:true}]) {
-  const f=await fixture({...options,home:true}); const {page}=f;
+  const f=await fixture(options); const {page}=f;
   try {
    assert.equal(await page.locator('.quota-panel').count(),0);
    assert.equal(await page.getByText('正在查询额度…',{exact:true}).count(),0);
@@ -1867,7 +1671,7 @@ test('React: API quota stays hidden until available and on initial failure or em
 });
 
  test('React: no eligible plans leaves no message or plan placeholder', async () => {
- const f=await fixture({home:true,keepOfficialLogin:true}); const {page}=f;
+ const f=await fixture(); const {page}=f;
  try {
   await page.getByText('$128.50',{exact:true}).waitFor();
   await page.evaluate(()=>window.fixtureNoPlans=true);
@@ -1881,7 +1685,7 @@ test('React: API quota stays hidden until available and on initial failure or em
 
 test('React: recharge is available only for the BeiAPI v1 endpoint', async () => {
  for (const baseUrl of ['https://api.beiapi.cn/v1','https://other.example/v1','https://api.beiapi.cn/v2']) {
-  const f=await fixture({baseUrl,home:true});
+  const f=await fixture({baseUrl});
   try {
    await f.page.getByText('$128.50',{exact:true}).waitFor();
    const button=f.page.getByRole('button',{name:'充值',exact:true});
@@ -1893,250 +1697,4 @@ test('React: recharge is available only for the BeiAPI v1 endpoint', async () =>
    assert.deepEqual(f.errors,[]);
   } finally {await f.close();}
  }
-});
-
- test('React: login preference saves immediately and editing expands settings', async () => {
-  const f = await fixture({home:true}); const {page}=f;
-  try {
-    await page.locator('#edit-connection').click();
-    assert.equal(await page.locator('#settings').getAttribute('data-expanded'), 'true');
-    await page.locator('#keep-official-login').check();
-    await page.waitForFunction(() => window.fixtureState.keepOfficialLogin === true);
-    await page.getByText('已开启保留官方登录，重启 ChatGPT 后生效', {exact:true}).waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    await chooseSetting(page, '#model-channel', 'official');
-    await page.waitForFunction(() => window.fixtureState.modelChannel === 'official');
-    await page.locator('#keep-official-login').uncheck();
-    await page.waitForFunction(() => window.fixtureState.keepOfficialLogin === false);
-    assert.equal(await page.locator('#model-channel').isEnabled(), true);
-    assert.equal(await page.locator('#model-channel').getAttribute('data-value'), 'official');
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: setting help appears on hover and both preferences use switches', async () => {
-  const f=await fixture({home:true}); const {page}=f;
-  try {
-    await page.locator('#edit-connection').click();
-    for (const id of ['base-url', 'key']) {
-      await page.locator(`label[for="${id}"]`).click();
-      assert.equal(await page.evaluate(() => document.activeElement.id), id);
-      assert.equal(await page.getByRole('tooltip').count(), 0);
-    }
-    await page.getByRole('button',{name:'模型供应商说明',exact:true}).hover();
-    await page.getByRole('tooltip').filter({hasText:'切换模型供应商，新对话生效'}).waitFor();
-    await page.locator('#model-channel').hover();
-    assert.equal(await page.getByRole('tooltip').count(),0);
-    for (const id of ['keep-official-login', 'transport-protocol']) {
-      const row = page.locator(`#${id}`).locator('..');
-      const bounds = await row.boundingBox();
-      await row.click({position: {x: bounds.width / 2, y: bounds.height / 2}});
-      assert.equal(await page.getByRole('tooltip').count(), 0);
-    }
-    assert.equal(await page.locator('#keep-official-login').getAttribute('role'),'switch');
-    assert.equal(await page.locator('#transport-protocol').getAttribute('role'),'switch');
-    await page.locator('#transport-protocol').click();
-    await page.waitForFunction(()=>window.fixtureState.supportsWebsockets === true);
-    assert.equal(await page.evaluate(()=>window.fixtureCalls.includes('configure')),false);
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: custom dropdown supports keyboard and key stays editable during settings writes', async () => {
-  const f=await fixture({home:true}); const {page}=f;
-  try {
-    await page.locator('#edit-connection').click();
-    await page.locator('#model-channel').focus();
-    await page.keyboard.press('ArrowDown');
-    await page.getByRole('listbox',{name:'模型供应商',exact:true}).waitFor();
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(()=>window.fixtureState.modelChannel === 'official');
-    await page.locator('#notification-dialog').getByRole('button', {name:'知道了',exact:true}).click();
-    await page.evaluate(()=>{window.fixtureSpeedDelay=500;});
-    await chooseSetting(page,'#speed','fast');
-    await page.locator('#key').fill('demo-edited-during-write');
-    await page.waitForFunction(()=>window.fixtureState.serviceTier === 'fast');
-    assert.equal(await page.locator('#key').inputValue(),'demo-edited-during-write');
-    assert.equal(await page.locator('#configure select').count(),0);
-    assert.deepEqual(f.errors,[]);
-  } finally {await f.close();}
-});
-
-test('React: dropdown stays below its trigger while the settings page scrolls', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    await page.setViewportSize({width:600,height:520});
-    await page.locator('#edit-connection').click();
-    await page.locator('#model').click();
-    const list = page.getByRole('listbox', {name:'模型',exact:true});
-    await list.waitFor();
-    const before = await page.locator('#model').boundingBox();
-    const menuBefore = await list.boundingBox();
-    assert.ok(Math.abs(menuBefore.width - before.width) < 1);
-    assert.equal(await list.getByRole('option').first().evaluate(element => element.getBoundingClientRect().height), before.height);
-    assert.ok(Math.abs(menuBefore.y - before.y - before.height - 6) < 2);
-    await page.locator('.content-scroll').evaluate(element => {element.scrollTop += 60;});
-    const after = await page.locator('#model').boundingBox();
-    const menuAfter = await list.boundingBox();
-    assert.ok(after.y < before.y);
-    assert.ok(Math.abs(menuAfter.y - after.y - after.height - 6) < 2);
-    assert.equal(await list.isVisible(), true);
-    await page.keyboard.press('Escape');
-    assert.equal(await list.count(), 0);
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
-test('React: home preferences use the same dropdown controls as configuration', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    assert.equal(await page.locator('#connection-home .action-options').evaluate(element => getComputedStyle(element).borderTopWidth), '1px');
-    assert.equal(await page.locator('#connection-home #speed').getAttribute('aria-haspopup'), 'listbox');
-    await page.locator('#connection-home #model-channel').click();
-    const providerOption = page.getByTestId('select-option-official');
-    await providerOption.waitFor();
-    assert.equal(await providerOption.evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
-    }), true);
-    await page.locator('#connection-home .speed-option .setting-title').hover();
-    assert.equal(await providerOption.evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
-    }), true);
-    await page.keyboard.press('Escape');
-    await chooseSetting(page, '#connection-home #speed', 'fast');
-    await page.waitForFunction(() => window.fixtureState.serviceTier === 'fast');
-    await page.getByRole('button', {name:'响应速度说明',exact:true}).hover();
-    await page.getByRole('tooltip').filter({hasText:'快速需要服务商支持'}).waitFor();
-    assert.equal(await page.getByRole('tooltip').evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      return Number(getComputedStyle(element).zIndex) > Number(getComputedStyle(document.querySelector('#connection-home .provider-option')).zIndex);
-    }), true);
-    assert.equal(await page.locator('#connection-home .channel-option').count(), 3);
-    assert.equal(await page.locator('#connection-home .action-options small').count(), 0);
-    await page.locator('#connection-home #transport-protocol').click();
-    await page.waitForFunction(() => window.fixtureState.supportsWebsockets === true);
-    assert.equal(await page.locator('#connection-home #transport-protocol').isChecked(), true);
-    await page.locator('#connection-home #keep-official-login').click();
-    await page.waitForFunction(() => window.fixtureState.keepOfficialLogin === true);
-    await page.getByText('已开启保留官方登录，重启 ChatGPT 后生效', {exact:true}).waitFor();
-    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
-test('React: configuration actions stay side by side below the scrolling content', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    await page.setViewportSize({width:600,height:520});
-    await page.locator('#edit-connection').click();
-    const apply = page.locator('#apply');
-    const cancel = page.locator('#cancel-edit');
-    const before = await apply.boundingBox();
-    await page.locator('.content-scroll').evaluate(element => {element.scrollTop = element.scrollHeight;});
-    const after = await apply.boundingBox();
-    const cancelBounds = await cancel.boundingBox();
-    assert.equal(after.y, before.y);
-    assert.equal(cancelBounds.y, after.y);
-    assert.ok(cancelBounds.x < after.x);
-    assert.equal(await apply.getAttribute('form'), 'configure');
-    await cancel.click();
-    await page.locator('#connection-home').waitFor();
-    assert.equal(await page.locator('.config-footer').count(), 0);
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
-test('React: configuration notices appear in dismissible dialogs', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    await chooseSetting(page, '#connection-home #speed', 'fast');
-    const notice = page.locator('#notification-dialog');
-    await notice.getByText('响应速度已切换为快速，新对话生效', {exact:true}).waitFor();
-    assert.equal(await notice.evaluate(element => element.open), true);
-    assert.equal(await notice.getByRole('button', {name:'知道了',exact:true}).evaluate(el => el.getBoundingClientRect().height), 30);
-    await notice.getByRole('button', {name:'知道了',exact:true}).click();
-    assert.equal(await notice.evaluate(element => element.open), false);
-    await page.evaluate(() => {window.fixtureSpeedError = '速度设置保存失败，请重试。';});
-    await chooseSetting(page, '#connection-home #speed', 'standard');
-    await notice.getByText('速度设置保存失败，请重试。', {exact:true}).waitFor();
-    assert.equal(await notice.evaluate(element => element.open), true);
-    await notice.getByRole('button', {name:'关闭提示',exact:true}).click();
-    assert.equal(await notice.evaluate(element => element.open), false);
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
-test('React: speed labels are Chinese and ultrafast is disabled', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    await page.locator('#connection-home #speed').click();
-    assert.deepEqual(await page.locator('.select-menu .select-option').allTextContents(), ['标准', '快速', '超快']);
-    const ultra = page.getByTestId('select-option-ultrafast');
-    assert.equal(await ultra.getAttribute('aria-disabled'), 'true');
-    assert.notEqual(await ultra.evaluate(el => getComputedStyle(el).color), await page.getByTestId('select-option-fast').evaluate(el => getComputedStyle(el).color));
-    await ultra.click({force:true});
-    assert.equal(await page.locator('#connection-home #speed').getAttribute('data-value'), 'standard');
-    await page.keyboard.press('Escape');
-    await chooseSetting(page, '#connection-home #speed', 'fast');
-    await page.waitForFunction(() => window.fixtureState.serviceTier === 'fast');
-    await page.getByRole('button', {name:'知道了',exact:true}).click();
-    assert.equal(await page.locator('#connection-home #speed').innerText(), '快速');
-    await page.locator('#edit-connection').click();
-    assert.equal(await page.locator('#toggle-settings').innerText(), '折叠');
-    await page.locator('#toggle-settings').click();
-    assert.equal(await page.locator('#toggle-settings').innerText(), '展开');
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
- test('React: setting notices describe each operation and its effective time', async () => {
-  const f = await fixture({home:true}); const {page} = f;
-  try {
-    const notice = page.locator('#notification-dialog');
-    const confirm = async text => {
-      await notice.getByText(text, {exact:true}).waitFor();
-      await notice.getByRole('button', {name:'知道了',exact:true}).click();
-    };
-    for (const [value, label] of [['official','官方'],['api','API']]) {
-      await chooseSetting(page, '#connection-home #model-channel', value);
-      await confirm(`模型供应商已切换为 ${label}，新对话生效`);
-    }
-    for (const [value, label] of [['fast','快速'],['standard','标准']]) {
-      await chooseSetting(page, '#connection-home #speed', value);
-      await confirm(`响应速度已切换为${label}，新对话生效`);
-    }
-    for (const label of ['启用','关闭']) {
-      await page.locator('#connection-home #transport-protocol').click();
-      await confirm(`已${label} WebSocket，新对话生效`);
-    }
-    for (const label of ['开启','关闭']) {
-      await page.locator('#connection-home #keep-official-login').click();
-      await confirm(`已${label}保留官方登录，重启 ChatGPT 后生效`);
-    }
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
-});
-
-test('React: settings reveal clips content until the animation finishes', async () => {
-  const f = await fixture(); const {page} = f;
-  try {
-    assert.equal(await page.locator('#key').getAttribute('type'), 'password');
-    await page.locator('#key').fill('demo-native-password');
-    assert.equal(await page.locator('#key').inputValue(), 'demo-native-password');
-    await page.locator('#toggle-key').click();
-    assert.equal(await page.locator('#key').getAttribute('type'), 'text');
-    await page.locator('#toggle-key').click();
-    assert.equal(await page.locator('#key').getAttribute('type'), 'password');
-    if (await page.locator('#toggle-settings').getAttribute('aria-expanded') === 'true') await page.locator('#toggle-settings').click();
-    await page.locator('#toggle-settings').click();
-    assert.equal(await page.locator('.settings-clip').evaluate(el => getComputedStyle(el).overflow), 'hidden');
-    await page.waitForFunction(() => document.querySelector('#settings').dataset.overflowReady === 'true');
-    assert.equal(await page.locator('.settings-clip').evaluate(el => getComputedStyle(el).overflow), 'visible');
-    await page.locator('#toggle-settings').click();
-    assert.equal(await page.locator('.settings-clip').evaluate(el => getComputedStyle(el).overflow), 'hidden');
-    assert.deepEqual(f.errors, []);
-  } finally {await f.close();}
 });

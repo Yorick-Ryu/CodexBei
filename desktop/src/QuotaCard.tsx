@@ -44,7 +44,6 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
   const [refresh, setRefresh] = useState(0);
   const [walletError, setWalletError] = useState("");
   const [plansOpen, setPlansOpen] = useState(false);
-  const showPlans = tool !== "claude";
   const retryCount = useRef(0);
   const cached = quotaCache.get(tool);
   const initial = cached?.identity === identity ? cached.result : undefined;
@@ -87,15 +86,15 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
       document.removeEventListener("visibilitychange", retryOnReturn);
     };
   }, [current, loading, identity]);
-  if (!current?.data || (!current.data.rows.length && (!showPlans || !current.data.groups?.some(group => group.rows.length)))) return null;
+  if (!current?.data || (!current.data.rows.length && !current.data.groups?.some(group => group.rows.length))) return null;
   return <aside className="quota-panel" aria-label="API 额度">
     <section className="quota-source quota-api" aria-label="API 额度详情" aria-busy={loading}>
       <header className="quota-heading">
         <div className="quota-inline" aria-live="polite">{current.data.rows.map((row, index) => <span className="quota-inline-item" key={index}><span>{row.label}</span><strong>{row.value}</strong>{row.label === "余额" && (baseUrl === "https://api.beiapi.cn/v1" || (tool === "claude" && baseUrl === "https://api.beiapi.cn")) && <button className="quota-recharge" type="button" title={walletError || "打开充值页面"} onClick={() => { setWalletError(""); void toolApi(tool).openWallet().catch(() => setWalletError("无法打开充值页面，请重试")); }}>充值</button>}</span>)}</div>
         <button className="quota-refresh" type="button" aria-label="刷新API 额度" title="刷新" disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshIcon /></button>
-        {showPlans && !!current.data.groups?.length && <button className="quota-plans-toggle" type="button" aria-label={`生效套餐 ${current.data.groups.length}`} aria-expanded={plansOpen} aria-controls="api-quota-plans" onClick={() => setPlansOpen(open => !open)}><span className="quota-package-count"><span>生效套餐</span><strong>{current.data.groups.length}</strong></span><ChevronRightIcon /></button>}
+        {!!current.data.groups?.length && <button className="quota-plans-toggle" type="button" aria-label={`生效套餐 ${current.data.groups.length}`} aria-expanded={plansOpen} aria-controls="api-quota-plans" onClick={() => setPlansOpen(open => !open)}><span className="quota-package-count"><span>生效套餐</span><strong>{current.data.groups.length}</strong></span><ChevronRightIcon /></button>}
       </header>
-      {showPlans && !!current.data.groups?.length && <div id="api-quota-plans" className="quota-plans" hidden={!plansOpen} aria-live="polite">{current.data.groups.map(group => <div className="quota-plan" key={group.id}>
+      {!!current.data.groups?.length && <div id="api-quota-plans" className="quota-plans" hidden={!plansOpen} aria-live="polite">{current.data.groups.map(group => <div className="quota-plan" key={group.id}>
         <div className="quota-plan-heading"><span>{group.title}</span>{group.expiresAt && <small>{expiryLabel(group.expiresAt)}</small>}</div>
         <Rows rows={group.rows} amounts />
       </div>)}</div>}
