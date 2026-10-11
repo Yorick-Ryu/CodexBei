@@ -5,6 +5,12 @@
   "bundle": {
     "macOS": {
       "infoPlist": "Info.macos.plist",
+      "dmg": {
+        "background": "../desktop/assets/installer/dmg-background.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 }
+      },
       "files": {
         "Resources/Assets.car": "../build/macos-icon/Assets.car",
         "Resources/CodexBei.icns": "../build/macos-icon/CodexBei.icns"

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs><filter id="cloud-shadow" x="-20%" y="-20%" width="140%" height="145%"><feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#2360ce" flood-opacity=".18"/></filter></defs>
   <rect x="100" y="100" width="824" height="824" rx="188" fill="#ffffff"/>
-  <g transform="translate(153.6 153.6) scale(.7)" filter="url(#cloud-shadow)">
+  <g transform="translate(112.64 112.64) scale(.78)" filter="url(#cloud-shadow)">
   <title>CodexBei · 云朵北字</title>
   <defs>
     <radialGradient id="cloud-blue" cx="32%" cy="12%" r="90%">
