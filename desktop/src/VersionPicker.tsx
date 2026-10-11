@@ -1,6 +1,7 @@
 import { Modal } from "./Modal";
 import { useEffect, useRef, useState } from "react";
 import { api, installationLabel, type Matching, type Selection } from "./api";
+import { Select } from "./Select";
 export function VersionPicker({
   open,
   matching,
@@ -79,8 +80,9 @@ export function VersionPicker({
     <Modal id="version-choice" titleId="version-dialog-title" title="选择 ChatGPT 版本"
       open={open} onClose={onClose} closeLabel="关闭版本选择">
       <label htmlFor="installation">使用的 ChatGPT</label>
-      <select
+      <Select
         id="installation"
+        aria-label="使用的 ChatGPT"
         value={mode}
         onChange={(e) => {
           setMode(e.target.value);
@@ -94,12 +96,13 @@ export function VersionPicker({
           </option>
         ))}
         <option value="manual">手动输入版本</option>
-      </select>
+      </Select>
       {mode === "manual" && (
         <div id="manual-version">
           <label htmlFor="codex-kind">版本类型</label>
-          <select
+          <Select
             id="codex-kind"
+            aria-label="版本类型"
             value={kind}
             onChange={(e) => {
               const value = e.target.value as "cli" | "desktop";
@@ -109,7 +112,7 @@ export function VersionPicker({
           >
             <option value="cli">Codex CLI</option>
             <option value="desktop">ChatGPT 桌面版</option>
-          </select>
+          </Select>
           <label htmlFor="runtime-version">{kind === "cli" ? "Codex CLI 版本" : "内核版本"}</label>
           <input
             id="runtime-version"

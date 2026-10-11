@@ -28,6 +28,7 @@ import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
 import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
+import { Select } from "./Select";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
 import claude from "../assets/agents/claude-code.svg";
@@ -548,6 +549,12 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const channelUpdating = channelSwitching || transportSwitching || speedSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
+  const selectedVersion = matching?.selection.mode === "manual" ? matching.selection
+    : matching?.selection.mode === "installed" ? matching.installations.find(item => matching.selection.mode === "installed" && item.id === matching.selection.id)
+    : matching?.installations.find(item => item.kind === "cli" && !!item.runtimeVersion)
+      ?? matching?.installations.find(item => !!item.runtimeVersion)
+      ?? matching?.installations[0];
+  const selectedVersionLabel = selectedVersion ? installationLabel(selectedVersion) : "未检测到已安装版本";
   const hasCli = !!matching?.installations.some(item => item.kind === "cli");
   const hasDesktop = !!matching?.installations.some(item => item.kind === "desktop");
   const missingDesktop = !isClaude && !!matching && !hasDesktop && (inspection?.platform === "windows" || inspection?.platform === "macos");
@@ -779,8 +786,9 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 {modelsLoading ? "刷新中…" : "刷新"}
                               </button>
                             </div>
-                            <select
+                            <Select
                               id="model"
+                              aria-label="模型"
                               value={model}
                               onChange={(e) => {
                                 setPreviewPending(true);
@@ -796,7 +804,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                   </option>
                                 ),
                               )}
-                            </select>
+                            </Select>
                             <p
                               id="models-help"
                               className="field-feedback"
@@ -808,11 +816,11 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             {isClaude && (["opus", "sonnet", "haiku"] as const).map(tier => (
                               <div key={tier}>
                                 <label htmlFor={`mapping-${tier}`}>{tier[0].toUpperCase() + tier.slice(1)} 模型</label>
-                                <select id={`mapping-${tier}`} value={mapping[tier] || ""} disabled={disabled}
+                                <Select id={`mapping-${tier}`} aria-label={`${tier[0].toUpperCase() + tier.slice(1)} 模型`} value={mapping[tier] || ""} disabled={disabled}
                                   onChange={event => { setPreviewPending(true); setMapping(value => ({...value, [tier]: event.target.value || undefined})); }}>
                                   <option value="">跟随所选模型</option>
                                   {[...new Set([model, mapping[tier], ...availableModels].filter((v): v is string => !!v))].map(value => <option key={value} value={value}>{value}</option>)}
-                                </select>
+                                </Select>
                                 <p className="field-feedback" aria-hidden="true" />
                               </div>
                             ))}
@@ -886,10 +894,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             <div id="preview" aria-busy={previewPending}>
                               <div className="preview-meta">
                                 <div className="version-row">
-                                  <span id="version-info" className="connection">
-                                    {matching?.installations.length
-                                      ? matching.installations.map(installationLabel).join(" / ")
-                                      : "未检测到已安装版本"}
+                                  <span id="version-info" className="connection" title={selectedVersionLabel}>
+                                    {selectedVersionLabel}
                                   </span>
                                   {missingDesktop && (
                                     <button
@@ -913,13 +919,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                     选择 ChatGPT 版本
                                   </button>}
                                 </div>
-                                {matching && matching.selection.mode !== "auto" && (
-                                  <p className="preview-version selected-version">
-                                    当前选择：{matching.selection.mode === "manual"
-                                      ? installationLabel(matching.selection)
-                                      : matching.installations.filter(v => matching.selection.mode === "installed" && v.id === matching.selection.id).map(installationLabel).join(" / ")}
-                                  </p>
-                                )}
                                 {!isClaude && <div className="template-version-row">
                                   <p id="preview-version" className="preview-version">
                                     {matching?.offline ? (
@@ -1206,12 +1205,12 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       <Modal id="official-channel-confirm" title="切换到官方"
         descriptionId="official-channel-confirm-description"
         open={officialChannelConfirmOpen} onClose={() => setOfficialChannelConfirmOpen(false)}>
-        <p id="official-channel-confirm-description">当前未检测到官方账号，是否仍要切换到官方？切换后需要先登录 ChatGPT 官方账号。</p>
+        <p id="official-channel-confirm-description">当前未检测到官方账号，是否仍要切换到官方？切换后需要登录 ChatGPT 官方账号。</p>
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={() => {
             setOfficialChannelConfirmOpen(false);
             void run(() => applyChannel("official"));
-          }}>仍然切换</button>
+          }}>仍要切换</button>
           <button type="button" className="primary" onClick={() => setOfficialChannelConfirmOpen(false)}>取消</button>
         </div>
       </Modal>

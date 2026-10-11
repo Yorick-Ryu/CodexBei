@@ -34,6 +34,7 @@ async function fixture(options = {}) {
     window.fixtureClaudeBackups = [];
     window.fixtureClaudeCalls = [];
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
+    if (${!!options.longVersions}) { Object.assign(window.fixtureMatching.installations[1], { runtimeVersion: '0.162.0-alpha.17.2', appVersion: '26.1007.21159' }); window.fixtureMatching.modelClientVersion = '0.162.0-alpha.17.2'; }
     window.fixtureCalls = [];
     window.fixtureQuotaDelay = ${options.quotaDelay || 0};
     window.fixtureQuotaError = ${JSON.stringify(options.quotaError || '')};
@@ -461,17 +462,86 @@ async function openUpdater(page) {
   await page.getByRole('button', { name: '设置', exact: true }).click();
 }
 
+async function chooseSetting(page, selector, value) {
+  await page.locator(selector).click();
+  await page.getByTestId(`select-option-${value}`).click();
+}
+
+async function waitForSettingOption(page, selector, value) {
+  await page.locator(selector).click();
+  await page.getByTestId(`select-option-${value}`).waitFor();
+  await page.getByRole('listbox').press('Escape');
+}
+
+test('React: custom selects support keyboard choice and Escape inside the version dialog', async () => {
+  const f = await fixture({ longVersions: true }); const { page } = f;
+  try {
+    await page.locator('#toggle-settings').click();
+    await waitForSettingOption(page, '#model', 'new-model');
+    await page.locator('#model').click();
+    assert.equal(await page.getByTestId('select-option-gpt-6-astra').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#model').evaluate(element => {
+      const chevron = element.querySelector('svg').getBoundingClientRect();
+      return element.getBoundingClientRect().right - chevron.right <= 12;
+    }), true);
+    await page.getByRole('listbox').press('End');
+    await page.getByRole('listbox').press('Enter');
+    assert.equal(await page.locator('#model').getAttribute('data-value'), 'new-model');
+    await page.locator('#model').click();
+    await page.screenshot({ path: path.join(output, 'model-dropdown.png') });
+    await page.getByRole('listbox').press('Escape');
+    assert.equal(await page.getByRole('listbox').count(), 0);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'model');
+    const selected = '桌面版 26.1007.21159 · 内核 0.162.0-alpha.17.2';
+    assert.equal(await page.locator('#version-info').textContent(), selected);
+    assert.equal(await page.locator('.selected-version').count(), 0);
+    for (const width of [600, 460]) {
+      await page.setViewportSize({ width, height: 460 });
+      await page.locator('#version-info').scrollIntoViewIfNeeded();
+      const row = await page.locator('.version-row').evaluate(element => {
+        const label = element.querySelector('#version-info');
+        const button = element.querySelector('#change-version');
+        const rect = node => node.getBoundingClientRect();
+        return { height: rect(element).height, labelHeight: rect(label).height, buttonHeight: rect(button).height,
+          labelRight: rect(label).right, buttonLeft: rect(button).left, buttonRight: rect(button).right,
+          rowRight: rect(element).right, labelFits: label.scrollWidth <= label.clientWidth };
+      });
+      assert.equal(row.height, Math.max(row.labelHeight, row.buttonHeight));
+      assert.ok(row.labelRight <= row.buttonLeft && row.buttonRight <= row.rowRight);
+      if (width === 600) assert.equal(row.labelFits, true);
+    }
+    await page.locator('#change-version').click();
+    await page.locator('#installation').click();
+    assert.equal(await page.getByRole('listbox').evaluate(element => element.closest('dialog')?.id), 'version-choice');
+    assert.equal(await page.getByRole('listbox').evaluate(element => {
+      const menu = element.getBoundingClientRect();
+      const last = element.lastElementChild.getBoundingClientRect();
+      return menu.bottom <= innerHeight - 8 && last.bottom <= menu.bottom;
+    }), true);
+    await page.screenshot({ path: path.join(output, 'version-dropdown.png') });
+    await page.getByRole('listbox').press('Escape');
+    assert.equal(await page.getByRole('listbox').count(), 0);
+    assert.equal(await page.locator('#version-choice[open]').count(), 1);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'installation');
+    await page.locator('#installation').press('Escape');
+    assert.equal(await page.locator('#version-choice[open]').count(), 0);
+    assert.equal(await page.locator('#version-info').textContent(), selected);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: startup and model refresh never write configuration', async () => {
   const f = await fixture(); const { page } = f;
   try {
     const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('refresh_catalog')), false);
     await page.locator('.settings-toggle').click();
-    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
+    await waitForSettingOption(page, '#model', 'new-model');
     const count = await page.evaluate(() => window.fixtureCalls.filter(v => v === 'models').length);
     await page.locator('#refresh-models').click();
     await page.waitForFunction(count => window.fixtureCalls.filter(v => v === 'models').length > count, count);
-    await page.locator('#model').selectOption('new-model');
+    await chooseSetting(page, '#model', 'new-model');
     await page.waitForFunction(() => !document.querySelector('#apply').disabled);
     assert.equal(await page.evaluate(() => JSON.stringify(window.fixtureState)), before);
     assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
@@ -487,7 +557,7 @@ test('React: model refresh errors preserve the saved configuration', async () =>
   try {
     const before = await page.evaluate(() => JSON.stringify(window.fixtureState));
     await page.locator('.settings-toggle').click();
-    await page.waitForFunction(() => document.querySelector('#model option[value="new-model"]'));
+    await waitForSettingOption(page, '#model', 'new-model');
     await page.evaluate(() => { window.fixtureModelsError = '无法获取模型，请检查权限。'; });
     await page.locator('#refresh-models').click();
     await page.waitForFunction(() => document.querySelector('#models-help').textContent.includes('无法获取模型'));
@@ -584,9 +654,9 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     await page.locator('#toggle-settings').click();
     await page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('true'));
     assert.ok(!(await page.locator('#preview-code').textContent()).includes('sk-react-fixture'));
-    await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'slow-model'));
-    await page.locator('#model').selectOption('slow-model');
-    await page.locator('#model').selectOption('new-model');
+    await waitForSettingOption(page, '#model', 'slow-model');
+    await chooseSetting(page, '#model', 'slow-model');
+    await chooseSetting(page, '#model', 'new-model');
     await page.waitForTimeout(250);
     assert.ok((await page.locator('#preview-code').textContent()).includes('new-model'));
     await page.getByRole('button', { name: '清空 API 地址', exact: true }).click();
@@ -656,10 +726,11 @@ test('React: manual version matching blocks writes until valid, template activat
       window.fixtureMatching.templateUpdateAvailable = true;
     });
     await page.locator('#change-version').click();
-    assert.equal(await page.locator('#installation').inputValue(), 'desktop');
-    assert.equal(await page.locator('#installation option[value="auto"]').count(), 0);
-    assert.match(await page.locator('#installation option[value="desktop"]').textContent(), /桌面版 26.901.51231 · 内核 0.154.0/);
-    await page.locator('#installation').selectOption('manual');
+    assert.equal(await page.locator('#installation').getAttribute('data-value'), 'desktop');
+    await page.locator('#installation').click();
+    assert.equal(await page.getByTestId('select-option-auto').count(), 0);
+    assert.match(await page.getByTestId('select-option-desktop').textContent(), /桌面版 26.901.51231 · 内核 0.154.0/);
+    await page.getByTestId('select-option-manual').click();
     await page.locator('#runtime-version').fill('invalid');
     await page.waitForFunction(() => document.getElementById('version-status').textContent.includes('有效'));
     assert.equal(await page.locator('#apply').isDisabled(), true);
@@ -704,8 +775,8 @@ test('React: login toggles preserve scroll and historical TOML stays readable in
     await page.locator('#toggle-settings').click();
     await page.locator('#keep-official-login').check();
     await page.waitForFunction(() => !document.getElementById('apply').disabled);
-    await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
-    assert.match(await page.locator('#version-info').textContent(), /Codex CLI · 0.153.4.*桌面版 26.901.51231 · 内核 0.154.0/);
+    await waitForSettingOption(page, '#model', 'new-model');
+    assert.equal(await page.locator('#version-info').textContent(), '桌面版 26.901.51231 · 内核 0.154.0');
     for (const width of [600, 460]) {
       await page.setViewportSize({ width, height: 460 });
       await page.locator('#keep-official-login').scrollIntoViewIfNeeded();
@@ -770,7 +841,7 @@ test('React: configuration preview scrolls internally and chains to its parent a
     await page.locator('#toggle-settings').click();
     await page.locator('#keep-official-login').check();
     await page.waitForFunction(() => !document.getElementById('apply').disabled);
-    await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
+    await waitForSettingOption(page, '#model', 'new-model');
     const position = async edge => page.evaluate(edge => {
       const outer = document.querySelector('.content-scroll');
       const pre = document.getElementById('preview-code');
@@ -829,18 +900,18 @@ test('React: version switching keeps the background layout stable until the dial
       height: document.querySelector('main').getBoundingClientRect().height,
       settingsTop: document.getElementById('settings').getBoundingClientRect().top,
       preview: document.getElementById('preview-code').textContent,
-      selection: document.querySelector('.selected-version')?.textContent || '',
+      selection: document.querySelector('#version-info')?.textContent || '',
     }));
     const before = await layout();
     for (const selection of ['cli', 'desktop']) {
-      await page.locator('#installation').selectOption(selection);
+      await chooseSetting(page, '#installation', selection);
       await page.waitForFunction(() => document.getElementById('version-status').textContent.includes('正在匹配'));
       assert.deepEqual(await layout(), before);
       await page.waitForFunction(() => document.getElementById('version-status').textContent.includes('已匹配'));
       assert.deepEqual(await layout(), before);
     }
     await page.getByRole('button', { name: '关闭版本选择' }).click();
-    await page.waitForFunction(() => document.querySelector('.selected-version')?.textContent.includes('桌面版'));
+    await page.waitForFunction(() => document.querySelector('#version-info')?.textContent.includes('桌面版'));
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
@@ -849,7 +920,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
   const f = await fixture(); const { page } = f;
   try {
     await page.locator('#toggle-settings').click();
-    await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(v => v.value === 'new-model'));
+    await waitForSettingOption(page, '#model', 'new-model');
     const layout = () => page.evaluate(() => {
       const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, height: r.height }; };
       return ['.config-card', '#key', '#model', '#base-url', '#target'].map(rect);
@@ -1077,7 +1148,7 @@ test('React: missing official login confirms channel switching without changing 
     assert.equal(await page.evaluate(() => window.fixtureCalls.includes('switch_channel')), false);
     await official.click();
     await dialog.waitFor();
-    await dialog.getByRole('button', { name: '仍然切换', exact: true }).click();
+    await dialog.getByRole('button', { name: '仍要切换', exact: true }).click();
     await page.waitForFunction(() => window.fixtureState.modelChannel === 'official' && !document.querySelector('main').dataset.channelUpdating);
     assert.equal(await official.isChecked(), true);
     assert.equal(await checkbox.isChecked(), false);
@@ -1509,8 +1580,8 @@ test('React: Claude tab keeps drafts isolated, previews mapping and configures J
     await page.getByRole('button', {name:'安装指南', exact:true}).click();
     assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(call => call.cmd === 'open_claude_installer')), true);
     await page.locator('#toggle-settings').click();
-    await page.waitForFunction(() => document.querySelector('#model option[value="claude-opus-test"]'));
-    await page.locator('#mapping-opus').selectOption('claude-opus-test');
+    await waitForSettingOption(page, '#model', 'claude-opus-test');
+    await chooseSetting(page, '#mapping-opus', 'claude-opus-test');
     await page.waitForFunction(() => document.querySelector('#preview-code').textContent.includes('claude-opus-test'));
     assert.equal((await page.locator('#preview-code').textContent()).includes('sk-claude-fixture'), false);
     await page.getByRole('tab', {name:'ChatGPT'}).click();

@@ -545,7 +545,7 @@ summary:hover {
   padding: 0;
 }
 #model {
-  display: block;
+  display: flex;
   margin-bottom: 0;
 }
 .field-feedback {
@@ -562,16 +562,21 @@ summary:hover {
   color: var(--danger);
 }
 .version-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   margin-bottom: 6px;
 }
 .version-row .connection {
-  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
 }
 .version-row .text-button {
-  margin-left: 10px;
+  flex-shrink: 0;
   white-space: nowrap;
-  vertical-align: baseline;
 }
 .notice {
   margin: 0 20px 16px;
@@ -1023,9 +1028,6 @@ pre {
 dialog:focus {
   outline: none;
 }
-.selected-version {
-  margin-bottom: 6px;
-}
 .backup-preview-meta {
   display: flex;
   align-items: baseline;
@@ -1299,7 +1301,8 @@ main[data-channel-updating] .channel-segment input:disabled:not(:checked) + span
   color: var(--muted);
 }
 main[data-channel-updating] input:disabled,
-main[data-channel-updating] select:disabled {
+main[data-channel-updating] select:disabled,
+main[data-channel-updating] .select-trigger:disabled {
   opacity: 1;
   -webkit-text-fill-color: currentColor;
 }
@@ -1341,6 +1344,7 @@ main[data-channel-updating] select:disabled {
   box-shadow: 0 16px 56px #0005;
 }
 .modal[open] { display: flex; flex-direction: column; }
+#version-choice { overflow: visible; }
 .modal--wide { width: min(520px, calc(100vw - 32px)); }
 .modal--tall { height: 540px; }
 .modal::backdrop { top: var(--window-controls-height); background: #0006; backdrop-filter: blur(2px); }
@@ -1354,9 +1358,18 @@ main[data-channel-updating] select:disabled {
 .modal-body > :not(#backup-preview-code) { flex-shrink: 0; }
 .modal-body p { line-height: 1.6; overflow-wrap: anywhere; }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; }
-.modal-actions .secondary { min-height: 36px; }
-#official-login-confirm .modal-actions button,
-#official-channel-confirm .modal-actions button { min-width: 0; padding-inline: 12px; }
+.modal :is(.primary, .secondary),
+.modal .modal-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 72px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+.modal .backup-preview-footer .text-button { height: 30px; padding: 0 12px; font-size: 12px; border-radius: 8px; }
 
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .settings-theme-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 8px; }
