@@ -99,9 +99,96 @@ pub async fn catalog(
     }
     Ok(value)
 }
+// Discovery enriches configuration; an unavailable catalog must not prevent saving it.
+pub async fn optional_catalog(
+    client: &reqwest::Client,
+    connection: crate::config::Connection,
+    version: &str,
+) -> Option<Value> {
+    catalog(client, connection, version).await.ok()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_catalog_still_allows_saving_a_manual_model() {
+        use crate::config::{Connection, ModelChannel, Store};
+        use std::io::{Read, Write};
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let template =
+            serde_json::from_str::<Value>(include_str!("../../templates/bootstrap.json")).unwrap()
+                ["templates"][0]
+                .clone();
+        assert!(!crate::templates::native_catalog(&template));
+        for (status, body) in [
+            (401, "{}"),
+            (403, "{}"),
+            (500, "{}"),
+            (200, "not json"),
+            (200, r#"{"models":[]}"#),
+            (200, r#"{"data":[{"id":"other-format"}]}"#),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert_ne!(count, 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let connection = Connection {
+                base_url: format!("http://{address}/v1"),
+                api_key: "sk-catalog-test-fixture-only".into(),
+                model: "my-custom-model".into(),
+            };
+            let catalog = runtime.block_on(optional_catalog(
+                &client().unwrap(),
+                connection.clone(),
+                "0.154.0",
+            ));
+            server.join().unwrap();
+            assert!(catalog.is_none(), "status={status}, body={body}");
+
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("config.toml");
+            let mut store = Store::new(dir.path().join("data"), target.clone()).unwrap();
+            std::fs::write(
+                &target,
+                "# User settings\nmodel_reasoning_effort = 'high'\n",
+            )
+            .unwrap();
+            let plan = store
+                .prepare(connection.clone(), false, &template, Some(ModelChannel::Api))
+                .unwrap();
+            if let Some(catalog) = catalog {
+                store
+                    .attach_catalog(&plan, &connection, &catalog)
+                    .unwrap();
+            }
+            let result = store.apply(&plan).unwrap();
+            assert!(result["backupId"].is_string());
+            let inspection = store.inspect().unwrap();
+            assert_eq!(inspection["model"], "my-custom-model");
+            assert_eq!(inspection["modelChannel"], "api");
+            let saved = std::fs::read_to_string(target).unwrap();
+            assert!(saved.contains("# User settings"));
+            assert!(saved.contains("model_reasoning_effort = \"high\""));
+            assert!(!saved.contains("model_catalog_json"));
+            assert!(!dir.path().join("models_cache_bei.json").exists());
+        }
+    }
     #[test]
     fn catalog_accepts_http_api_with_https_default_client() {
         use std::io::{Read, Write};

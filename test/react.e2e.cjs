@@ -36,6 +36,9 @@ async function fixture(options = {}) {
     window.fixtureMatching = { installations: [{ id: 'cli', kind: 'cli', runtimeVersion: '0.153.4' }, { id: 'desktop', kind: 'desktop', runtimeVersion: '0.154.0', appVersion: '26.901.51231' }], selection: { mode: 'installed', id: 'desktop' }, template: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, latestTemplate: { id: 'codex-default', version: '1.0.0', digest: 'fixture' }, templateUpdateAvailable: false, offline: false, needsSelection: false, modelClientVersion: '0.154.0' };
     if (${!!options.longVersions}) { Object.assign(window.fixtureMatching.installations[1], { runtimeVersion: '0.162.0-alpha.17.2', appVersion: '26.1007.21159' }); window.fixtureMatching.modelClientVersion = '0.162.0-alpha.17.2'; }
     window.fixtureCalls = [];
+    window.fixtureModelsError = ${JSON.stringify(options.modelsError || '')};
+    window.fixtureModelsDelay = ${options.modelsDelay ?? 30};
+    window.fixtureModels = ${JSON.stringify(options.models ?? ['gpt-6-astra', 'slow-model', 'new-model'])};
     window.fixtureQuotaDelay = ${options.quotaDelay || 0};
     window.fixtureQuotaError = ${JSON.stringify(options.quotaError || '')};
     window.fixtureEmptyQuota = ${!!options.emptyQuota};
@@ -96,7 +99,7 @@ async function fixture(options = {}) {
         return { ...window.fixtureMatching };
       }
       if (cmd === 'update_template') { window.fixtureMatching.template = { id: 'codex-default', version: '1.1.0', digest: 'updated' }; window.fixtureMatching.templateUpdateAvailable = false; return { ...window.fixtureMatching }; }
-      if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, 30)); if (window.fixtureModelsError) throw window.fixtureModelsError; return ['gpt-6-astra', 'slow-model', 'new-model']; }
+      if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, window.fixtureModelsDelay)); if (window.fixtureModelsError) throw window.fixtureModelsError; return window.fixtureModels; }
       if (cmd === 'inspect' && window.fixtureInitialError) throw '配置不是有效的 TOML，请先修复原文件。';
       if (cmd === 'choose') window.fixtureInitialError = false;
       if (cmd === 'open_chatgpt_installer') { window.fixtureInstallerArgs = args; return null; }
@@ -463,14 +466,14 @@ async function openUpdater(page) {
 }
 
 async function chooseSetting(page, selector, value) {
-  await page.locator(selector).click();
+  await page.locator(selector === '#model' ? '#model-toggle' : selector).click();
   await page.getByTestId(`select-option-${value}`).click();
 }
 
 async function waitForSettingOption(page, selector, value) {
-  await page.locator(selector).click();
+  await page.locator(selector === '#model' ? '#model-toggle' : selector).click();
   await page.getByTestId(`select-option-${value}`).waitFor();
-  await page.getByRole('listbox').press('Escape');
+  await (selector === '#model' ? page.locator('#model') : page.getByRole('listbox')).press('Escape');
 }
 
 test('React: custom selects support keyboard choice and Escape inside the version dialog', async () => {
@@ -478,18 +481,19 @@ test('React: custom selects support keyboard choice and Escape inside the versio
   try {
     await page.locator('#toggle-settings').click();
     await waitForSettingOption(page, '#model', 'new-model');
-    await page.locator('#model').click();
+    await page.locator('#model-toggle').click();
     assert.equal(await page.getByTestId('select-option-gpt-6-astra').getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('#model').evaluate(element => {
+    assert.equal(await page.locator('.model-control').evaluate(element => {
       const chevron = element.querySelector('svg').getBoundingClientRect();
       return element.getBoundingClientRect().right - chevron.right <= 12;
     }), true);
-    await page.getByRole('listbox').press('End');
-    await page.getByRole('listbox').press('Enter');
+    await page.locator('#model').press('ArrowDown');
+    await page.locator('#model').press('ArrowDown');
+    await page.locator('#model').press('Enter');
     assert.equal(await page.locator('#model').getAttribute('data-value'), 'new-model');
-    await page.locator('#model').click();
+    await page.locator('#model-toggle').click();
     await page.screenshot({ path: path.join(output, 'model-dropdown.png') });
-    await page.getByRole('listbox').press('Escape');
+    await page.locator('#model').press('Escape');
     assert.equal(await page.getByRole('listbox').count(), 0);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'model');
     const selected = '桌面版 26.1007.21159 · 内核 0.162.0-alpha.17.2';
@@ -565,6 +569,37 @@ test('React: model refresh errors preserve the saved configuration', async () =>
     assert.equal(await page.evaluate(() => window.fixtureBackups.length), 0);
   } finally { await f.close(); }
 });
+
+for (const scenario of [
+  { name: 'unauthorized', modelsError: '无法获取模型，请检查密钥及访问权限。' },
+  { name: 'offline', modelsError: '模型列表获取失败，请稍后重试。' },
+  { name: 'empty', models: [] },
+  { name: 'loading', modelsDelay: 30_000 },
+]) {
+  test(`React: editable model configures successfully with ${scenario.name} discovery`, async () => {
+    const f = await fixture(scenario); const { page } = f;
+    page.setDefaultTimeout(8000);
+    try {
+      await page.locator('#toggle-settings').click();
+      if (scenario.name === 'loading') await page.waitForFunction(() => window.fixtureCalls.includes('models'));
+      else await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('不影响一键配置'));
+      assert.equal(await page.locator('#key').getAttribute('aria-invalid'), 'false');
+      await page.locator('#model').fill('my-custom-model');
+      await page.locator('#model').press('Tab');
+      assert.equal(await page.locator('#model').inputValue(), 'my-custom-model');
+      await page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('my-custom-model') && !document.getElementById('apply').disabled);
+      await page.locator('#model').fill('');
+      assert.equal(await page.locator('#apply').isDisabled(), true);
+      await page.locator('#model').fill('my-custom-model');
+      await page.waitForFunction(() => !document.getElementById('apply').disabled);
+      await page.locator('#apply').click();
+      await page.getByRole('heading', { name: '配置完成' }).waitFor();
+      assert.equal(await page.evaluate(() => window.fixtureState.model), 'my-custom-model');
+      assert.equal(await page.evaluate(() => window.fixtureBackups.length), 1);
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  });
+}
 
 test('React: optional desktop notice closes without moving the form and yields to errors', async () => {
   const f = await fixture({ cliOnly: true }); const { page } = f;
@@ -929,7 +964,7 @@ test('React: reserved feedback slots keep fields and dialogs stable when errors 
       await page.setViewportSize({ width, height: 560 });
       const before = await layout();
       await page.evaluate(() => { window.fixtureModelsError = '无法获取模型，请检查密钥及访问权限。'; document.getElementById('refresh-models').click(); });
-      await page.waitForFunction(() => document.getElementById('key-help').textContent.includes('无法获取模型'));
+      await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('无法获取模型'));
       assert.deepEqual(await layout(), before);
       await page.evaluate(() => { window.fixtureModelsError = ''; document.getElementById('refresh-models').click(); });
       await page.waitForFunction(() => !document.getElementById('models-help').textContent && !document.getElementById('refresh-models').disabled);

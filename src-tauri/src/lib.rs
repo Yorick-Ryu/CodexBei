@@ -325,10 +325,11 @@ async fn configure(
     let version = versions::client_version(&service.targets()?)
         .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
     let template = service.current()?;
-    let catalog = if channel == ModelChannel::Official || templates::native_catalog(&template) {
+    let native_catalog = templates::native_catalog(&template);
+    let catalog = if channel == ModelChannel::Official || native_catalog {
         None
     } else {
-        Some(network::catalog(service.client(), resolved.clone(), &version).await?)
+        network::optional_catalog(service.client(), resolved.clone(), &version).await
     };
     let incoming = lock(&state.incoming)?;
     if incoming.revision != revision {
@@ -345,7 +346,7 @@ async fn configure(
     )?;
     if let Some(catalog) = catalog {
         store.attach_catalog(&plan, &resolved, &catalog)?;
-    } else if channel == ModelChannel::Api {
+    } else if channel == ModelChannel::Api && native_catalog {
         store.attach_native_catalog(&plan, &resolved)?;
     }
     let result = store.apply(&plan)?;
@@ -459,10 +460,11 @@ async fn incoming(
     let version = versions::client_version(&service.targets()?)
         .ok_or_else(|| "未识别到内核版本，请先选择 Codex 版本。".to_string())?;
     let template = service.current()?;
-    let catalog = if templates::native_catalog(&template) {
+    let native_catalog = templates::native_catalog(&template);
+    let catalog = if native_catalog {
         None
     } else {
-        Some(network::catalog(service.client(), connection.clone(), &version).await?)
+        network::optional_catalog(service.client(), connection.clone(), &version).await
     };
     let current = lock(&state.incoming)?;
     if current.revision != revision {
@@ -479,7 +481,7 @@ async fn incoming(
     )?;
     if let Some(catalog) = catalog {
         store.attach_catalog(&plan, &connection, &catalog)?;
-    } else {
+    } else if native_catalog {
         store.attach_native_catalog(&plan, &connection)?;
     }
     let result = store.apply(&plan)?;

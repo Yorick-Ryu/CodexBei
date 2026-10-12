@@ -121,3 +121,17 @@
 .select-option > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-option[data-focus] { background: var(--hover); }
 .select-option[data-disabled] { color: var(--subtle); cursor: not-allowed; }
+.model-control input { padding-right: 40px; }
+.model-toggle {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+.model-toggle:hover:not(:disabled) { color: var(--text); }
+.model-menu { width: var(--input-width); }

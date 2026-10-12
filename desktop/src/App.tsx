@@ -29,6 +29,7 @@ import { AppSettings } from "./AppSettings";
 import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
 import { Select } from "./Select";
+import { ModelPicker } from "./ModelPicker";
 import brand from "../assets/brand/codexbei.svg";
 import chatgpt from "../assets/agents/chatgpt.svg";
 import claude from "../assets/agents/claude-code.svg";
@@ -498,13 +499,13 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         (models) => {
           if (active) {
             setAvailableModels(models);
-            setModelStatus(models.length ? "" : "没有可用模型，请检查权限。");
+            setModelStatus(models.length ? "" : "未获取到模型列表，可手动填写，不影响一键配置。");
             setModelsLoading(false);
           }
         },
         (e) => {
           if (active) {
-            setModelStatus(errorText(e));
+            setModelStatus(`${errorText(e)} 可手动填写模型，不影响一键配置。`);
             setModelsLoading(false);
           }
         },
@@ -543,7 +544,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       }
     }, inDialog);
   const statusKeyError = page === "config" && !statusSuccess && isKeyError(status);
-  const keyError = page === "config" ? (statusKeyError ? status : isKeyError(modelStatus) ? modelStatus : "") : "";
+  const keyError = page === "config" && statusKeyError ? status : "";
   const footerStatus = statusKeyError ? "" : status;
   const disabled = busy || !inspection;
   const channelUpdating = channelSwitching || transportSwitching || speedSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
@@ -786,32 +787,22 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 {modelsLoading ? "刷新中…" : "刷新"}
                               </button>
                             </div>
-                            <Select
-                              id="model"
-                              aria-label="模型"
+                            <ModelPicker
                               value={model}
-                              onChange={(e) => {
+                              options={availableModels}
+                              onChange={(value) => {
                                 setPreviewPending(true);
-                                setModel(e.target.value);
+                                setModel(value);
                               }}
                               disabled={disabled}
-                              required
-                            >
-                              {[...new Set([model, ...availableModels])].map(
-                                (value) => (
-                                  <option key={value} value={value}>
-                                    {value}
-                                  </option>
-                                ),
-                              )}
-                            </Select>
+                            />
                             <p
                               id="models-help"
                               className="field-feedback"
                               role="status"
-                              title={!isKeyError(modelStatus) && modelStatus || undefined}
+                              title={modelStatus || undefined}
                             >
-                              {!isKeyError(modelStatus) && modelStatus}
+                              {modelStatus}
                             </p>
                             {isClaude && (["opus", "sonnet", "haiku"] as const).map(tier => (
                               <div key={tier}>
