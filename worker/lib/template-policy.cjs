@@ -86,7 +86,7 @@ function validateManifest(manifest) {
 
 function matches(template, installation) {
   return Boolean(semver.valid(installation.runtimeVersion)) && template.targets.some((target) =>
-    target.kind === installation.kind && semver.satisfies(installation.runtimeVersion, target.runtimeRange) &&
+    target.kind === installation.kind && semver.satisfies(installation.runtimeVersion, target.runtimeRange, { includePrerelease: true }) &&
     (!target.appRange || matchesAppRange(installation.appVersion, target.appRange)));
 }
 

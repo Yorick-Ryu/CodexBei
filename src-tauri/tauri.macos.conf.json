@@ -15,7 +15,7 @@
         "Resources/Assets.car": "../build/macos-icon/Assets.car",
         "Resources/CodexBei.icns": "../build/macos-icon/CodexBei.icns"
       },
-      "bundleVersion": "0.1.8"
+      "bundleVersion": "0.1.9"
     }
   }
 }

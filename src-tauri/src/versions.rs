@@ -603,6 +603,8 @@ mod tests {
             (vec![Some("0.155.1"), Some("0.156.0")], false),
             (vec![Some("0.156.0"), None], false),
             (vec![Some("0.156.0-alpha.16")], false),
+            (vec![Some("0.162.0-alpha.17.2")], true),
+            (vec![Some("0.162.1"), Some("0.162.0-alpha.17.2")], true),
             (vec![], false),
         ] {
             let targets: Vec<_> = values

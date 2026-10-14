@@ -294,6 +294,50 @@ test('React: first API setup and existing official setup share preview and save 
   }
 });
 
+test('React: configuration preview omits the model catalog label in every mode', async () => {
+  for (const scenario of [
+    { mode: 'static', extra: '\nmodel_catalog_json = "/isolated/config/models_cache_bei.json"' },
+    { mode: 'native', extra: '\nmodel_catalog_url = "https://api.beiapi.cn/v1/models"' },
+    { mode: 'official', extra: '', modelChannel: 'official' },
+  ]) {
+    const f = await fixture({ modelChannel: scenario.modelChannel || 'api', longVersions: true });
+    try {
+      await f.page.locator('#toggle-settings').click();
+      await f.page.evaluate(extra => { window.fixturePreviewExtra = extra; }, scenario.extra);
+      await f.page.locator('#model').fill('catalog-preview-model');
+      await f.page.locator('#model').press('Tab');
+      await f.page.waitForFunction(() => document.getElementById('preview-code').textContent.includes('catalog-preview-model'));
+      assert.equal(await f.page.locator('#preview-catalog-mode').count(), 0);
+      assert.equal(await f.page.getByText('模型目录：', { exact: false }).count(), 0);
+      assert.ok((await f.page.locator('#preview-code').textContent()).includes(scenario.extra));
+      await f.page.locator('#preview').screenshot({ path: path.join(output, 'catalog-preview-' + scenario.mode + '.png') });
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  }
+});
+
+test('React: configuration preview version rows stay compact', async () => {
+  const previewFixture = await fixture({ longVersions: true }); const { page } = previewFixture;
+  try {
+    await page.locator('#toggle-settings').click();
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const width of [600, 460]) {
+        await page.setViewportSize({ width, height: 460 });
+        const rows = await page.locator('.preview-meta').evaluate(element => {
+          const version = element.querySelector('.version-row').getBoundingClientRect();
+          const template = element.querySelector('.template-version-row').getBoundingClientRect();
+          return { gap: template.top - version.bottom, versionHeight: version.height, templateHeight: template.height };
+        });
+        assert.ok(Math.abs(rows.gap - 2) <= 0.1, JSON.stringify(rows));
+        assert.ok(rows.versionHeight <= 20 && rows.templateHeight <= 20, JSON.stringify(rows));
+        await page.locator('.preview-meta').screenshot({ path: path.join(output, `preview-rows-${theme}-${width}.png`) });
+      }
+    }
+    assert.deepEqual(previewFixture.errors, []);
+  } finally { await previewFixture.close(); }
+});
+
 test('React: explicit official choice survives tab changes and one-click configuration', async () => {
   for (const savedKey of ['', 'sk-saved-fixture-not-real-key']) {
     const f = await fixture({ savedKey, keepOfficialLogin: true }); const { page } = f;

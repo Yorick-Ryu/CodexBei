@@ -883,6 +883,12 @@ impl Store {
         }
         if channel == ModelChannel::Api {
             value["model_provider"] = json!(provider);
+            if !crate::templates::native_catalog(template) {
+                value["model_catalog_json"] = json!(self
+                    .catalog_path()?
+                    .to_str()
+                    .ok_or_else(|| err("模型目录路径无效。"))?);
+            }
         }
         if let Some(tier) = doc.get("service_tier").and_then(Item::as_str) {
             value["service_tier"] = json!(tier);
@@ -1720,6 +1726,42 @@ mod tests {
                 .unwrap();
             assert_eq!(fs::read_to_string(&s.selected).unwrap(), before);
         }
+    }
+    #[test]
+    fn preview_shows_the_catalog_strategy_without_writing() {
+        let (_dir, s) = store();
+        let c = connection();
+        let native = serde_json::from_str::<Json>(include_str!("../../templates/bootstrap.json"))
+            .unwrap()["templates"][1]
+            .clone();
+        let before = read(&s.selected).unwrap();
+        for (template, channel, is_native) in [
+            (template(), ModelChannel::Api, false),
+            (native.clone(), ModelChannel::Api, true),
+            (native, ModelChannel::Official, false),
+        ] {
+            let shown = s
+                .preview(&c.base_url, &c.model, false, Some(channel), &template)
+                .unwrap();
+            let doc = document(Some(shown.as_bytes())).unwrap();
+            if channel == ModelChannel::Api && !is_native {
+                assert_eq!(
+                    doc["model_catalog_json"].as_str(),
+                    s.catalog_path().unwrap().to_str()
+                );
+            } else {
+                assert!(doc.get("model_catalog_json").is_none());
+            }
+            assert_eq!(
+                item(&doc, &["model_providers", "custom", "model_catalog_url"])
+                    .and_then(Item::as_str),
+                is_native
+                    .then_some(format!("{}/models", c.base_url))
+                    .as_deref()
+            );
+        }
+        assert_eq!(read(&s.selected).unwrap(), before);
+        assert!(!s.catalog_path().unwrap().exists());
     }
     #[test]
     fn omitted_speed_preserves_other_tiers_and_invalid_feature_tables_do_not_write() {

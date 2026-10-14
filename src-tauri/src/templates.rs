@@ -195,6 +195,7 @@ fn matches(template: &Value, request: &Value) -> bool {
         else {
             return false;
         };
+        let exact_version = Range::parse(format!("={version}")).unwrap();
         template["targets"]
             .as_array()
             .unwrap()
@@ -203,7 +204,7 @@ fn matches(template: &Value, request: &Value) -> bool {
                 if target["kind"] != installed["kind"]
                     || !Range::parse(target["runtimeRange"].as_str().unwrap())
                         .unwrap()
-                        .satisfies(&version)
+                        .allows_any(&exact_version)
                 {
                     return false;
                 }
@@ -506,7 +507,10 @@ mod tests {
             (vec![Some("0.156.0"), Some("0.155.1")], false),
             (vec![Some("0.156.0"), None], false),
             (vec![Some("0.156.0-alpha.16")], false),
-            (vec![Some("0.157.0-alpha.1")], false),
+            (vec![Some("0.157.0-alpha.1")], true),
+            (vec![Some("0.162.0-alpha.17.2")], true),
+            (vec![Some("0.162.1"), Some("0.162.0-alpha.17.2")], true),
+            (vec![Some("0.162.0-alpha.17.2"), Some("0.155.1")], false),
             (vec![], false),
         ] {
             let targets: Vec<_> = versions
@@ -520,6 +524,47 @@ mod tests {
             validate(&t).unwrap();
             assert_eq!(native_catalog(&t), native);
         }
+    }
+    #[test]
+    fn runtime_preview_matching_keeps_range_boundaries() {
+        let mut template =
+            serde_json::from_str::<Value>(include_str!("../../templates/bootstrap.json")).unwrap()
+                ["templates"][1]
+                .clone();
+        for (range, version, expected) in [
+            (">=0.156.0 <0.163.0", "0.156.0-alpha.16", false),
+            (">=0.156.0 <0.163.0", "0.162.0-alpha.17.2", true),
+            (">=0.156.0 <0.163.0", "0.163.0-alpha.1", true),
+            (">=0.156.0 <0.163.0", "0.163.0", false),
+            (">=0.162.0-alpha.18 <0.162.0", "0.162.0-alpha.17.2", false),
+            (">=0.162.0-alpha.18 <0.162.0", "0.162.0-alpha.18", true),
+        ] {
+            template["targets"] = json!([{"kind":"desktop","runtimeRange":range}]);
+            let request = json!({"clientVersion":"0.1.8","targets":[{"kind":"desktop","runtimeVersion":version}]});
+            assert_eq!(matches(&template, &request), expected, "{range}: {version}");
+        }
+    }
+    #[test]
+    fn runtime_preview_discards_cached_static_policy_from_before_the_fix() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("cache");
+        let request = json!({"clientVersion":"0.1.8","targets":[{"kind":"desktop","runtimeVersion":"0.162.0-alpha.17.2","appVersion":"26.1007.30912"}]});
+        let previous =
+            json!({"schemaVersion":1,"release":6,"request":request,"template":template()});
+        config::private_dir(&directory).unwrap();
+        config::atomic_write(
+            &directory.join("templates-v2.json"),
+            &serde_json::to_vec(&json!({"cached":[previous],"selected":[previous]})).unwrap(),
+            0o600,
+        )
+        .unwrap();
+        let mut service = Service::new(directory.clone()).unwrap();
+        assert!(service.cached.is_empty() && service.selected.is_empty());
+        assert!(native_catalog(&service.current(&request).unwrap()));
+        assert!(service.accept(previous, &request).is_err());
+        service.accept(service.bundled(&request), &request).unwrap();
+        let reloaded = Service::new(directory).unwrap();
+        assert!(native_catalog(&reloaded.current(&request).unwrap()));
     }
     #[test]
     fn client_version_is_validated_and_isolates_cached_templates() {

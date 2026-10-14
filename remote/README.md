@@ -19,7 +19,7 @@ Worker 每天 20:00 UTC（北京时间次日凌晨 04:00）从 `CHATGPT_MAC_ARM6
 - `publishedAt`：ISO 8601 时间。
 - `templates[].id` / `version`：模板名称和语义版本；修改内容、范围或删除规则时提升版本。相同版本内容不可变。
 - `default`：必须且只能有一个 `true` 的默认模板，其 `targets` 为空；适用所有版本。专用模板设为 `false` 并填写版本范围。原生模型发现模板额外要求 CodexBei 客户端版本满足 `>=0.1.3`。
-- `targets[].kind`：`cli` 或 `desktop`；`runtimeRange` 匹配各自实际运行的 Codex 内核版本。桌面版可额外设置 `appRange: {"min":"26.900.0","maxExclusive":"26.902.0"}`，按数字逐段比较（保留 Windows 第四段），不会把 App 版本当成内核版本。
+- `targets[].kind`：`cli` 或 `desktop`；`runtimeRange` 匹配各自实际运行的 Codex 内核版本，允许 `alpha`、`beta`、`rc` 等预发布版本参与匹配，但仍严格保留版本上下界。桌面版可额外设置 `appRange: {"min":"26.900.0","maxExclusive":"26.902.0"}`，按数字逐段比较（保留 Windows 第四段），不会把 App 版本当成内核版本。
 - `set`：托管字段的嵌套 JSON。密钥必须为 `$api_key`、模型为 `$model`、地址为 `$base_url`；不会接收真实凭据或模板指定的默认模型。
 - `remove`：为协议兼容保留，但必须为空数组。模板只增加或替换字段；不在 `set` 中的已有字段保持不变，客户端和服务端拒绝删除规则。
 

@@ -38,7 +38,9 @@ test('native catalog requires all selected runtimes to meet the boundary', async
   for (const [versions, native] of [
     [['0.156.0'], true], [['0.156.1', '0.156.0'], true],
     [['0.156.0', '0.155.1'], false], [['0.155.1', '0.156.0'], false],
-    [['0.156.0', null], false], [['0.156.0-alpha.16'], false], [['0.157.0-alpha.1'], false], [[], false],
+    [['0.156.0', null], false], [['0.156.0-alpha.16'], false], [['0.157.0-alpha.1'], true],
+    [['0.162.0-alpha.17.2'], true], [['0.162.1', '0.162.0-alpha.17.2'], true],
+    [['0.162.0-alpha.17.2', '0.155.1'], false], [[], false],
   ]) {
     const targets = versions.map((runtimeVersion, i) => ({ kind: i ? 'desktop' : 'cli', runtimeVersion }));
     for (const clientVersion of ['0.1.3', '0.1.3-alpha.1', '0.1.4-alpha.1']) {
@@ -60,6 +62,22 @@ test('templates cannot delete existing user configuration', async () => {
   const manifest = structuredClone(bootstrap);
   manifest.templates[0].remove = [['preferred_auth_method']];
   assert.equal((await handle(request(requestFor(cli)), manifest)).status, 503);
+});
+
+test('runtime preview matching keeps range boundaries', async () => {
+  for (const [runtimeRange, runtimeVersion, expected] of [
+    ['>=0.156.0 <0.163.0', '0.156.0-alpha.16', false],
+    ['>=0.156.0 <0.163.0', '0.162.0-alpha.17.2', true],
+    ['>=0.156.0 <0.163.0', '0.163.0-alpha.1', true],
+    ['>=0.156.0 <0.163.0', '0.163.0', false],
+    ['>=0.162.0-alpha.18 <0.162.0', '0.162.0-alpha.17.2', false],
+    ['>=0.162.0-alpha.18 <0.162.0', '0.162.0-alpha.18', true],
+  ]) {
+    const manifest = structuredClone(bootstrap);
+    manifest.templates[1].targets = [{ kind: 'desktop', runtimeRange }];
+    const body = await (await handle(request({ clientVersion: '0.1.8', targets: [{ kind: 'desktop', runtimeVersion }] }), manifest)).json();
+    assert.equal(body.template.id, expected ? 'codex-native-catalog' : 'codex-default', runtimeRange + ': ' + runtimeVersion);
+  }
 });
 
 test('client version gates native templates without changing legacy response shape', async () => {

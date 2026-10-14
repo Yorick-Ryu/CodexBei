@@ -565,7 +565,7 @@ summary:hover {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 .version-row .connection {
   min-width: 0;
@@ -651,10 +651,15 @@ select {
 .preview-meta {
   margin-top: 10px;
 }
+.preview-meta .text-button {
+  padding-block: 0;
+  line-height: 1.6;
+}
 .preview-version {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.6;
 }
 .template-version-row {
   display: flex;
