@@ -209,12 +209,28 @@ trust_level = "trusted"
 args = ["private-argument"]
 "#;
         let result = report_config(input).unwrap();
-        for hidden in ["sk-private-key", "private-header", "private-query", "user:password"] {
+        for hidden in [
+            "sk-private-key",
+            "private-header",
+            "private-query",
+            "user:password",
+        ] {
             assert!(!result.contains(hidden), "leaked {hidden}");
         }
         assert!(result.contains("gpt-5.6-sol"));
-        for retained in ["private-comment", "private-note", "PRIVATE", "private-argument", "private-other", "projects", "mcp_servers"] {
-            assert!(result.contains(retained), "lost diagnostic context: {retained}");
+        for retained in [
+            "private-comment",
+            "private-note",
+            "PRIVATE",
+            "private-argument",
+            "private-other",
+            "projects",
+            "mcp_servers",
+        ] {
+            assert!(
+                result.contains(retained),
+                "lost diagnostic context: {retained}"
+            );
         }
         assert!(result.contains("example.com/v1"));
         assert!(result.contains("supports_websockets = false"));

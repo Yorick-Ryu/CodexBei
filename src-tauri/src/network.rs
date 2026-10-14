@@ -170,12 +170,15 @@ mod tests {
             )
             .unwrap();
             let plan = store
-                .prepare(connection.clone(), false, &template, Some(ModelChannel::Api))
+                .prepare(
+                    connection.clone(),
+                    false,
+                    &template,
+                    Some(ModelChannel::Api),
+                )
                 .unwrap();
             if let Some(catalog) = catalog {
-                store
-                    .attach_catalog(&plan, &connection, &catalog)
-                    .unwrap();
+                store.attach_catalog(&plan, &connection, &catalog).unwrap();
             }
             let result = store.apply(&plan).unwrap();
             assert!(result["backupId"].is_string());
