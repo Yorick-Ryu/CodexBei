@@ -29,6 +29,8 @@ node scripts/finalize-windows-release.cjs <下载目录> <发布目录> <构建�
 
 `APP_RELEASES` 绑定独立 bucket `codexbei-releases`，与官方应用镜像分开。发布脚本使用限于该 bucket 的 R2 S3 凭据，JSON 字段为 `accountId`、`accessKeyId`、`secretAccessKey`（可选 `sessionToken`）；文件放仓库外且权限为 600。Cloudflare Worker 部署令牌仍独立使用，不写入源码或日志。
 
+本机发布使用 [Cloudflare 令牌索引](../../docs/cloudflare.md) 中已有的 beiapi.cn 令牌按次申请临时 R2 凭据，无需用户提供长期 S3 密钥。先调用 `GET /user/tokens/verify`，将返回的 `id` 作为 `parentAccessKeyId`，再调用 `POST /accounts/<账户ID>/r2/temp-access-credentials`，指定 `bucket: codexbei-releases`、`permission: object-read-write`、`ttlSeconds: 7200`；账户 ID 从 `wrangler.jsonc` 读取。将响应凭据与账户 ID 保存到 `~/.codexbei/publishing/` 下权限为 600 的临时 JSON，验证可以读取 `releases/current.json` 后使用，发布完成后删除临时文件。该目录不保存长期凭据。
+
 首次切换前，先创建 bucket，并从线上下载清单、已发布归档核对全部历史版本和 SHA-256；不能用本机现存目录推断历史完整性。保持旧 Worker 在线，先上传历史文件和当前线上版本，再把 R2 指向设为当前线上版本，最后部署新 Worker。迁移过程中不发布新客户端版本。
 
 - 当前线上版本使用下方完整上传流程，保留原始更新地址、签名和发布时间；[app-release.json](../remote/app-release.json) 仅作旧静态部署的迁移基线，不再控制线上版本。
