@@ -1501,7 +1501,3 @@ main[data-restoring][data-restore-ready] #apply:disabled { opacity: 1; }
 
 .quota-heading > .quota-plans-toggle { margin-left: auto; font-size: 12px; line-height: 16px; color: var(--label); }
 .quota-heading > .quota-refresh { flex-shrink: 0; height: 24px; }
-
-.quota-recharge { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; height: 18px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 500; line-height: 14px; cursor: pointer; }
-.quota-recharge:hover { background: var(--accent-hover); }
-.quota-recharge:active { background: var(--accent-pressed); }

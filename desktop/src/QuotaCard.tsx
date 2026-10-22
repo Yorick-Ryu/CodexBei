@@ -40,9 +40,8 @@ function loadQuota(tool: Tool, channel: "api", identity: string, force: boolean)
   quotaCache.set(tool, entry);
   return entry;
 }
-function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "api"; identity: string; baseUrl: string }) {
+function Source({ tool, channel, identity }: { tool: Tool; channel: "api"; identity: string }) {
   const [refresh, setRefresh] = useState(0);
-  const [walletError, setWalletError] = useState("");
   const [plansOpen, setPlansOpen] = useState(false);
   const retryCount = useRef(0);
   const cached = quotaCache.get(tool);
@@ -90,7 +89,7 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
   return <aside className="quota-panel" aria-label="API 额度">
     <section className="quota-source quota-api" aria-label="API 额度详情" aria-busy={loading}>
       <header className="quota-heading">
-        <div className="quota-inline" aria-live="polite">{current.data.rows.map((row, index) => <span className="quota-inline-item" key={index}><span>{row.label}</span><strong>{row.value}</strong>{row.label === "余额" && (baseUrl === "https://api.beiapi.cn/v1" || (tool === "claude" && baseUrl === "https://api.beiapi.cn")) && <button className="quota-recharge" type="button" title={walletError || "打开充值页面"} onClick={() => { setWalletError(""); void toolApi(tool).openWallet().catch(() => setWalletError("无法打开充值页面，请重试")); }}>充值</button>}</span>)}</div>
+        <div className="quota-inline" aria-live="polite">{current.data.rows.map((row, index) => <span className="quota-inline-item" key={index}><span>{row.label}</span><strong>{row.value}</strong></span>)}</div>
         <button className="quota-refresh" type="button" aria-label="刷新API 额度" title="刷新" disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshIcon /></button>
         {!!current.data.groups?.length && <button className="quota-plans-toggle" type="button" aria-label={`生效套餐 ${current.data.groups.length}`} aria-expanded={plansOpen} aria-controls="api-quota-plans" onClick={() => setPlansOpen(open => !open)}><span className="quota-package-count"><span>生效套餐</span><strong>{current.data.groups.length}</strong></span><ChevronRightIcon /></button>}
       </header>
@@ -103,5 +102,5 @@ function Source({ tool, channel, identity, baseUrl }: { tool: Tool; channel: "ap
 }
 export function QuotaCard({ inspection, tool }: { inspection: Inspection; tool: Tool }) {
   if (!inspection.hasKey || !inspection.baseUrl) return null;
-  return <Source key={tool} tool={tool} channel="api" baseUrl={inspection.baseUrl} identity={`${inspection.file}\n${inspection.baseUrl}\n${inspection.apiKey}`} />;
+  return <Source key={tool} tool={tool} channel="api" identity={`${inspection.file}\n${inspection.baseUrl}\n${inspection.apiKey}`} />;
 }

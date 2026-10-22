@@ -1784,7 +1784,7 @@ test('React: switching Claude and ChatGPT reuses API quota snapshot', async () =
       assert.equal(await page.locator('.quota-plans').isVisible(),false);
       await page.getByRole('button',{name:/生效套餐\s*2/}).click();
       await page.getByText('Ultra 月卡',{exact:true}).waitFor();
-      assert.equal(await page.getByRole('button',{name:'充值',exact:true}).count(),1);
+      assert.equal(await page.getByRole('button',{name:'充值',exact:true}).count(),0);
       await page.getByRole('tab',{name:'ChatGPT',exact:true}).click();
       await page.getByText('$128.50',{exact:true}).waitFor();
     }
@@ -1833,17 +1833,13 @@ test('React: API quota stays hidden until available and on initial failure or em
  } finally {await f.close();}
 });
 
-test('React: recharge is available only for the BeiAPI v1 endpoint', async () => {
+test('React: API quota has no recharge button for any endpoint', async () => {
  for (const baseUrl of ['https://api.beiapi.cn/v1','https://other.example/v1','https://api.beiapi.cn/v2']) {
   const f=await fixture({baseUrl});
   try {
    await f.page.getByText('$128.50',{exact:true}).waitFor();
    const button=f.page.getByRole('button',{name:'充值',exact:true});
-   if(baseUrl==='https://api.beiapi.cn/v1') {
-    assert.match(await button.locator('..').innerText(),/余额/);
-    await button.click();
-    assert.equal(await f.page.evaluate(()=>window.fixtureWalletOpened),true);
-   } else assert.equal(await button.count(),0);
+   assert.equal(await button.count(),0);
    assert.deepEqual(f.errors,[]);
   } finally {await f.close();}
  }
