@@ -1,0 +1,15 @@
+{
+  "hostname": "codexbei.beiapi.cn",
+  "route": "codexbei.beiapi.cn/*",
+  "cname": "codexbei.geo.rickuu.com",
+  "default": {
+    "target": "codexbei-default.beiapi.cn",
+    "type": "AAAA",
+    "content": "100::",
+    "proxied": true
+  },
+  "mainland_china": {
+    "target": "bestcf.top"
+  },
+  "note": "AliDNS geo.rickuu.com: codexbei default and mainland China only. Resolver/ECS-based selection."
+}
