@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, '..');
 async function main() {
   const args = process.argv.slice(2);
   const allowed = new Set(['--validate-only', '--token-file', '--release-credentials-file', '--apply', '--preserve-triggers']);
-  let tokenFile, releaseCredentialsFile, attachDomain = false;
+  let tokenFile, releaseCredentialsFile;
   for (let i = 0; i < args.length; i++) {
     if (!allowed.has(args[i])) throw Error('Unknown argument');
     if (args[i] === '--token-file') tokenFile = args[++i];
@@ -36,29 +36,24 @@ async function main() {
   }
   if (args.includes('--apply')) {
     const headers = { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` };
-    const domains = await fetch('https://api.cloudflare.com/client/v4/accounts/4e528d4c6e70aee6dd9fec89af0e0522/workers/domains', { headers, signal: AbortSignal.timeout(10000) });
-    const body = await domains.json();
-    if (!domains.ok || !body.success) throw Error('Worker domain verification failed');
-    const existing = body.result.filter((d) => d.hostname === 'codexbei.beiapi.cn');
-    if (existing.some((d) => d.service !== 'codexbei-config')) throw Error('Domain belongs to another Worker');
-    if (!existing.length) {
-      attachDomain = true;
-      const dns = await fetch('https://api.cloudflare.com/client/v4/zones/75d29191c520e6c19d12242b4faeb7bd/dns_records?name=codexbei.beiapi.cn', { headers, signal: AbortSignal.timeout(10000) });
-      const records = await dns.json();
-      if (!dns.ok || !records.success || records.result.length) throw Error('Resolve existing DNS ownership before deployment');
-    }
+    const response = await fetch('https://api.cloudflare.com/client/v4/zones/75d29191c520e6c19d12242b4faeb7bd/workers/routes', { headers, signal: AbortSignal.timeout(10000) });
+    const body = await response.json();
+    if (!response.ok || !body.success) throw Error('Worker route verification failed; token needs Workers Routes Read/Edit');
+    const existing = body.result.filter((r) => r.pattern === 'codexbei.beiapi.cn/*');
+    if (existing.length !== 1 || existing[0].script !== 'codexbei-config') throw Error('Expected CodexBei route is missing or belongs to another Worker');
   }
+
   const command = path.join(root, 'node_modules/wrangler/bin/wrangler.js');
   let temporary;
   let configArgs = [];
   if (args.includes('--apply')) {
-    // Publish code independently of zone path routes. Custom domains use the account API below.
+    // Keep the preferred-DNS route declared in the committed configuration.
     const config = JSON.parse(fs.readFileSync(path.join(root, 'wrangler.jsonc'), 'utf8'));
     if (config.name !== 'codexbei-config' || config.account_id !== '4e528d4c6e70aee6dd9fec89af0e0522') throw Error('Unexpected Worker target');
     fs.mkdirSync(path.join(root, '.wrangler'), { recursive: true });
     temporary = fs.mkdtempSync(path.join(root, '.wrangler/deploy-'));
     const file = path.join(temporary, 'wrangler.json');
-    fs.writeFileSync(file, JSON.stringify({ ...config, ...(args.includes('--preserve-triggers') ? { triggers: undefined } : {}), routes: [], main: path.resolve(root, config.main),
+    fs.writeFileSync(file, JSON.stringify({ ...config, ...(args.includes('--preserve-triggers') ? { triggers: undefined } : {}), main: path.resolve(root, config.main),
       $schema: path.join(root, 'node_modules/wrangler/config-schema.json') }));
     configArgs = ['--config', file];
   }
@@ -69,14 +64,6 @@ async function main() {
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   process.stdout.write(env.CLOUDFLARE_API_TOKEN ? output.split(env.CLOUDFLARE_API_TOKEN).join('[redacted]') : output);
   if (result.status !== 0) throw Error('Worker deployment/validation failed');
-  if (attachDomain) {
-    const response = await fetch('https://api.cloudflare.com/client/v4/accounts/4e528d4c6e70aee6dd9fec89af0e0522/workers/domains', {
-      method: 'PUT', headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hostname: 'codexbei.beiapi.cn', service: 'codexbei-config', zone_id: '75d29191c520e6c19d12242b4faeb7bd', environment: 'production' }), signal: AbortSignal.timeout(20000),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) throw Error('Worker uploaded; custom domain attachment failed');
-  }
   if (args.includes('--apply')) {
     const request = { targets: [{ kind: 'cli', runtimeVersion: '0.153.4' }] };
     const expected = resolveResponse(manifest, request);

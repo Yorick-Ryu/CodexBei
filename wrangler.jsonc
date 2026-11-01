@@ -26,8 +26,8 @@
   "preview_urls": false,
   "routes": [
     {
-      "pattern": "codexbei.beiapi.cn",
-      "custom_domain": true
+      "pattern": "codexbei.beiapi.cn/*",
+      "zone_name": "beiapi.cn"
     }
   ],
   "observability": {

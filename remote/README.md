@@ -61,7 +61,7 @@ CLI/桌面内核使用 SemVer，如 `0.153.4`，GitHub 标签 `rust-v0.153.4` �
 
 配置 API、导入配置链接或切换到 API 时，客户端获取完整 Codex 目录，成功后覆盖所选配置文件旁的 `models_cache_bei.json`，将绝对路径写入顶层 `model_catalog_json`。目录保留模型能力和指令字段，不保存密钥；获取失败或空目录不更新目录文件和路径，通道切换仍独立生效。配置或导入操作获取失败则保留整份原配置。`models_cache_bei.previous.json` 记录接管前的目录设置。切回官方时仅撤下本工具管理的目录，恢复原设置；兼容旧版摘要路径，用户自行替换的路径保留。Codex 在启动时读取目录，已运行的客户端需要重新启动才能可靠生效。此功能需要更新客户端，不能仅发布远端模板实现。
 
-所需权限：beiapi.cn 所属账户的 Workers Scripts Edit，以及 beiapi.cn 的 Zone/DNS Read（用于核对资源归属）。当前使用 Worker 自定义域名，不使用按路径配置的 Workers Routes。令牌存放在权限为 600 的独立文件，不写入源码。
+所需权限：beiapi.cn 所属账户的 Workers Scripts Edit，以及 beiapi.cn 的 Zone/DNS Read（用于核对资源归属）。使用 `codexbei.beiapi.cn/*` Worker Route，DNS 由运维独立维护为优选 CNAME（仅 DNS）。不可重新绑定 Custom Domain；发布令牌还需 beiapi.cn 的 Workers Routes Read/Edit。令牌存放在权限为 600 的独立文件，不写入源码。
 
 ```sh
 npm test
