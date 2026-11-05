@@ -9,7 +9,7 @@
     "proxied": true
   },
   "mainland_china": {
-    "target": "bestcf.top"
+    "target": "cloudflare.182682.xyz"
   },
   "note": "AliDNS geo.rickuu.com: codexbei default and mainland China only. Resolver/ECS-based selection."
 }
