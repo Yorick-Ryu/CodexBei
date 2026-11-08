@@ -32,11 +32,11 @@ export function useSoftwareUpdate({ busy, run }: {
       update.current = candidate;
       setNextVersion(candidate?.version || "");
       setPhase(candidate ? "available" : "idle");
-      setMessage(candidate ? "" : "已是最新版本");
+      setMessage("");
       return candidate;
     } catch {
-      setPhase("error");
-      setMessage("检查失败，点击重试");
+      setPhase("idle");
+      setMessage("");
       return null;
     } finally { pending.current = false; }
   }, []);
@@ -53,46 +53,52 @@ export function useSoftwareUpdate({ busy, run }: {
     };
   }, [checkNow]);
 
-  const act = () => void run(async () => {
-    if (pending.current) return;
-    if (phase === "installed") {
-      pending.current = true;
-      setPhase("restarting");
-      try { await relaunch(); }
-      catch { setPhase("installed"); setMessage("重启失败，点击重试"); }
-      finally { pending.current = false; }
-      return;
+  const act = async () => {
+    if (pending.current || busy) return;
+    // Network checks must not lock configuration behind the global busy state.
+    if (!update.current && phase !== "installed") {
+      if (!await checkNow()) return;
     }
-    const candidate = update.current || await checkNow();
-    if (!candidate) return;
-    pending.current = true;
-    let verified = phase === "ready";
-    try {
-      if (!verified) {
-        setPhase("downloading"); setMessage(""); setProgress(undefined);
-        let received = 0;
-        let total = 0;
-        await candidate.download(event => {
-          if (!mounted.current) return;
-          if (event.event === "Started") total = event.data.contentLength || 0;
-          if (event.event === "Progress") received += event.data.chunkLength;
-          if (total) setProgress(Math.min(100, Math.round(received / total * 100)));
-        }, { timeout: 120000 });
-        verified = true; // The plugin has verified the package signature.
+    await run(async () => {
+      if (phase === "installed") {
+        pending.current = true;
+        setPhase("restarting");
+        try { await relaunch(); }
+        catch { setPhase("installed"); setMessage("重启失败，点击重试"); }
+        finally { pending.current = false; }
+        return;
       }
-      setPhase("installing");
-      await candidate.install();
-      installed.current = true;
-      update.current = null;
-      await candidate.close().catch(() => {});
-      setPhase("restarting"); setMessage("");
-      await relaunch();
-    } catch {
-      setPhase(installed.current ? "installed" : verified ? "ready" : "error");
-      setMessage(installed.current ? "重启失败，点击重试" : verified ? "安装失败，点击重试" : "下载或校验失败，点击重试");
-      if (!verified) { update.current = null; await candidate.close().catch(() => {}); }
-    } finally { pending.current = false; }
-  }, false, false);
+      const candidate = update.current || await checkNow();
+      if (!candidate) return;
+      pending.current = true;
+      let verified = phase === "ready";
+      try {
+        if (!verified) {
+          setPhase("downloading"); setMessage(""); setProgress(undefined);
+          let received = 0;
+          let total = 0;
+          await candidate.download(event => {
+            if (!mounted.current) return;
+            if (event.event === "Started") total = event.data.contentLength || 0;
+            if (event.event === "Progress") received += event.data.chunkLength;
+            if (total) setProgress(Math.min(100, Math.round(received / total * 100)));
+          }, { timeout: 120000 });
+          verified = true; // The plugin has verified the package signature.
+        }
+        setPhase("installing");
+        await candidate.install();
+        installed.current = true;
+        update.current = null;
+        await candidate.close().catch(() => {});
+        setPhase("restarting"); setMessage("");
+        await relaunch();
+      } catch {
+        setPhase(installed.current ? "installed" : verified ? "ready" : "error");
+        setMessage(installed.current ? "重启失败，点击重试" : verified ? "安装失败，点击重试" : "下载或校验失败，点击重试");
+        if (!verified) { update.current = null; await candidate.close().catch(() => {}); }
+      } finally { pending.current = false; }
+    }, false, false);
+  };
 
   const working = ["checking", "downloading", "installing", "restarting"].includes(phase);
   const status = message || ({ idle: "", checking: "检查中", available: "发现新版本", downloading: "下载中", ready: "待安装", installing: "安装中", installed: "立即重启", restarting: "重启中", error: "重试" }[phase]);
