@@ -52,6 +52,8 @@ async function fixture(options = {}) {
       if (cmd === 'incoming_tool') return window.fixtureIncomingTool || null;
       if (args?.tool === 'claude') {
         window.fixtureClaudeCalls.push({ cmd, args });
+        if (cmd === 'claude_desktop_installation') { if (window.fixtureDesktopInstallationError) throw window.fixtureDesktopInstallationError; return { installed: window.fixtureDesktopInstalled !== false, platform: window.fixtureState.platform }; }
+        if (cmd === 'open_claude_desktop_installer') { window.fixtureDesktopInstallerOpened = true; return null; }
         if (cmd === 'open_claude_installer') return null;
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
@@ -1852,6 +1854,60 @@ test('React: API quota has no recharge button for any endpoint', async () => {
  }
 });
 
+
+for (const platform of ['macos', 'windows']) {
+  test(`React: Claude Desktop ${platform} installation guide detects completion and stops polling`, async () => {
+    const f = await fixture({ platform }); const { page } = f;
+    try {
+      await page.clock.install();
+      const original = await page.evaluate(() => {
+        window.fixtureDesktopInstalled = false;
+        return JSON.stringify([window.fixtureState, window.fixtureClaude]);
+      });
+      await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+      await page.getByRole('heading', { name: '未检测到 Claude 桌面版', exact: true }).waitFor();
+      assert.equal(await page.locator('#desktop-key').count(), 0);
+      await page.getByRole('button', { name: '下载桌面版', exact: true }).click();
+      await page.waitForFunction(() => window.fixtureDesktopInstallerOpened);
+      for (const width of [600, 460]) {
+        await page.setViewportSize({ width, height: 570 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await page.screenshot({ path: path.join(output, `claude-desktop-install-${platform}-${width}.png`) });
+      }
+      const count = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length);
+      await page.clock.fastForward(10_000);
+      await page.waitForFunction(count => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length > count, count);
+      await page.evaluate(() => { window.fixtureDesktopInstalled = true; window.dispatchEvent(new Event('focus')); });
+      await page.locator('#desktop-key').waitFor();
+      const installedCount = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await page.clock.fastForward(30_000);
+      assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length), installedCount);
+      assert.equal(await page.evaluate(() => window.fixtureDesktopConfigured), undefined);
+      assert.equal(await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude])), original);
+      assert.deepEqual(f.errors, []);
+    } finally { await f.close(); }
+  });
+}
+
+test('React: Claude Desktop installation detection errors can be retried and polling ends on tab change', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.clock.install();
+    await page.evaluate(() => { window.fixtureDesktopInstallationError = '无法检测安装状态，请重试。'; });
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.getByRole('heading', { name: '无法检测 Claude 桌面版', exact: true }).waitFor();
+    await page.evaluate(() => { window.fixtureDesktopInstallationError = ''; window.fixtureDesktopInstalled = false; });
+    await page.getByRole('button', { name: '重新检测', exact: true }).click();
+    await page.getByRole('heading', { name: '未检测到 Claude 桌面版', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+    const count = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.clock.fastForward(30_000);
+    assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length), count);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
 
 test('React: Claude Desktop network access loads, keeps drafts and saves both states', async () => {
   const f = await fixture(); const { page } = f;

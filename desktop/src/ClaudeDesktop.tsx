@@ -26,6 +26,9 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [allowAllWebsites, setAllowAllWebsites] = useState(initial.current?.allowAllWebsites ?? false);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [installation, setInstallation] = useState<{ installed: boolean; platform: string } | null>(null);
+  const [installationError, setInstallationError] = useState("");
+  const [installationRefresh, setInstallationRefresh] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
@@ -39,6 +42,32 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [modelStatus, setModelStatus] = useState("");
   const [modelRefresh, setModelRefresh] = useState(0);
   const busyRef = useRef(false);
+  useEffect(() => {
+    let active = true;
+    let checking = false;
+    let found = false;
+    const check = async () => {
+      if (checking || found || busyRef.current) return;
+      checking = true;
+      try {
+        const value = await api.claudeDesktopInstallation();
+        if (!active) return;
+        setInstallation(value); setInstallationError("");
+        if (value.installed) {
+          found = true;
+          window.clearInterval(timer);
+          window.removeEventListener("focus", onFocus);
+        }
+      } catch (error) {
+        if (active) setInstallationError(typeof error === "string" ? error : "无法检测安装状态，请重试。");
+      } finally { checking = false; }
+    };
+    const onFocus = () => void check();
+    const timer = window.setInterval(() => void check(), 10_000);
+    window.addEventListener("focus", onFocus);
+    void check();
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [installationRefresh]);
   useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, draftRef]);
   useEffect(() => {
     let active = true;
@@ -62,9 +91,9 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     finally { busyRef.current = false; setBusy(false); }
   }, []);
   const update = useSoftwareUpdate({ busy, run });
-  const disabled = busy || initializing;
+  const disabled = busy || initializing || !installation?.installed;
   useEffect(() => {
-    if (!expanded || initializing || !connection.apiKey.trim()) {
+    if (!expanded || initializing || !installation?.installed || !connection.apiKey.trim()) {
       setModelsLoading(false);
       return;
     }
@@ -82,7 +111,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
       }).finally(() => { if (active) setModelsLoading(false); });
     }, 350);
     return () => { active = false; clearTimeout(timer); };
-  }, [expanded, initializing, connection.apiKey, connection.baseUrl, modelRefresh]);
+  }, [expanded, initializing, installation?.installed, connection.apiKey, connection.baseUrl, modelRefresh]);
   return <>
     <header className="app-header"><div className="brand-row" data-tauri-drag-region>
       <div className="brand"><img className="logo" src={brand} alt="" />CodexBei</div>
@@ -94,6 +123,21 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     </div></header>
     <div className="content-scroll"><main className="config-main desktop-main">
       <section id="claude-desktop-panel" role="tabpanel" aria-labelledby="claude-desktop-tab">
+        {!installation?.installed ? <div className="config-card install-card">
+          <div className="install-card-icon"><img src={claude} alt="" /></div>
+          <h2 className="config-title">{installationError ? "无法检测 Claude 桌面版" : installation ? "未检测到 Claude 桌面版" : "正在检测 Claude 桌面版…"}</h2>
+          <p className="install-card-message">{installationError || (installation
+            ? installation.platform === "macos"
+              ? "下载后将 Claude 拖入“应用程序”文件夹，安装完成后返回这里，将自动检测并开放配置。"
+              : "请先下载并运行 Claude 桌面版安装程序，安装完成后返回这里，将自动检测并开放配置。"
+            : "正在检查本机安装状态，请稍候。")}</p>
+          {(installation || installationError) && <div className="install-card-actions">
+            <button type="button" className="primary install-card-action" disabled={busy}
+              onClick={() => void run(() => api.openClaudeDesktopInstaller())}>下载桌面版</button>
+            <button type="button" className="secondary install-card-action" disabled={busy}
+              onClick={() => { setInstallationError(""); setInstallation(null); setInstallationRefresh(value => value + 1); }}>重新检测</button>
+          </div>}
+        </div> :
         <form onSubmit={event => {
           event.preventDefault();
           if (disabled) return;
@@ -156,7 +200,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             </div>
             <div className="action-row"><button id="apply" type="submit" className="primary" disabled={disabled || !connection.apiKey.trim()}>{busy ? "处理中…" : "一键配置"}</button></div>
           </div>
-        </form>
+        </form>}
       </section>
     </main></div>
     <div className="status-region" hidden={!error && !message}>

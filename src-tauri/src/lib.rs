@@ -1,5 +1,6 @@
 mod claude;
 mod claude_desktop;
+mod claude_desktop_installation;
 mod config;
 mod diagnostics;
 mod editor;
@@ -71,7 +72,21 @@ async fn open_chatgpt_installer(direct_download: Option<bool>) -> Result<()> {
 
 #[tauri::command]
 fn open_claude_installer() -> Result<()> {
-    let url = "https://code.claude.com/docs/en/setup";
+    open_claude_page(
+        "https://code.claude.com/docs/en/setup",
+        "无法打开 Claude Code 安装指南。",
+    )
+}
+
+#[tauri::command]
+fn open_claude_desktop_installer() -> Result<()> {
+    open_claude_page(
+        "https://claude.com/download",
+        "无法打开 Claude 桌面版下载页面，请访问 https://claude.com/download。",
+    )
+}
+
+fn open_claude_page(url: &str, error: &str) -> Result<()> {
     #[cfg(windows)]
     let mut command = {
         use std::os::windows::process::CommandExt;
@@ -93,9 +108,7 @@ fn open_claude_installer() -> Result<()> {
         command.arg(url);
         command
     };
-    command
-        .spawn()
-        .map_err(|_| "无法打开 Claude Code 安装指南。".to_string())?;
+    command.spawn().map_err(|_| error.to_string())?;
     Ok(())
 }
 
@@ -150,6 +163,12 @@ fn desktop_store(state: &AppState) -> Result<claude_desktop::Store> {
         state.test_mode.then_some(isolated.as_path()),
     )
 }
+#[tauri::command]
+async fn claude_desktop_installation(state: State<'_, AppState>) -> Result<Value> {
+    let isolated = state.desktop_root.join("test-data");
+    claude_desktop_installation::inspect(state.test_mode.then_some(isolated.as_path())).await
+}
+
 #[tauri::command]
 fn claude_desktop_status(state: State<AppState>) -> Result<Value> {
     let _guard = lock(&state.desktop_lock)?;
@@ -797,6 +816,8 @@ pub fn run() {
             delete_backup,
             open_chatgpt_installer,
             open_claude_installer,
+            open_claude_desktop_installer,
+            claude_desktop_installation,
             claude_desktop_status,
             configure_claude_desktop,
             open_wallet,

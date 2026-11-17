@@ -12,6 +12,8 @@ mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
   if (cmd === "incoming_tool") return null;
   if (args.tool === "claude") {
+    if (cmd === "claude_desktop_installation") return { installed: previewParams.get("screen") !== "claude-missing", platform: previewPlatform === "darwin" ? "macos" : "windows" };
+    if (cmd === "claude_desktop_status") return { configured: false, models: [] };
     if (cmd === "inspect") return { file: "C:\\Users\\Example\\.claude\\settings.json", testMode: true,
       baseUrl: "https://api.beiapi.cn", model: "claude-sonnet-test", hasKey: true, apiKey: "sk-preview-placeholder",
       modelChannel: "api", keepOfficialLogin: false, platform: "windows" };
