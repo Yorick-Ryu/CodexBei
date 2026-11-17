@@ -497,13 +497,13 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         (models) => {
           if (active) {
             setAvailableModels(models);
-            setModelStatus(models.length ? "" : "未获取到模型列表，可手动填写，不影响一键配置。");
+            setModelStatus(models.length ? "" : "未获取到模型列表。");
             setModelsLoading(false);
           }
         },
         (e) => {
           if (active) {
-            setModelStatus(`${errorText(e)} 可手动填写模型，不影响一键配置。`);
+            setModelStatus(errorText(e));
             setModelsLoading(false);
           }
         },

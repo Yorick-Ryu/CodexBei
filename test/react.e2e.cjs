@@ -630,7 +630,7 @@ for (const scenario of [
     try {
       await page.locator('#toggle-settings').click();
       if (scenario.name === 'loading') await page.waitForFunction(() => window.fixtureCalls.includes('models'));
-      else await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('不影响一键配置'));
+      else await page.waitForFunction(message => document.getElementById('models-help').textContent === message, scenario.modelsError || '未获取到模型列表。');
       assert.equal(await page.locator('#key').getAttribute('aria-invalid'), 'false');
       await page.locator('#model').fill('my-custom-model');
       await page.locator('#model').press('Tab');
