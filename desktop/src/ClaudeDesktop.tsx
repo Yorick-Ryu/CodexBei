@@ -97,7 +97,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
           if (disabled) return;
           void run(async () => {
             let available = models;
-            if (!connection.model && !available.length) {
+            if (!available.length) {
               available = nativeModels(await api.models(connection.apiKey, connection.baseUrl));
               setModels(available);
             }

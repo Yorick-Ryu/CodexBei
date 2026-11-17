@@ -1853,6 +1853,24 @@ test('React: API quota has no recharge button for any endpoint', async () => {
 });
 
 
+test('React: Claude Desktop rediscovers all models when reconfiguring an existing default', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.evaluate(() => {
+      window.fixtureDesktop = { configured: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-fable-5-2', models: ['claude-fable-5-2'] };
+      window.fixtureClaudeModels = ['claude-sonnet-5-5', 'claude-fable-5-2', 'claude-opus-5-5', 'deepseek-flash'];
+    });
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.locator('#desktop-key').fill('sk-desktop-fixture-not-real');
+    await page.getByRole('button', { name: '一键配置', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '桌面配置已保存' }).waitFor();
+    const configured = await page.evaluate(() => window.fixtureDesktopConfigured);
+    assert.equal(configured.connection.model, 'claude-fable-5-2');
+    assert.deepEqual(configured.options.models, ['claude-sonnet-5-5', 'claude-fable-5-2', 'claude-opus-5-5']);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: Claude Desktop configures from a key with optional advanced controls', async () => {
   const f = await fixture(); const { page } = f;
   try {
