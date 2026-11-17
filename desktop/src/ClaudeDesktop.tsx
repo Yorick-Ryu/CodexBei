@@ -182,15 +182,18 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
               ref={element => { if (element) element.inert = !expanded; }}>
               <div className="settings-clip"><div className="settings-body desktop-options-body">
                 <label htmlFor="desktop-base-url">API 地址</label>
-                <input id="desktop-base-url" type="url" autoComplete="off" spellCheck={false} value={connection.baseUrl} disabled={disabled}
-                  onChange={event => { setModels([]); setConnection(current => ({ ...current, baseUrl: event.target.value, apiKey: "", model: "" })); }} />
+                <div className="key-control base-url-control">
+                  <input id="desktop-base-url" type="url" autoComplete="off" spellCheck={false} value={connection.baseUrl} disabled={disabled}
+                    onChange={event => { setModels([]); setConnection(current => ({ ...current, baseUrl: event.target.value, apiKey: "", model: "" })); }} />
+                </div>
+                <p className="field-feedback" aria-hidden="true" />
                 <div className="label-row model-label"><label htmlFor="model">模型</label>
                   <button type="button" className="text-button" disabled={disabled || modelsLoading || !connection.apiKey.trim()}
                     onClick={() => setModelRefresh(value => value + 1)}>{modelsLoading ? "获取中…" : "刷新"}</button>
                 </div>
                 <ModelPicker required={false} value={connection.model} options={models} disabled={disabled}
                   onChange={model => setConnection(current => ({ ...current, model }))} />
-                <p id="models-help" className="history-description" hidden={!modelStatus}>{modelStatus}</p>
+                <p id="models-help" className="field-feedback" role="status" title={modelStatus || undefined}>{modelStatus}</p>
                 <div className="desktop-options">
                   <label className="login-option"><input type="checkbox" checked={modelDiscovery} disabled={disabled} onChange={event => setModelDiscovery(event.target.checked)} />启用模型发现</label>
                   <label className="login-option"><input type="checkbox" checked={context1m} disabled={disabled} onChange={event => setContext1m(event.target.checked)} />启用 1M 上下文</label>

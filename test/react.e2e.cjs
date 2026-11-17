@@ -58,7 +58,7 @@ async function fixture(options = {}) {
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
         if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
-        if (cmd === 'models') return window.fixtureClaudeModels || ['claude-sonnet-test', 'claude-opus-test'];
+        if (cmd === 'models') { if (window.fixtureClaudeModelsError) throw window.fixtureClaudeModelsError; return window.fixtureClaudeModels || ['claude-sonnet-test', 'claude-opus-test']; }
         if (cmd === 'claude_desktop_status') return window.fixtureDesktop || {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:false,models:[]};
         if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
         if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
@@ -1854,6 +1854,38 @@ test('React: API quota has no recharge button for any endpoint', async () => {
  }
 });
 
+
+test('React: Claude Desktop matches ChatGPT field spacing and reserves model feedback space', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.getByRole('button', { name: '更多设置', exact: true }).click();
+    await page.locator('#base-url').waitFor({ state: 'visible' });
+    const spacing = (key, base) => page.evaluate(({ key, base }) => {
+      const rect = selector => document.querySelector(selector).getBoundingClientRect();
+      return {
+        labelGaps: [key, base, 'model'].map(id => Math.round(rect(`#${id}`).top - rect(`label[for="${id}"]`).bottom)),
+        afterKey: Math.round(rect(`label[for="${base}"]`).top - rect(`#${key}`).bottom),
+        afterBase: Math.round(rect('label[for="model"]').top - rect(`#${base}`).bottom),
+        feedbackHeight: rect('#models-help').height,
+      };
+    }, { key, base });
+    const reference = await spacing('key', 'base-url');
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.locator('#desktop-key').waitFor();
+    await page.getByRole('button', { name: '更多设置', exact: true }).click();
+    await page.locator('#desktop-base-url').waitFor({ state: 'visible' });
+    assert.deepEqual(await spacing('desktop-key', 'desktop-base-url'), reference);
+    await page.locator('#desktop-key').fill('sk-desktop-fixture-not-real');
+    await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('未发现原生'));
+    const optionsTop = await page.locator('.desktop-options').evaluate(el => el.getBoundingClientRect().top);
+    await page.evaluate(() => { window.fixtureClaudeModelsError = '模型获取失败，请检查网络连接。'; });
+    await page.getByRole('button', { name: '刷新', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('models-help').textContent.includes('模型获取失败'));
+    assert.equal(await page.locator('.desktop-options').evaluate(el => el.getBoundingClientRect().top), optionsTop);
+    await page.screenshot({ path: path.join(output, 'claude-desktop-feedback-spacing.png') });
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
 
 for (const platform of ['macos', 'windows']) {
   test(`React: Claude Desktop ${platform} installation guide detects completion and stops polling`, async () => {
