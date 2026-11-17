@@ -27,6 +27,11 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
   const [expanded, setExpanded] = useState(initial.current?.expanded ?? false);
   const [visibleKey, setVisibleKey] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -139,7 +144,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
                 </div>
                 <ModelPicker required={false} value={connection.model} options={models} disabled={disabled}
                   onChange={model => setConnection(current => ({ ...current, model }))} />
-                <p id="models-help" className="history-description">{modelStatus || (!connection.apiKey.trim() ? "填写密钥后自动获取模型，也可手动填写。" : "留空时自动选择模型。")}</p>
+                <p id="models-help" className="history-description" hidden={!modelStatus}>{modelStatus}</p>
                 <div className="desktop-options">
                   <label className="login-option"><input type="checkbox" checked={modelDiscovery} disabled={disabled} onChange={event => setModelDiscovery(event.target.checked)} />启用模型发现</label>
                   <label className="login-option"><input type="checkbox" checked={context1m} disabled={disabled} onChange={event => setContext1m(event.target.checked)} />启用 1M 上下文</label>
@@ -149,9 +154,15 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             <div className="action-row"><button id="apply" type="submit" className="primary" disabled={disabled || !connection.apiKey.trim()}>{busy ? "处理中…" : "一键配置"}</button></div>
           </div>
         </form>
-        {error && <p className="desktop-error" role="alert">{error}</p>}
-        {message && <p role="status">{message}</p>}
       </section>
     </main></div>
+    <div className="status-region" hidden={!error && !message}>
+      <div id="status" className={error ? "error" : "success"} hidden={!error && !message}
+        role={error ? "alert" : "status"}>
+        <span>{error || message}</span>
+        <button type="button" className="status-close" aria-label="关闭提示"
+          onClick={() => { setError(""); setMessage(""); }}><CloseIcon /></button>
+      </div>
+    </div>
   </>;
 }
