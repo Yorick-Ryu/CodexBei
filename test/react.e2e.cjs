@@ -1853,6 +1853,38 @@ test('React: API quota has no recharge button for any endpoint', async () => {
 });
 
 
+test('React: Claude Desktop network access loads, keeps drafts and saves both states', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.evaluate(() => {
+      window.fixtureDesktop = { configured: true, model: 'claude-fable-5-2', models: ['claude-fable-5-2'], allowAllWebsites: true };
+      window.fixtureClaudeModels = ['claude-fable-5-2'];
+    });
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.getByRole('button', { name: '更多设置', exact: true }).click();
+    const network = page.getByLabel('允许访问所有网站', { exact: true });
+    assert.equal(await network.isChecked(), true);
+    await network.uncheck();
+    await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    assert.equal(await network.isChecked(), false);
+    await page.locator('#desktop-key').fill('sk-desktop-fixture-not-real');
+    await page.getByRole('button', { name: '一键配置', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured?.options.allowAllWebsites === false);
+    await page.getByRole('status').filter({ hasText: '桌面配置已保存' }).waitFor();
+    await network.check();
+    await page.getByRole('button', { name: '一键配置', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured?.options.allowAllWebsites === true);
+    for (const width of [600, 460]) {
+      await page.setViewportSize({ width, height: 570 });
+      assert.equal(await network.isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.screenshot({ path: path.join(output, `claude-desktop-network-${width}.png`) });
+    }
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
 test('React: Claude Desktop rediscovers all models when reconfiguring an existing default', async () => {
   const f = await fixture(); const { page } = f;
   try {
@@ -1892,6 +1924,7 @@ test('React: Claude Desktop configures from a key with optional advanced control
     assert.equal(configured.connection.baseUrl, 'https://api.beiapi.cn');
     assert.equal(configured.options.modelDiscovery, true);
     assert.equal(configured.options.context1m, true);
+    assert.equal(configured.options.allowAllWebsites, false);
     assert.equal(configured.options.models.includes('deepseek-flash'), false);
     assert.equal(await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude])), original);
     for (const width of [600, 460]) {

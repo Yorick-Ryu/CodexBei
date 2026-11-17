@@ -18,6 +18,8 @@ const CONFIG: &str = "claude_desktop_config.json";
 pub struct Options {
     pub model_discovery: bool,
     pub context_1m: bool,
+    #[serde(default)]
+    pub allow_all_websites: bool,
     pub models: Vec<String>,
 }
 impl Default for Options {
@@ -25,6 +27,7 @@ impl Default for Options {
         Self {
             model_discovery: true,
             context_1m: true,
+            allow_all_websites: false,
             models: Vec::new(),
         }
     }
@@ -113,7 +116,11 @@ fn profile(connection: &Connection, options: &Options) -> Result<Value> {
         "inferenceGatewayAuthScheme": "bearer",
         "inferenceModels": models,
         "modelDiscoveryEnabled": options.model_discovery,
-        "modelPrefer1mContext": options.context_1m
+        "modelPrefer1mContext": options.context_1m,
+        "coworkEgressAllowedHosts": if options.allow_all_websites { json!(["*"]) } else { json!([]) },
+        "builtinBrowserEnabled": true,
+        "builtinBrowserBlockedDomains": [],
+        "builtinBrowserDefaultDomainPolicy": if options.allow_all_websites { "allow" } else { "block" }
     }))
 }
 
@@ -198,7 +205,10 @@ impl Store {
             "model": profile["inferenceModels"][0]["name"].as_str(),
             "hasKey": profile["inferenceGatewayApiKey"].as_str().is_some_and(|key| !key.is_empty()),
             "modelDiscovery": profile["modelDiscoveryEnabled"].as_bool().unwrap_or(true),
-            "context1m": profile["modelPrefer1mContext"].as_bool().unwrap_or(true)}),
+            "context1m": profile["modelPrefer1mContext"].as_bool().unwrap_or(true),
+            "allowAllWebsites": profile["coworkEgressAllowedHosts"].as_array().is_some_and(|hosts| hosts.iter().any(|host| host == "*"))
+                && profile["builtinBrowserDefaultDomainPolicy"].as_str().unwrap_or("allow") == "allow"
+                && profile["builtinBrowserEnabled"].as_bool().unwrap_or(false)}),
         )
     }
 
@@ -375,12 +385,36 @@ mod tests {
             &Options {
                 model_discovery: false,
                 context_1m: false,
+                allow_all_websites: false,
                 models: vec![],
             },
         )
         .unwrap();
         assert_eq!(settings["modelDiscoveryEnabled"], false);
         assert_eq!(settings["modelPrefer1mContext"], false);
+    }
+
+    #[test]
+    fn desktop_network_access_round_trips_and_can_be_revoked() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
+        assert_eq!(store.inspect().unwrap()["allowAllWebsites"], false);
+        let mut options = Options {
+            allow_all_websites: true,
+            ..Options::default()
+        };
+        store.apply(&connection(), &options).unwrap();
+        let settings = document(config::read(&store.paths()[0]).unwrap().as_deref()).unwrap();
+        assert_eq!(settings["coworkEgressAllowedHosts"], json!(["*"]));
+        assert_eq!(settings["builtinBrowserEnabled"], true);
+        assert_eq!(settings["builtinBrowserDefaultDomainPolicy"], "allow");
+        assert_eq!(store.inspect().unwrap()["allowAllWebsites"], true);
+        options.allow_all_websites = false;
+        store.apply(&connection(), &options).unwrap();
+        let settings = document(config::read(&store.paths()[0]).unwrap().as_deref()).unwrap();
+        assert_eq!(settings["coworkEgressAllowedHosts"], json!([]));
+        assert_eq!(settings["builtinBrowserDefaultDomainPolicy"], "block");
+        assert_eq!(store.inspect().unwrap()["allowAllWebsites"], false);
     }
 
     #[test]

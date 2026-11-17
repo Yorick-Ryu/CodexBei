@@ -13,7 +13,7 @@ const api = toolApi("claude");
 const nativeModels = (models: string[]) => models.filter(name => /^(anthropic\/)?claude-(sonnet|opus|haiku|fable|mythos)-\d/.test(name));
 const preferredModel = (models: string[]) => models.filter(name => /claude-sonnet-/.test(name))
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] || models[0] || "";
-export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; expanded: boolean };
+export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean };
 
 export function ClaudeDesktop({ onChangeTool, draftRef }: {
   onChangeTool: (tool: AppTool) => void; draftRef: MutableRefObject<DesktopDraft | null>;
@@ -23,6 +23,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [models, setModels] = useState(initial.current?.models || []);
   const [modelDiscovery, setModelDiscovery] = useState(initial.current?.modelDiscovery ?? true);
   const [context1m, setContext1m] = useState(initial.current?.context1m ?? true);
+  const [allowAllWebsites, setAllowAllWebsites] = useState(initial.current?.allowAllWebsites ?? false);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState("");
@@ -38,7 +39,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [modelStatus, setModelStatus] = useState("");
   const [modelRefresh, setModelRefresh] = useState(0);
   const busyRef = useRef(false);
-  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, expanded }; }, [connection, models, modelDiscovery, context1m, expanded, draftRef]);
+  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, draftRef]);
   useEffect(() => {
     let active = true;
     api.claudeDesktopStatus().then(value => {
@@ -47,6 +48,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
         setModels(nativeModels(value.models || []));
         setConnection(current => ({ ...current, baseUrl: value.baseUrl || current.baseUrl, model: value.model || current.model }));
         setModelDiscovery(value.modelDiscovery ?? true); setContext1m(value.context1m ?? true);
+        setAllowAllWebsites(value.allowAllWebsites ?? false);
       }
     }).catch(error => { if (active) setError(typeof error === "string" ? error : "无法读取桌面版状态。"); })
       .finally(() => { if (active) setInitializing(false); });
@@ -107,7 +109,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
               throw "未发现原生 Claude 模型，请在更多设置中填写模型名称。";
             }
             setConnection(selected);
-            await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, models: available });
+            await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, allowAllWebsites, models: available });
             setMessage("桌面配置已保存，重新打开 Claude 后生效。");
           });
         }}>
@@ -148,6 +150,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
                 <div className="desktop-options">
                   <label className="login-option"><input type="checkbox" checked={modelDiscovery} disabled={disabled} onChange={event => setModelDiscovery(event.target.checked)} />启用模型发现</label>
                   <label className="login-option"><input type="checkbox" checked={context1m} disabled={disabled} onChange={event => setContext1m(event.target.checked)} />启用 1M 上下文</label>
+                  <label className="login-option"><input type="checkbox" checked={allowAllWebsites} disabled={disabled} onChange={event => setAllowAllWebsites(event.target.checked)} />允许访问所有网站</label>
                 </div>
               </div></div>
             </div>

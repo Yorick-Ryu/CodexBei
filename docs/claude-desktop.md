@@ -6,6 +6,8 @@
 
 模型发现与 1M 上下文默认开启，可分别关闭。获取到的原生 Claude 模型写入桌面模型列表，所选默认模型排在首位；启用 1M 时同时写入模型能力和上下文偏好。网关和模型仍需实际支持该上下文长度。
 
+“更多设置”中的“允许访问所有网站”控制网页抓取、内置浏览器和命令的出站联网，首次配置默认关闭，已有配置会读取当前状态。开启写入 `coworkEgressAllowedHosts: ["*"]`、`builtinBrowserEnabled: true` 和 `builtinBrowserDefaultDomainPolicy: "allow"`；关闭时域名列表为空、浏览器站点策略为 `block`，会替换现有自定义联网白名单。模型请求、搜索和 MCP 自身连接不受此开关控制；网站自身、网络环境和 Claude 站点安全检查仍可能限制访问。保存后需重开 Claude，并新建任务验证。
+
 ## 配置存储
 
 - macOS：`~/Library/Application Support/Claude/` 和 `Claude-3p/`。

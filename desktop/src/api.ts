@@ -64,8 +64,8 @@ export type DiagnosticReport = {
   checks: { name: string; status: "ok" | "warning" | "info"; detail: string }[];
 };
 export type Connection = { apiKey: string; baseUrl: string; model: string };
-export type ClaudeDesktopStatus = { profilePath: string; configured: boolean; models?: string[]; baseUrl?: string | null; model?: string | null; hasKey?: boolean; modelDiscovery?: boolean; context1m?: boolean };
-export type ClaudeDesktopOptions = { modelDiscovery: boolean; context1m: boolean; models: string[] };
+export type ClaudeDesktopStatus = { profilePath: string; configured: boolean; models?: string[]; baseUrl?: string | null; model?: string | null; hasKey?: boolean; modelDiscovery?: boolean; context1m?: boolean; allowAllWebsites?: boolean };
+export type ClaudeDesktopOptions = { modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; models: string[] };
 export function installationLabel(v: { kind: string; runtimeVersion: string | null; appVersion?: string }) {
   if (v.kind === "claude") return `Claude Code · ${v.runtimeVersion || "未知"}`;
   if (v.kind === "cli") return `Codex CLI · ${v.runtimeVersion || "未知"}`;
