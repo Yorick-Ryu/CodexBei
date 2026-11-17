@@ -595,7 +595,7 @@ mod tests {
     fn link_routes_by_tool_and_requires_matching_preset() {
         let base = "codexbei://configure/claude?base_url=https%3A%2F%2Fexample.com%2Fv1&api_key=sk-claude-test-fixture-only&model=claude-test-model&preset=claude-v1";
         let (tool, connection) = config::parse_tool_link(base).unwrap().unwrap();
-        assert!(tool == config::Tool::Claude);
+        assert!(tool == config::SetupTarget::Claude);
         assert_eq!(connection.base_url, "https://example.com");
         assert!(config::parse_tool_link(&base.replace("claude-v1", "codexbei-v1")).is_err());
         assert!(config::parse_tool_link(&format!("{base}&model=duplicate")).is_err());
@@ -608,7 +608,7 @@ mod tests {
             .replace("/claude?", "/codex?")
             .replace("claude-v1", "codexbei-v1");
         let (tool, connection) = config::parse_tool_link(&codex).unwrap().unwrap();
-        assert!(tool == config::Tool::Codex);
+        assert!(tool == config::SetupTarget::Codex);
         assert_eq!(connection.base_url, "https://example.com/v1");
     }
 }

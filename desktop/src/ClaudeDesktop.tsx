@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { toolApi, type Connection } from "./api";
 import { ToolTabs, type AppTool } from "./ToolTabs";
 import { ModelPicker } from "./ModelPicker";
@@ -42,6 +43,8 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [modelStatus, setModelStatus] = useState("");
   const [modelRefresh, setModelRefresh] = useState(0);
   const busyRef = useRef(false);
+  const incomingQueued = useRef(false);
+  const drainIncoming = useRef<() => void>(() => {});
   useEffect(() => {
     let active = true;
     let checking = false;
@@ -88,8 +91,33 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     busyRef.current = true; setBusy(true); setError(""); setMessage("");
     try { await action(); }
     catch (error) { setError(typeof error === "string" ? error : "操作未完成，请重试。"); }
-    finally { busyRef.current = false; setBusy(false); }
+    finally {
+      busyRef.current = false; setBusy(false);
+      if (incomingQueued.current) drainIncoming.current();
+    }
   }, []);
+  drainIncoming.current = () => {
+    if (busyRef.current || initializing || !installation?.installed) {
+      incomingQueued.current = true;
+      return;
+    }
+    incomingQueued.current = false;
+    void run(async () => {
+      const value = await api.incomingClaudeDesktop();
+      if (!value) return;
+      setModels(nativeModels(value.models || []));
+      setConnection(current => ({ ...current, apiKey: "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || "" }));
+      setModelDiscovery(value.modelDiscovery ?? true);
+      setContext1m(value.context1m ?? true);
+      setAllowAllWebsites(value.allowAllWebsites ?? false);
+      setMessage("桌面配置已保存，重新打开 Claude 后生效。");
+    });
+  };
+  useEffect(() => {
+    const subscription = listen("incoming-changed", () => drainIncoming.current());
+    drainIncoming.current();
+    return () => { void subscription.then(unlisten => unlisten()); };
+  }, [initializing, installation?.installed]);
   const update = useSoftwareUpdate({ busy, run });
   const disabled = busy || initializing || !installation?.installed;
   useEffect(() => {

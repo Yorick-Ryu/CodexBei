@@ -14,7 +14,7 @@ mod templates;
 mod versions;
 #[cfg(windows)]
 mod windows_installer;
-use config::{Connection, ModelChannel, Result, Store, Tool};
+use config::{Connection, ModelChannel, Result, SetupTarget, Store, Tool};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -149,7 +149,7 @@ fn open_wallet() -> Result<()> {
 }
 
 struct Incoming {
-    pending: Option<Result<(Tool, Connection)>>,
+    pending: Option<Result<(SetupTarget, Connection)>>,
     last: Option<(String, Instant)>,
     revision: u64,
 }
@@ -488,7 +488,7 @@ async fn incoming(
         let mut pending = lock(&state.incoming)?;
         if pending.pending.as_ref().is_some_and(|v| {
             v.as_ref()
-                .is_ok_and(|(target, _)| *target != tool.unwrap_or_default())
+                .is_ok_and(|(target, _)| *target != SetupTarget::from(tool.unwrap_or_default()))
         }) {
             return Ok(Value::Null);
         }
@@ -498,7 +498,7 @@ async fn incoming(
         return Ok(Value::Null);
     };
     let (target, connection) = connection?;
-    if target == Tool::Claude {
+    if target == SetupTarget::Claude {
         let current = lock(&state.incoming)?;
         if current.revision != revision {
             return Ok(Value::Null);
@@ -539,11 +539,41 @@ async fn incoming(
     Ok(prune_result(&store, result))
 }
 #[tauri::command]
-fn incoming_tool(state: State<AppState>) -> Result<Option<Tool>> {
+fn incoming_tool(state: State<AppState>) -> Result<Option<SetupTarget>> {
     Ok(lock(&state.incoming)?
         .pending
         .as_ref()
         .and_then(|v| v.as_ref().ok().map(|(tool, _)| *tool)))
+}
+#[tauri::command]
+async fn incoming_claude_desktop(state: State<'_, AppState>) -> Result<Value> {
+    let (connection, revision) = {
+        let incoming = lock(&state.incoming)?;
+        let Some(Ok((SetupTarget::ClaudeDesktop, connection))) = incoming.pending.as_ref() else {
+            return Ok(Value::Null);
+        };
+        (connection.clone(), incoming.revision)
+    };
+    let models = claude::models(connection.clone()).await?;
+    let mut incoming = lock(&state.incoming)?;
+    if incoming.revision != revision {
+        return Ok(Value::Null);
+    }
+    let _guard = lock(&state.desktop_lock)?;
+    let store = desktop_store(&state)?;
+    let status = store.inspect()?;
+    let options = claude_desktop::Options {
+        model_discovery: status["modelDiscovery"].as_bool().unwrap_or(true),
+        context_1m: status["context1m"].as_bool().unwrap_or(true),
+        allow_all_websites: status["allowAllWebsites"].as_bool().unwrap_or(false),
+        models: models
+            .into_iter()
+            .filter(|model| claude_desktop::native_model(model))
+            .collect(),
+    };
+    store.apply(&connection, &options)?;
+    incoming.pending = None;
+    store.inspect()
 }
 async fn sync_catalog(
     state: State<'_, AppState>,
@@ -814,6 +844,7 @@ pub fn run() {
             switch_speed,
             incoming,
             incoming_tool,
+            incoming_claude_desktop,
             models,
             quota,
             backups,

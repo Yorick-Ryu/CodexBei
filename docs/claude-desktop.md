@@ -12,6 +12,14 @@
 
 “更多设置”中的“允许访问所有网站”控制网页抓取、内置浏览器和命令的出站联网，首次配置默认关闭，已有配置会读取当前状态。开启写入 `coworkEgressAllowedHosts: ["*"]`、`builtinBrowserEnabled: true` 和 `builtinBrowserDefaultDomainPolicy: "allow"`；关闭时域名列表为空、浏览器站点策略为 `block`，会替换现有自定义联网白名单。模型请求、搜索和 MCP 自身连接不受此开关控制；网站自身、网络环境和 Claude 站点安全检查仍可能限制访问。保存后需重开 Claude，并新建任务验证。
 
+## 网站一键配置
+
+网站选择“Claude 桌面版”后使用独立链接 `codexbei://configure/claude-desktop`，参数为 `base_url`、`api_key`、`model` 和 `preset=claude-desktop-v1`。仅接受 HTTPS 网关和完整原生 Claude 模型，拒绝重复参数、CLI preset 与模型别名。不要在日志、截图或文档中记录带真实密钥的链接。
+
+CodexBei 自动切换到桌面版页面；未安装时保留待处理连接并显示安装引导，检测到安装后继续。保存前获取原生模型列表，保留已有模型发现、1M 和联网偏好；首次联网权限仍默认关闭。较新的链接取代正在请求中的旧链接，旧请求不能覆盖新配置。
+
+网站入口与接收端必须配套上线：已发布的 0.1.12 尚不支持此 route，需要包含该改动的新版本。回滚网站选项可停止新链接；已保存的本地 Claude profile 会保留，可使用已有备份恢复。
+
 ## 配置存储
 
 - macOS：`~/Library/Application Support/Claude/` 和 `Claude-3p/`。

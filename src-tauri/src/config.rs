@@ -152,7 +152,24 @@ pub enum Tool {
     Claude,
 }
 
-pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SetupTarget {
+    Codex,
+    Claude,
+    ClaudeDesktop,
+}
+
+impl From<Tool> for SetupTarget {
+    fn from(tool: Tool) -> Self {
+        match tool {
+            Tool::Codex => Self::Codex,
+            Tool::Claude => Self::Claude,
+        }
+    }
+}
+
+pub fn parse_tool_link(input: &str) -> Result<Option<(SetupTarget, Connection)>> {
     let invalid = || err("配置链接无效，请从网站重新打开。");
     if input.len() > 8192 {
         return Err(invalid());
@@ -160,7 +177,7 @@ pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
     let u = url::Url::parse(input).map_err(|_| invalid())?;
     if u.scheme() != "codexbei"
         || u.host_str() != Some("configure")
-        || !["/codex", "/claude"].contains(&u.path())
+        || !["/codex", "/claude", "/claude-desktop"].contains(&u.path())
         || u.port().is_some()
         || !u.username().is_empty()
         || u.password().is_some()
@@ -168,15 +185,15 @@ pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
     {
         return Err(invalid());
     }
-    let tool = if u.path() == "/claude" {
-        Tool::Claude
-    } else {
-        Tool::Codex
+    let tool = match u.path() {
+        "/claude" => SetupTarget::Claude,
+        "/claude-desktop" => SetupTarget::ClaudeDesktop,
+        _ => SetupTarget::Codex,
     };
-    let preset = if tool == Tool::Claude {
-        "claude-v1"
-    } else {
-        "codexbei-v1"
+    let preset = match tool {
+        SetupTarget::Codex => "codexbei-v1",
+        SetupTarget::Claude => "claude-v1",
+        SetupTarget::ClaudeDesktop => "claude-desktop-v1",
     };
     let pairs: Vec<_> = u.query_pairs().collect();
     if pairs.is_empty() {
@@ -195,16 +212,20 @@ pub fn parse_tool_link(input: &str) -> Result<Option<(Tool, Connection)>> {
         return Err(invalid());
     }
     let base = fields.get("base_url").ok_or_else(invalid)?;
+    let selected_model = model(fields.get("model").ok_or_else(invalid)?)?;
+    if tool == SetupTarget::ClaudeDesktop && !crate::claude_desktop::native_model(&selected_model) {
+        return Err(invalid());
+    }
     Ok(Some((
         tool,
         Connection {
-            base_url: if tool == Tool::Claude {
+            base_url: if tool != SetupTarget::Codex {
                 crate::claude::endpoint(base)?
             } else {
                 endpoint(base)?
             },
             api_key: key(fields.get("api_key").ok_or_else(invalid)?)?,
-            model: model(fields.get("model").ok_or_else(invalid)?)?,
+            model: selected_model,
         },
     )))
 }

@@ -92,6 +92,10 @@ fn model_spec(input: &str) -> Result<Value> {
     Ok(spec)
 }
 
+pub(crate) fn native_model(input: &str) -> bool {
+    model_spec(input).is_ok()
+}
+
 fn profile(connection: &Connection, options: &Options) -> Result<Value> {
     let mut models = vec![model_spec(&connection.model)?];
     for name in &options.models {
@@ -299,6 +303,18 @@ fn restore_one(snapshot: &Snapshot, index: usize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn website_links_route_to_desktop_and_reject_cli_presets_or_aliases() {
+        let link = "codexbei://configure/claude-desktop?base_url=https%3A%2F%2Fexample.com%2Fv1&api_key=sk-test-placeholder&model=claude-fable-5-2&preset=claude-desktop-v1";
+        let (target, connection) = config::parse_tool_link(link).unwrap().unwrap();
+        assert!(target == config::SetupTarget::ClaudeDesktop);
+        assert_eq!(connection.base_url, "https://example.com");
+        assert!(config::parse_tool_link(&link.replace("claude-desktop-v1", "claude-v1")).is_err());
+        assert!(
+            config::parse_tool_link(&link.replace("claude-fable-5-2", "deepseek-flash")).is_err()
+        );
+        assert!(config::parse_tool_link(&format!("{link}&model=duplicate")).is_err());
+    }
     fn connection() -> Connection {
         Connection {
             base_url: "https://example.com/v1".into(),

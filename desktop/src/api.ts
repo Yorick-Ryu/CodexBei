@@ -111,6 +111,7 @@ export function toolApi(tool: Tool) {
   openClaudeDesktopInstaller: () => invoke<void>("open_claude_desktop_installer"),
   claudeDesktopInstallation: () => invoke<{ installed: boolean; platform: string }>("claude_desktop_installation"),
   claudeDesktopStatus: () => invoke<ClaudeDesktopStatus>("claude_desktop_status"),
+  incomingClaudeDesktop: () => invoke<ClaudeDesktopStatus | null>("incoming_claude_desktop"),
   configureClaudeDesktop: (connection: Connection, options: ClaudeDesktopOptions) =>
     invoke<ClaudeDesktopStatus>("configure_claude_desktop", { connection, options }),
   openChatgptInstaller: (directDownload = false) => invoke<void>("open_chatgpt_installer", { directDownload }),
@@ -118,4 +119,4 @@ export function toolApi(tool: Tool) {
 
 }
 export const api = toolApi("codex");
-export const incomingTool = () => tauriInvoke<Tool | null>("incoming_tool");
+export const incomingTool = () => tauriInvoke<Tool | "claude-desktop" | null>("incoming_tool");

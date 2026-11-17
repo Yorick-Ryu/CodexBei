@@ -59,6 +59,13 @@ async function fixture(options = {}) {
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
         if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
         if (cmd === 'models') { if (window.fixtureClaudeModelsError) throw window.fixtureClaudeModelsError; return window.fixtureClaudeModels || ['claude-sonnet-test', 'claude-opus-test']; }
+        if (cmd === 'incoming_claude_desktop') {
+          if (window.fixtureIncomingTool !== 'claude-desktop') return null;
+          window.fixtureIncomingTool = null;
+          window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,baseUrl:'https://desktop.example',model:'claude-sonnet-4-6',models:['claude-sonnet-4-6','claude-opus-4-6'],modelDiscovery:true,context1m:true,allowAllWebsites:false};
+          window.fixtureDesktopIncomingApplied = true;
+          return window.fixtureDesktop;
+        }
         if (cmd === 'claude_desktop_status') return window.fixtureDesktop || {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:false,models:[]};
         if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
         if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
@@ -2029,6 +2036,29 @@ test('React: Claude Desktop configures from a key with optional advanced control
     assert.equal(await page.getByRole('button',{name:'撤销上次配置',exact:true}).count(), 0);
     await page.getByRole('button', {name:'设置',exact:true}).click();
     assert.equal(await page.getByRole('button', {name:'历史备份',exact:true}).count(), 0);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: website desktop link selects desktop and waits for installation', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    const saved = await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude]));
+    await page.evaluate(async () => {
+      window.fixtureDesktopInstalled = false;
+      window.fixtureIncomingTool = 'claude-desktop';
+      await window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {event:'incoming-changed',payload:null});
+    });
+    await page.getByRole('heading', {name:'未检测到 Claude 桌面版'}).waitFor();
+    assert.equal(await page.getByRole('tab', {name:'Claude 桌面版'}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.evaluate(() => !!window.fixtureDesktopIncomingApplied), false);
+    await page.evaluate(() => { window.fixtureDesktopInstalled = true; window.dispatchEvent(new Event('focus')); });
+    await page.getByText('桌面配置已保存，重新打开 Claude 后生效。', {exact:true}).waitFor();
+    await page.getByRole('button', {name:'更多设置',exact:true}).click();
+    assert.equal(await page.locator('#desktop-base-url').inputValue(), 'https://desktop.example');
+    assert.equal(await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude])), saved);
+    assert.equal(await page.evaluate(() => window.fixtureIncomingTool), null);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
