@@ -80,9 +80,15 @@ fn open_claude_installer() -> Result<()> {
 
 #[tauri::command]
 fn open_claude_desktop_installer() -> Result<()> {
+    let url = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", _) => "https://claudeapp.agentsmirror.com/latest/mac",
+        ("windows", "aarch64") => "https://claudeapp.agentsmirror.com/latest/win-arm64",
+        ("windows", _) => "https://claudeapp.agentsmirror.com/latest/win-x64",
+        _ => "https://claude.com/download",
+    };
     open_claude_page(
-        "https://claude.com/download",
-        "无法打开 Claude 桌面版下载页面，请访问 https://claude.com/download。",
+        url,
+        &format!("无法打开 Claude 桌面版下载链接，请访问 {url}。"),
     )
 }
 

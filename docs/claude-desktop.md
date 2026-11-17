@@ -2,7 +2,9 @@
 
 入口：Claude 桌面版 Tab。默认填写密钥即可一键配置 BeiAPI，首次配置自动获取并选择原生 Claude 模型。API 地址、默认模型、模型发现和 1M 位于“更多设置”，不修改 CLI 配置。列表中存在模型不代表当前密钥分组一定有可用上游；最终需实际消息验证。
 
-进入页面时先检测 Claude 桌面版是否安装。macOS 检查系统和用户“应用程序”目录，并通过 Spotlight 查找其他位置的 Claude 应用，忽略挂载安装镜像中的副本；Windows 检查常见传统安装目录和当前用户已注册的 MSIX/商店包。残留配置目录不算已安装。未安装时显示与其他页面一致的引导卡，提供官方 [下载页面](https://claude.com/download) 和“重新检测”；每 10 秒及返回窗口时重新检测，找到应用后开放配置并停止轮询。检测失败会明确显示错误，允许重试。
+进入页面时先检测 Claude 桌面版是否安装。macOS 检查系统和用户“应用程序”目录，并通过 Spotlight 查找其他位置的 Claude 应用，忽略挂载安装镜像中的副本；Windows 检查常见传统安装目录和当前用户已注册的 MSIX/商店包。残留配置目录不算已安装。未安装时显示与其他页面一致的引导卡，提供“下载桌面版”和“重新检测”；每 10 秒及返回窗口时重新检测，找到应用后开放配置并停止轮询。检测失败会明确显示错误，允许重试。
+
+下载按钮使用 [Wangnov/claude-app-mirror](https://github.com/Wangnov/claude-app-mirror) 社区镜像：macOS 打开 `https://claudeapp.agentsmirror.com/latest/mac`（通用 DMG）；Windows 根据 CodexBei 构建架构选择 `/latest/win-x64` 或 `/latest/win-arm64`（MSIX）。镜像由第三方维护，项目声明同步未经修改的官方安装包并提供校验和，CodexBei 不托管或修改这些文件。官方下载入口仍为 <https://claude.com/download>。
 
 保存配置后重新打开 Claude 生效。首次使用可能需要在 Claude 中确认第三方网关。仅支持 Anthropic Messages API 和完整的原生 Claude 模型 ID；DeepSeek、Kimi 等别名需要额外映射网关，当前不支持。`[1M]` 后缀转为 `supports1m`，不会直接写入模型 ID。
 
