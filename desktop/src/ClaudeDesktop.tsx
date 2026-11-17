@@ -138,7 +138,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
                 <label htmlFor="desktop-base-url">API 地址</label>
                 <input id="desktop-base-url" type="url" autoComplete="off" spellCheck={false} value={connection.baseUrl} disabled={disabled}
                   onChange={event => { setModels([]); setConnection(current => ({ ...current, baseUrl: event.target.value, apiKey: "", model: "" })); }} />
-                <div className="label-row"><label htmlFor="model">默认模型</label>
+                <div className="label-row"><label htmlFor="model">模型</label>
                   <button type="button" className="text-button" disabled={disabled || modelsLoading || !connection.apiKey.trim()}
                     onClick={() => setModelRefresh(value => value + 1)}>{modelsLoading ? "获取中…" : "刷新"}</button>
                 </div>
