@@ -104,7 +104,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             const selected = { ...connection, model: connection.model || preferredModel(available) };
             if (!selected.model) {
               setExpanded(true);
-              throw "未发现原生 Claude 模型，请在更多配置中填写模型名称。";
+              throw "未发现原生 Claude 模型，请在更多设置中填写模型名称。";
             }
             setConnection(selected);
             await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, models: available });
@@ -115,7 +115,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             <div className="provider-row">
               <div className="provider-info"><h2 className="config-title"><img src={claude} alt="" />配置 Claude 桌面版</h2></div>
               <button type="button" className="text-button settings-toggle" aria-expanded={expanded} aria-controls="desktop-settings"
-                onClick={() => setExpanded(value => !value)}><SettingsIcon />{expanded ? "收起配置" : "更多配置"}</button>
+                onClick={() => setExpanded(value => !value)}><SettingsIcon />{expanded ? "更少设置" : "更多设置"}</button>
             </div>
             <div className="credential-field">
               <div className="label-row"><label htmlFor="desktop-key">API 密钥</label></div>

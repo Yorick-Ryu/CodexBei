@@ -1881,7 +1881,7 @@ test('React: Claude Desktop configures from a key with optional advanced control
       await page.screenshot({path:path.join(output, `claude-desktop-${width}.png`)});
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
-    await page.getByRole('button',{name:'更多配置',exact:true}).click();
+    await page.getByRole('button',{name:'更多设置',exact:true}).click();
     assert.equal(await page.getByLabel('启用模型发现').isChecked(), true);
     assert.equal(await page.getByLabel('启用 1M 上下文').isChecked(), true);
     await page.getByRole('button', {name:'选择模型',exact:true}).click();
