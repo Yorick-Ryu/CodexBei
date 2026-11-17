@@ -1505,7 +1505,7 @@ main[data-restoring][data-restore-ready] #apply:disabled { opacity: 1; }
 /* Three independent client tabs share the compact title bar. */
 @media (max-width: 680px) { .brand { font-size: 0; gap: 0; } }
 .desktop-main { max-width: 720px; margin: 0 auto; width: 100%; }
-.desktop-options-body { display: flex; flex-direction: column; gap: 10px; }
+.desktop-options-body { display: flex; flex-direction: column; gap: 0; }
 .desktop-options-body .history-description { margin: 0; }
 .desktop-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-block: 6px; }
 .desktop-options-body > .text-button { align-self: flex-start; }
