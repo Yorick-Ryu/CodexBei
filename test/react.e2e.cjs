@@ -56,7 +56,10 @@ async function fixture(options = {}) {
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
         if (cmd === 'preview') return JSON.stringify({env:{ANTHROPIC_BASE_URL:args.baseUrl,ANTHROPIC_MODEL:args.model,ANTHROPIC_AUTH_TOKEN:'（已隐藏）',ANTHROPIC_DEFAULT_OPUS_MODEL:args.mapping?.opus || args.model}},null,2);
-        if (cmd === 'models') return ['claude-sonnet-test', 'claude-opus-test'];
+        if (cmd === 'models') return window.fixtureClaudeModels || ['claude-sonnet-test', 'claude-opus-test'];
+        if (cmd === 'claude_desktop_status') return window.fixtureDesktop || {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:false,canRestore:false};
+        if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,canRestore:true,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
+        if (cmd === 'restore_claude_desktop') { window.fixtureDesktop = {...window.fixtureDesktop,configured:false,canRestore:false}; return window.fixtureDesktop; }
         if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
         if (cmd === 'incoming') { if (window.fixtureIncomingTool !== 'claude') return null; window.fixtureIncomingTool = null; return {}; }
         if (cmd === 'backups') return [...window.fixtureClaudeBackups];
@@ -1059,10 +1062,15 @@ test('updater: inline errors never install unverified downloads', async () => {
     await openUpdater(page);
     const row = page.getByRole('button', { name: '检查更新', exact: true });
     await row.click();
-    await page.getByText('已是最新版本', { exact: true }).waitFor();
+    await page.waitForFunction(() => window.fixtureCalls.includes('plugin:updater|check'));
+    await page.waitForFunction(() => !document.querySelector('.settings-update-row').disabled);
+    assert.equal(await page.locator('.settings-update-status').count(), 0);
+    const checks = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'plugin:updater|check').length);
     await page.evaluate(() => window.fixtureUpdateCheckError = true);
     await row.click();
-    await page.getByText('检查失败，点击重试').waitFor();
+    await page.waitForFunction(count => window.fixtureCalls.filter(c => c === 'plugin:updater|check').length > count, checks);
+    await page.waitForFunction(() => !document.querySelector('.settings-update-row').disabled);
+    assert.equal(await page.locator('.settings-update-status').count(), 0);
     await page.evaluate(() => { window.fixtureUpdateCheckError = false; window.fixtureUpdate = true; window.fixtureUpdateDownloadError = true; });
     await row.click();
     await page.getByText('下载或校验失败，点击重试').waitFor();
@@ -1843,4 +1851,44 @@ test('React: API quota has no recharge button for any endpoint', async () => {
    assert.deepEqual(f.errors,[]);
   } finally {await f.close();}
  }
+});
+
+
+test('React: Claude Desktop has independent configuration and discovery/context controls', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    const original = await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude]));
+    await page.evaluate(() => { window.fixtureClaudeModels = ['claude-sonnet-4-6','claude-sonnet-5-5','claude-fable-5-2','deepseek-flash']; });
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.locator('#claude-desktop-panel').waitFor();
+    assert.equal(await page.getByLabel('启用模型发现').isChecked(), true);
+    assert.equal(await page.getByLabel('启用 1M 上下文').isChecked(), true);
+    await page.getByRole('button', { name: '从 ChatGPT 导入', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#model')?.value === 'claude-sonnet-5-5');
+    assert.equal(await page.locator('#desktop-base-url').inputValue(), 'https://api.beiapi.cn');
+    assert.equal(await page.locator('#desktop-key').getAttribute('type'), 'password');
+    await page.getByRole('tab', { name:'Claude Code', exact:true }).click();
+    await page.getByRole('tab', { name:'Claude 桌面版', exact:true }).click();
+    await page.waitForFunction(() => document.querySelector('#desktop-key')?.value === 'sk-saved-fixture-not-real-key');
+    const apply = page.getByRole('button',{name:'一键配置',exact:true});
+    assert.equal(await apply.isDisabled(), true);
+    await page.getByLabel('我已彻底退出 Claude 桌面版').check();
+    await apply.click();
+    await page.getByRole('status').filter({hasText:'桌面配置已保存'}).waitFor();
+    const configured = await page.evaluate(() => window.fixtureDesktopConfigured);
+    assert.equal(configured.options.modelDiscovery, true);
+    assert.equal(configured.options.context1m, true);
+    assert.equal(configured.options.models.includes('deepseek-flash'), false);
+    assert.equal(await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude])), original);
+    assert.equal(await page.getByLabel('我已彻底退出 Claude 桌面版').isChecked(), false);
+    for (const width of [600, 460]) {
+      await page.setViewportSize({width,height:570});
+      await page.screenshot({path:path.join(output, `claude-desktop-${width}.png`)});
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
+    await page.getByLabel('我已彻底退出 Claude 桌面版').check();
+    await page.getByRole('button',{name:'撤销上次配置',exact:true}).click();
+    await page.getByRole('status').filter({hasText:'已撤销'}).waitFor();
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
 });

@@ -1,4 +1,5 @@
 mod claude;
+mod claude_desktop;
 mod config;
 mod diagnostics;
 mod editor;
@@ -136,9 +137,41 @@ struct Incoming {
 struct AppState {
     store: Mutex<Store>,
     claude: Mutex<claude::Store>,
+    desktop_root: PathBuf,
+    desktop_lock: Mutex<()>,
     incoming: Mutex<Incoming>,
     service: tokio::sync::Mutex<matching::Service>,
     test_mode: bool,
+}
+fn desktop_store(state: &AppState) -> Result<claude_desktop::Store> {
+    let isolated = state.desktop_root.join("test-data");
+    claude_desktop::Store::new(
+        state.desktop_root.join("backups"),
+        state.test_mode.then_some(isolated.as_path()),
+    )
+}
+#[tauri::command]
+fn claude_desktop_status(state: State<AppState>) -> Result<Value> {
+    let _guard = lock(&state.desktop_lock)?;
+    desktop_store(&state)?.inspect()
+}
+#[tauri::command]
+fn configure_claude_desktop(
+    connection: Connection,
+    options: Option<claude_desktop::Options>,
+    state: State<AppState>,
+) -> Result<Value> {
+    let _guard = lock(&state.desktop_lock)?;
+    let store = desktop_store(&state)?;
+    store.apply(&connection, &options.unwrap_or_default())?;
+    store.inspect()
+}
+#[tauri::command]
+fn restore_claude_desktop(state: State<AppState>) -> Result<Value> {
+    let _guard = lock(&state.desktop_lock)?;
+    let store = desktop_store(&state)?;
+    store.restore()?;
+    store.inspect()
 }
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
     m.lock().map_err(|_| "操作未完成，请重新打开应用。".into())
@@ -719,10 +752,13 @@ pub fn run() {
             };
             let claude = claude::Store::new(root.join("claude-backups"), claude_file)
                 .map_err(std::io::Error::other)?;
+            let desktop_root = root.join("claude-desktop");
             let store = Store::new(root, file).map_err(std::io::Error::other)?;
             app.manage(AppState {
                 store: Mutex::new(store),
                 claude: Mutex::new(claude),
+                desktop_root,
+                desktop_lock: Mutex::new(()),
                 incoming: Mutex::new(Incoming {
                     pending: None,
                     last: None,
@@ -768,6 +804,9 @@ pub fn run() {
             delete_backup,
             open_chatgpt_installer,
             open_claude_installer,
+            claude_desktop_status,
+            configure_claude_desktop,
+            restore_claude_desktop,
             open_wallet,
             windows_diagnostics
         ])

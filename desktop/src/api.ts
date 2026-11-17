@@ -64,6 +64,8 @@ export type DiagnosticReport = {
   checks: { name: string; status: "ok" | "warning" | "info"; detail: string }[];
 };
 export type Connection = { apiKey: string; baseUrl: string; model: string };
+export type ClaudeDesktopStatus = { profilePath: string; configured: boolean; canRestore: boolean; baseUrl?: string | null; model?: string | null; hasKey?: boolean; modelDiscovery?: boolean; context1m?: boolean };
+export type ClaudeDesktopOptions = { modelDiscovery: boolean; context1m: boolean; models: string[] };
 export function installationLabel(v: { kind: string; runtimeVersion: string | null; appVersion?: string }) {
   if (v.kind === "claude") return `Claude Code · ${v.runtimeVersion || "未知"}`;
   if (v.kind === "cli") return `Codex CLI · ${v.runtimeVersion || "未知"}`;
@@ -106,6 +108,10 @@ export function toolApi(tool: Tool) {
   deleteBackup: (id: string) =>
     invoke<{ canceled?: boolean }>("delete_backup", { id }),
   openClaudeInstaller: () => invoke<void>("open_claude_installer"),
+  claudeDesktopStatus: () => invoke<ClaudeDesktopStatus>("claude_desktop_status"),
+  configureClaudeDesktop: (connection: Connection, options: ClaudeDesktopOptions) =>
+    invoke<ClaudeDesktopStatus>("configure_claude_desktop", { connection, options }),
+  restoreClaudeDesktop: () => invoke<ClaudeDesktopStatus>("restore_claude_desktop"),
   openChatgptInstaller: (directDownload = false) => invoke<void>("open_chatgpt_installer", { directDownload }),
 };
 

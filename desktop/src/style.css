@@ -1501,3 +1501,14 @@ main[data-restoring][data-restore-ready] #apply:disabled { opacity: 1; }
 
 .quota-heading > .quota-plans-toggle { margin-left: auto; font-size: 12px; line-height: 16px; color: var(--label); }
 .quota-heading > .quota-refresh { flex-shrink: 0; height: 24px; }
+
+/* Three independent client tabs share the compact title bar. */
+@media (max-width: 680px) { .brand { font-size: 0; gap: 0; } }
+.desktop-main { padding: 24px 32px; max-width: 720px; margin: 0 auto; }
+.desktop-config { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.desktop-config > label:not(.login-option) { margin-top: 4px; }
+.desktop-config .history-description { margin: 0; }
+.desktop-import, .desktop-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.desktop-import { margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+.desktop-options { padding-block: 6px; }
+.desktop-error { color: var(--danger); }

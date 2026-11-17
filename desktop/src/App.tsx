@@ -26,18 +26,13 @@ import { VersionPicker } from "./VersionPicker";
 import { CheckIcon, ChevronLeftIcon, CloseIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "./icons";
 import { Modal } from "./Modal";
 import { AppSettings } from "./AppSettings";
+import { ClaudeDesktop, type DesktopDraft } from "./ClaudeDesktop";
+import { ToolTabs, toolTabs, type AppTool } from "./ToolTabs";
 import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
 import { Select } from "./Select";
 import { ModelPicker } from "./ModelPicker";
 import brand from "../assets/brand/codexbei.svg";
-import chatgpt from "../assets/agents/chatgpt.svg";
-import claude from "../assets/agents/claude-code.svg";
-
-const toolTabs = [
-  { id: "codex", name: "ChatGPT", icon: chatgpt, iconClass: "chatgpt-icon", disabled: false },
-  { id: "claude", name: "Claude Code", icon: claude, iconClass: "", disabled: false },
-] as const;
 
 const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
@@ -70,7 +65,8 @@ type Draft = { apiKey: string; baseUrl: string; model: string; speed?: Speed; ma
 
 export function App() {
   const drafts = useRef<Partial<Record<Tool, Draft>>>({});
-  const [tool, setTool] = useState<Tool>("codex");
+  const [tool, setTool] = useState<AppTool>("codex");
+  const desktopDraft = useRef<DesktopDraft | null>(null);
   useEffect(() => {
     let active = true;
     const route = () => { void incomingTool().then(value => { if (active && value) setTool(value); }).catch(() => {}); };
@@ -78,10 +74,12 @@ export function App() {
     route();
     return () => { active = false; void subscription.then(unlisten => unlisten()); };
   }, []);
-  return <ToolApp key={tool} activeTool={tool} setActiveTool={setTool} drafts={drafts} />;
+  return tool === "claude-desktop"
+    ? <ClaudeDesktop onChangeTool={setTool} draftRef={desktopDraft} />
+    : <ToolApp key={tool} activeTool={tool} setActiveTool={setTool} drafts={drafts} />;
 }
 
-function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setActiveTool: (tool: Tool) => void; drafts: MutableRefObject<Partial<Record<Tool, Draft>>> }) {
+function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setActiveTool: (tool: AppTool) => void; drafts: MutableRefObject<Partial<Record<Tool, Draft>>> }) {
   const initialDraft = useRef(drafts.current[activeTool]);
   const restoringDraft = useRef(!!initialDraft.current);
   const api = useMemo(() => toolApi(activeTool), [activeTool]);
@@ -586,29 +584,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
               CodexBei
             </div>
             <div className="toolbar-actions">
-              <div className="tabs" role="tablist" aria-label="选择工具">
-                {toolTabs.map(tool => (
-                  <button
-                    key={tool.id}
-                    role="tab"
-                    aria-selected={activeTool === tool.id}
-                    aria-controls={activeTool === tool.id ? `${activeTool}-panel` : undefined}
-                    id={`${tool.id}-tab`}
-                    disabled={(busy && !initializing) || tool.disabled}
-                    onClick={() => setActiveTool(tool.id)}
-                    onKeyDown={event => {
-                      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                        event.preventDefault();
-                        setActiveTool(activeTool === "codex" ? "claude" : "codex");
-                      }
-                    }}
-                  >
-                    <img className={`agent-icon ${tool.iconClass}`} src={tool.icon} alt="" />
-                    {tool.name}
-                    {tool.disabled && <span>即将支持</span>}
-                  </button>
-                ))}
-              </div>
+              <ToolTabs activeTool={activeTool} onChange={setActiveTool} disabled={busy && !initializing} />
               <AppSettings baseUrl={baseUrl} theme={<ThemeSelector />} updateAvailable={softwareUpdate.available}
                 isWindows={!isClaude && (inspection?.platform === "windows" || (!inspection && /Win/i.test(navigator.platform)))}
                 updateRow={softwareUpdate.row} historyBusy={busy} onOpenHistory={() => void run(async () => {

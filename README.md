@@ -36,6 +36,8 @@ npm run check             # TypeScript / Vite / Rust Clippy
 
 Claude Code 使用内置映射，写入 `$CLAUDE_CONFIG_DIR/settings.json` 或 `~/.claude/settings.json` 的六个 `env` 字段；Opus、Sonnet、Haiku 默认跟随所选模型，也可分别选择。其他 JSON 设置保留，预览只显示脱敏后的托管字段，备份独立保存并可恢复。未安装 CLI 时也可先保存配置，安装后新会话生效。
 
+独立的“Claude 桌面版”Tab将连接写入独立的 Claude 3P 配置，也可复用 ChatGPT 中已保存的 API 连接。配置前退出 Claude，完成后重新打开；不改写 Claude Code 配置。支持 macOS / Windows 的 Anthropic Messages 网关与原生 Claude 模型名称，详情及验收范围见 [Claude 桌面版](docs/claude-desktop.md)。
+
 Codex 配置默认位于 `$CODEX_HOME/config.toml` 或 `~/.codex/config.toml`，可使用原生文件选择器选择 `config.toml` 或 `*.config.toml`。应用缓存与备份位于系统本地数据目录下的 `CodexBei/`。TOML 合并保留无关配置语义，部分排版会规范化；备份保存原始字节。
 
 网站链接参数为 `base_url`、`api_key`、`model`、`preset=codexbei-v1`，均必须唯一。API 地址仅允许无账号、查询参数和片段的 HTTPS 地址。版本服务只接收版本标识，不接收密钥、路径或配置内容。Claude 使用 `codexbei://configure/claude` 与 `preset=claude-v1`，API 地址去除末尾 `/v1`；网页按用户选择的可用分组复用密钥，没有合适密钥时创建 `CodexBei · CC`。
