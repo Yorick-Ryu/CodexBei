@@ -5,5 +5,6 @@
 - ChatGPT：复用本地 `new-api/web/node_modules/@lobehub/icons/es/OpenAI/components/Mono.js` 的 OpenAI 标识，保持原始路径；同属 Lobe Icons，沿用本目录 MIT 授权。
 - Codex（保留的旧素材）：[静态 SVG](https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/codex.svg)。保留原始路径，深色界面使用 CSS 反色。
 - Claude Code：[Color 组件](https://github.com/lobehub/lobe-icons/blob/master/src/ClaudeCode/components/Color.tsx)。提取其原始路径和 #D97757 颜色为独立 SVG。
+- Claude 桌面版：[Claude 彩色 SVG](https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/claude-color.svg)，获取日期 2026-11-17。保留原始星芒标识及 #D97757 颜色，用于桌面版标签、配置标题与安装引导。
 
 本地打包，不从运行中的应用请求远端图标资源。

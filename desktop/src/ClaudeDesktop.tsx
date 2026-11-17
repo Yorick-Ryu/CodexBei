@@ -6,7 +6,7 @@ import { AppSettings } from "./AppSettings";
 import { ThemeSelector } from "./ThemeSelector";
 import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { SettingsIcon, EyeIcon, EyeOffIcon, CloseIcon } from "./icons";
-import claude from "../assets/agents/claude-code.svg";
+import claude from "../assets/agents/claude.svg";
 import brand from "../assets/brand/codexbei.svg";
 
 const api = toolApi("claude");

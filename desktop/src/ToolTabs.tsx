@@ -1,12 +1,13 @@
 import type { Tool } from "./api";
 import chatgpt from "../assets/agents/chatgpt.svg";
-import claude from "../assets/agents/claude-code.svg";
+import claudeCode from "../assets/agents/claude-code.svg";
+import claudeDesktop from "../assets/agents/claude.svg";
 
 export type AppTool = Tool | "claude-desktop";
 export const toolTabs = [
   { id: "codex", name: "ChatGPT", icon: chatgpt, iconClass: "chatgpt-icon" },
-  { id: "claude", name: "Claude Code", icon: claude, iconClass: "" },
-  { id: "claude-desktop", name: "Claude 桌面版", icon: claude, iconClass: "" },
+  { id: "claude", name: "Claude Code", icon: claudeCode, iconClass: "" },
+  { id: "claude-desktop", name: "Claude 桌面版", icon: claudeDesktop, iconClass: "" },
 ] as const;
 
 export function ToolTabs({ activeTool, onChange, disabled = false }: {
