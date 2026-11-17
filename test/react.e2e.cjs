@@ -1993,7 +1993,7 @@ test('React: Claude Desktop rediscovers all models when reconfiguring an existin
     await page.getByRole('status').filter({ hasText: '桌面配置已保存' }).waitFor();
     const configured = await page.evaluate(() => window.fixtureDesktopConfigured);
     assert.equal(configured.connection.model, 'claude-fable-5-2');
-    assert.deepEqual(configured.options.models, ['claude-sonnet-5-5', 'claude-fable-5-2', 'claude-opus-5-5']);
+    assert.deepEqual(configured.options.models, ['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5']);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

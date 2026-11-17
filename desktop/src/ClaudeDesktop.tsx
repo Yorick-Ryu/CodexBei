@@ -11,7 +11,16 @@ import claude from "../assets/agents/claude.svg";
 import brand from "../assets/brand/codexbei.svg";
 
 const api = toolApi("claude");
-const nativeModels = (models: string[]) => models.filter(name => /^(anthropic\/)?claude-(sonnet|opus|haiku|fable|mythos)-\d/.test(name));
+const nativeModels = (models: string[]) => {
+  const families = ["fable", "opus", "sonnet", "haiku"];
+  const rank = (model: string) => {
+    const family = model.replace(/^anthropic\//, "").match(/^claude-([^-]+)-/)?.[1];
+    const index = families.indexOf(family || "");
+    return index < 0 ? families.length : index;
+  };
+  return models.filter(name => /^(anthropic\/)?claude-(sonnet|opus|haiku|fable|mythos)-\d/.test(name))
+    .sort((a, b) => rank(a) - rank(b) || b.localeCompare(a, "en", { numeric: true }));
+};
 const preferredModel = (models: string[]) => models.filter(name => /claude-sonnet-/.test(name))
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] || models[0] || "";
 export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean };
