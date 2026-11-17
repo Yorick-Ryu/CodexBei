@@ -36,7 +36,7 @@ pub struct Store {
     backup: PathBuf,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct Snapshot {
     paths: Vec<PathBuf>,
     before: Vec<Option<Vec<u8>>>,
@@ -193,7 +193,7 @@ impl Store {
         let normal = document(config::read(&paths[3])?.as_deref())?;
         Ok(
             json!({"profilePath": paths[0], "configured": meta["appliedId"] == PROFILE && normal["deploymentMode"] == "3p",
-            "canRestore": self.backup.join("last.json").is_file(),
+            "models": profile["inferenceModels"].as_array().map(|models| models.iter().filter_map(|model| model["name"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
             "baseUrl": profile["inferenceGatewayBaseUrl"].as_str().and_then(|v| claude::endpoint(v).ok()),
             "model": profile["inferenceModels"][0]["name"].as_str(),
             "hasKey": profile["inferenceGatewayApiKey"].as_str().is_some_and(|key| !key.is_empty()),
@@ -238,14 +238,13 @@ impl Store {
             after,
         };
         config::private_dir(&self.backup)?;
-        // Retain every rollback record; last.json is a convenience copy for undo.
+        // Preserve the pre-write state if an interrupted write needs recovery.
         let record = serde_json::to_vec(&snapshot).map_err(|_| "无法生成桌面配置备份。")?;
         config::atomic_write(
             &self.backup.join(format!("{}.json", uuid::Uuid::new_v4())),
             &record,
             0o600,
         )?;
-        config::atomic_write(&self.backup.join("last.json"), &record, 0o600)?;
         for (index, path) in snapshot.paths.iter().enumerate() {
             let result = (|| {
                 if config::read(path)? != snapshot.before[index] {
@@ -264,127 +263,11 @@ impl Store {
                 return Err(if restored {
                     error
                 } else {
-                    "配置未完成，部分文件无法自动还原；备份已保留，请使用撤销桌面配置。".into()
+                    "配置未完成，部分文件无法自动还原；原始备份已保留。".into()
                 });
             }
         }
         Ok(())
-    }
-
-    pub fn restore(&self) -> Result<()> {
-        // Snapshot can exceed the per-config 2 MB cap, but is bounded to four files.
-        let path = self.backup.join("last.json");
-        let metadata = fs::symlink_metadata(&path).map_err(|_| "没有可撤销的桌面配置。")?;
-        if !metadata.is_file() || metadata.len() > 128 * 1024 * 1024 {
-            return Err("桌面配置备份无效。".into());
-        }
-        let snapshot: Snapshot =
-            serde_json::from_slice(&fs::read(path).map_err(|_| "无法读取桌面配置备份。")?)
-                .map_err(|_| "桌面配置备份无效。")?;
-        if snapshot.paths != self.paths() || snapshot.before.len() != 4 || snapshot.after.len() != 4
-        {
-            return Err("备份与当前 Claude 数据目录不匹配，未还原。".into());
-        }
-        let current = snapshot
-            .paths
-            .iter()
-            .map(|p| config::read(p))
-            .collect::<Result<Vec<_>>>()?;
-        let targets = (0..4)
-            .map(|i| restored_document(&snapshot, i, current[i].as_deref()))
-            .collect::<Result<Vec<_>>>()?;
-        for i in (0..4).rev() {
-            let path = &snapshot.paths[i];
-            if config::read(path)? != current[i] {
-                return Err("还原过程中 Claude 配置已改变，已保留备份。".into());
-            }
-            if targets[i] == current[i] {
-                continue;
-            }
-            match &targets[i] {
-                Some(bytes) => config::atomic_write(path, bytes, 0o600)?,
-                None => fs::remove_file(path).map_err(|_| "无法还原 Claude 配置。")?,
-            }
-        }
-        fs::remove_file(self.backup.join("last.json"))
-            .map_err(|_| "配置已还原，但备份标记清理失败。")?;
-        Ok(())
-    }
-}
-
-// Undo only fields owned by this operation; Claude writes runtime preferences on launch.
-fn restored_document(
-    snapshot: &Snapshot,
-    index: usize,
-    current: Option<&[u8]>,
-) -> Result<Option<Vec<u8>>> {
-    let before = snapshot.before[index].as_deref();
-    let after = snapshot.after[index].as_slice();
-    if current == before || current == Some(after) {
-        return Ok(snapshot.before[index].clone());
-    }
-    let old = document(before)?;
-    let written = document(Some(after))?;
-    let mut now = document(current)?;
-    if index == 0
-        && before.is_none()
-        && now["inferenceGatewayApiKey"]
-            .as_str()
-            .is_some_and(|value| value.trim_start().starts_with("__sealed__:v1:"))
-    {
-        // Keep this now-encrypted profile intact but remove its entry/activation below.
-        // We cannot prove whether the user changed its secret after launching Claude.
-        return Ok(current.map(<[u8]>::to_vec));
-    }
-    for key in written.as_object().ok_or("备份无效。")?.keys() {
-        if old.get(key) == written.get(key) {
-            continue;
-        }
-        if index == 1 && key == "entries" {
-            let own = |doc: &Value| {
-                doc["entries"]
-                    .as_array()
-                    .and_then(|entries| entries.iter().find(|entry| entry["id"] == PROFILE))
-                    .cloned()
-            };
-            let previous = own(&old);
-            let expected = own(&written);
-            let actual = own(&now);
-            if actual != previous && actual != expected {
-                return Err("Claude 配置条目已改变，已保留当前文件与备份。".into());
-            }
-            if actual == previous {
-                continue;
-            }
-            let entries = now["entries"]
-                .as_array_mut()
-                .ok_or("Claude 配置条目无效。")?;
-            entries.retain(|entry| entry["id"] != PROFILE);
-            if let Some(previous) = previous {
-                entries.push(previous);
-            }
-            continue;
-        }
-        if now.get(key) == old.get(key) {
-            continue;
-        }
-        if now.get(key) != written.get(key) {
-            return Err("Claude 托管配置在应用后已改变，不能覆盖后续更改；原始备份已保留。".into());
-        }
-        let object = now.as_object_mut().ok_or("Claude 配置无效。")?;
-        match old.get(key) {
-            Some(value) => {
-                object.insert(key.clone(), value.clone());
-            }
-            None => {
-                object.remove(key);
-            }
-        }
-    }
-    if before.is_none() && now.as_object().is_some_and(|obj| obj.is_empty()) {
-        Ok(None)
-    } else {
-        encoded(&now).map(Some)
     }
 }
 
@@ -414,7 +297,7 @@ mod tests {
         }
     }
     #[test]
-    fn preserves_existing_profiles_settings_and_restores_exact_bytes() {
+    fn preserves_existing_profiles_and_unrelated_settings() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
         let paths = store.paths();
@@ -429,10 +312,14 @@ mod tests {
         assert_eq!(updated["entries"].as_array().unwrap().len(), 2);
         assert_eq!(updated["extra"], true);
         assert!(store.inspect().unwrap()["configured"].as_bool().unwrap());
-        store.restore().unwrap();
-        assert_eq!(fs::read(&paths[1]).unwrap(), meta);
-        assert_eq!(fs::read(&paths[3]).unwrap(), normal);
-        assert!(!paths[0].exists());
+        assert_eq!(
+            document(config::read(&paths[3]).unwrap().as_deref()).unwrap()["mcpServers"],
+            json!({})
+        );
+        assert_eq!(
+            store.inspect().unwrap()["models"],
+            json!(["claude-sonnet-4-6"])
+        );
     }
     #[test]
     fn malformed_metadata_never_changes_any_file() {
@@ -444,15 +331,6 @@ mod tests {
         assert!(store.apply(&connection(), &Options::default()).is_err());
         assert!(!paths[0].exists());
         assert!(!paths[3].exists());
-    }
-    #[test]
-    fn restore_refuses_later_user_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
-        store.apply(&connection(), &Options::default()).unwrap();
-        fs::write(&store.paths()[3], b"{\"deploymentMode\":\"managed\"}").unwrap();
-        assert!(store.restore().is_err());
-        assert!(store.paths()[0].exists());
     }
     #[test]
     fn windows_paths_handle_suffix_and_ambiguity() {
@@ -477,38 +355,6 @@ mod tests {
         fs::write(dir.path().join("Claude-build-b").join(CONFIG), b"{}").unwrap();
         assert!(windows_directory(dir.path(), false).is_err());
     }
-    #[test]
-    fn restore_preserves_runtime_preferences_and_encrypted_profile() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
-        store.apply(&connection(), &Options::default()).unwrap();
-        let paths = store.paths();
-        let mut profile = document(config::read(&paths[0]).unwrap().as_deref()).unwrap();
-        profile["inferenceGatewayApiKey"] = json!("__sealed__:v1:test-placeholder");
-        fs::write(&paths[0], encoded(&profile).unwrap()).unwrap();
-        let mut runtime = document(config::read(&paths[2]).unwrap().as_deref()).unwrap();
-        runtime["preferences"] = json!({"theme":"dark"});
-        fs::write(&paths[2], encoded(&runtime).unwrap()).unwrap();
-        let mut meta = document(config::read(&paths[1]).unwrap().as_deref()).unwrap();
-        meta["entries"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"id":"user-added", "name":"Keep"}));
-        fs::write(&paths[1], encoded(&meta).unwrap()).unwrap();
-        store.restore().unwrap();
-        let restored = document(config::read(&paths[2]).unwrap().as_deref()).unwrap();
-        assert_eq!(restored["preferences"]["theme"], "dark");
-        assert!(restored.get("deploymentMode").is_none());
-        assert_eq!(
-            document(config::read(&paths[1]).unwrap().as_deref()).unwrap()["entries"],
-            json!([{"id":"user-added", "name":"Keep"}])
-        );
-        assert_eq!(
-            document(config::read(&paths[0]).unwrap().as_deref()).unwrap(),
-            profile
-        );
-    }
-
     #[test]
     fn desktop_defaults_enable_discovery_and_one_million_context() {
         let options = Options {

@@ -1,7 +1,8 @@
 import { Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions } from "@headlessui/react";
 import { CheckIcon } from "./icons";
 
-export function ModelPicker({ value, options, disabled, onChange }: {
+export function ModelPicker({ value, options, disabled, onChange, required = true }: {
+  required?: boolean;
   value: string;
   options: string[];
   disabled: boolean;
@@ -11,7 +12,7 @@ export function ModelPicker({ value, options, disabled, onChange }: {
     onChange={(next) => { if (next !== null && next !== value) onChange(next); }}>
     <ComboboxInput id="model" aria-label="模型" aria-describedby="models-help" data-value={value}
       displayValue={(selected: string) => selected} onChange={event => onChange(event.target.value)}
-      placeholder="输入或选择模型" required autoComplete="off" spellCheck={false} />
+      placeholder="输入或选择模型" required={required} autoComplete="off" spellCheck={false} />
     <ComboboxButton id="model-toggle" className="model-toggle" aria-label="选择模型" title="选择模型">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </ComboboxButton>

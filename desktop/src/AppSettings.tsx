@@ -10,7 +10,7 @@ export function AppSettings({ baseUrl, theme, isWindows, updateAvailable, update
   updateAvailable: boolean;
   updateRow: ReactNode;
   historyBusy: boolean;
-  onOpenHistory: () => void;
+  onOpenHistory?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<"settings" | "diagnostics">("settings");
@@ -63,9 +63,9 @@ export function AppSettings({ baseUrl, theme, isWindows, updateAvailable, update
       <div hidden={section !== "settings"}>
         <div className="settings-list">
           <div className="settings-theme-row"><span>外观主题</span>{theme}</div>
-          <button id="open-history" type="button" className="settings-diagnostic-row" disabled={historyBusy} onClick={() => { setOpen(false); onOpenHistory(); }}>
+          {onOpenHistory && <button id="open-history" type="button" className="settings-diagnostic-row" disabled={historyBusy} onClick={() => { setOpen(false); onOpenHistory(); }}>
             <span>历史备份</span><ChevronRightIcon />
-          </button>
+          </button>}
           {isWindows && <button type="button" className="settings-diagnostic-row" onClick={openDiagnostics}>
             <span>问题排查</span><ChevronRightIcon />
           </button>}

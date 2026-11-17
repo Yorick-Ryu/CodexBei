@@ -166,13 +166,6 @@ fn configure_claude_desktop(
     store.apply(&connection, &options.unwrap_or_default())?;
     store.inspect()
 }
-#[tauri::command]
-fn restore_claude_desktop(state: State<AppState>) -> Result<Value> {
-    let _guard = lock(&state.desktop_lock)?;
-    let store = desktop_store(&state)?;
-    store.restore()?;
-    store.inspect()
-}
 fn lock<T>(m: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
     m.lock().map_err(|_| "操作未完成，请重新打开应用。".into())
 }
@@ -806,7 +799,6 @@ pub fn run() {
             open_claude_installer,
             claude_desktop_status,
             configure_claude_desktop,
-            restore_claude_desktop,
             open_wallet,
             windows_diagnostics
         ])

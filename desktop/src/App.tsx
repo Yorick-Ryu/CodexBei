@@ -747,6 +747,38 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                         aria-hidden={!expanded} ref={element => { if (element) element.inert = !expanded; }}>
                         <div className="settings-clip">
                           <div className="settings-body">
+                            <label htmlFor="base-url">API 地址</label>
+                            <div className="key-control base-url-control">
+                              <input
+                                id="base-url"
+                                ref={baseUrlInput}
+                                type="url"
+                                value={baseUrl}
+                                onChange={(e) => changeBaseUrl(e.target.value)}
+                                disabled={disabled}
+                                required
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                              <div className="key-actions">
+                                <button
+                                  id="clear-base-url"
+                                  type="button"
+                                  className="key-action"
+                                  aria-label="清空 API 地址"
+                                  title="清空 API 地址"
+                                  aria-controls="base-url"
+                                  disabled={disabled || !baseUrl}
+                                  onClick={() => {
+                                    changeBaseUrl("");
+                                    baseUrlInput.current?.focus({ preventScroll: true });
+                                  }}
+                                >
+                                  <CloseIcon />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="field-feedback" aria-hidden="true" />
                             <div className="label-row model-label">
                               <label htmlFor="model">模型</label>
                               <button
@@ -791,38 +823,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                                 <p className="field-feedback" aria-hidden="true" />
                               </div>
                             ))}
-                            <label htmlFor="base-url">API 地址</label>
-                            <div className="key-control base-url-control">
-                              <input
-                                id="base-url"
-                                ref={baseUrlInput}
-                                type="url"
-                                value={baseUrl}
-                                onChange={(e) => changeBaseUrl(e.target.value)}
-                                disabled={disabled}
-                                required
-                                autoComplete="off"
-                                spellCheck={false}
-                              />
-                              <div className="key-actions">
-                                <button
-                                  id="clear-base-url"
-                                  type="button"
-                                  className="key-action"
-                                  aria-label="清空 API 地址"
-                                  title="清空 API 地址"
-                                  aria-controls="base-url"
-                                  disabled={disabled || !baseUrl}
-                                  onClick={() => {
-                                    changeBaseUrl("");
-                                    baseUrlInput.current?.focus({ preventScroll: true });
-                                  }}
-                                >
-                                  <CloseIcon />
-                                </button>
-                              </div>
-                            </div>
-                            <p className="field-feedback" aria-hidden="true" />
                             <label htmlFor="target">配置文件</label>
                             <div className="path-row">
                               <input
