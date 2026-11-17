@@ -127,9 +127,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
           <div className="install-card-icon"><img src={claude} alt="" /></div>
           <h2 className="config-title">{installationError ? "无法检测 Claude 桌面版" : installation ? "未检测到 Claude 桌面版" : "正在检测 Claude 桌面版…"}</h2>
           <p className="install-card-message">{installationError || (installation
-            ? installation.platform === "macos"
-              ? "下载后将 Claude 拖入“应用程序”文件夹，安装完成后返回这里，将自动检测并开放配置。"
-              : "请先下载并运行 Claude 桌面版安装程序，安装完成后返回这里，将自动检测并开放配置。"
+            ? "请先下载安装 Claude 桌面版，完成后开放配置功能。"
             : "正在检查本机安装状态，请稍候。")}</p>
           {(installation || installationError) && <div className="install-card-actions">
             <button type="button" className="primary install-card-action" disabled={busy}
