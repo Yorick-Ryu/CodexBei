@@ -104,6 +104,20 @@ fn profile(connection: &Connection, options: &Options) -> Result<Value> {
             models.push(spec);
         }
     }
+    // A stable catalog order must not depend on the selected model.
+    let model_order = |spec: &Value| {
+        let name = spec["name"].as_str().unwrap_or_default();
+        let canonical = name.strip_prefix("anthropic/").unwrap_or(name);
+        let mut parts = canonical.split('-').skip(1);
+        let family = parts.next().unwrap_or_default();
+        let rank = ["fable", "opus", "sonnet", "haiku", "mythos"]
+            .iter()
+            .position(|tier| *tier == family)
+            .unwrap_or(5);
+        let version: Vec<u32> = parts.filter_map(|part| part.parse().ok()).collect();
+        (rank, std::cmp::Reverse(version), name.to_owned())
+    };
+    models.sort_by_key(model_order);
     if models.len() > 200 {
         return Err("桌面版模型列表最多支持 200 个模型。".into());
     }
@@ -116,7 +130,7 @@ fn profile(connection: &Connection, options: &Options) -> Result<Value> {
         "inferenceProvider": "gateway",
         "inferenceCredentialKind": "static",
         "inferenceGatewayBaseUrl": claude::endpoint(&connection.base_url)?,
-        "inferenceGatewayApiKey": config::key(&connection.api_key)?,
+        "inferenceGatewayApiKey": if connection.api_key.trim().is_empty() { Value::Null } else { json!(config::key(&connection.api_key)?) },
         "inferenceGatewayAuthScheme": "bearer",
         "inferenceModels": models,
         "modelDiscoveryEnabled": options.model_discovery,
@@ -217,7 +231,7 @@ impl Store {
     }
 
     pub fn apply(&self, connection: &Connection, options: &Options) -> Result<()> {
-        let settings = profile(connection, options)?;
+        let mut settings = profile(connection, options)?;
         let paths = self.paths();
         let before: Vec<_> = paths
             .iter()
@@ -227,6 +241,21 @@ impl Store {
             .iter()
             .map(|b| document(b.as_deref()))
             .collect::<Result<_>>()?;
+        if settings["inferenceGatewayApiKey"].is_null() {
+            let saved_base = docs[0]["inferenceGatewayBaseUrl"]
+                .as_str()
+                .and_then(|base| claude::endpoint(base).ok());
+            let saved_key = docs[0]["inferenceGatewayApiKey"]
+                .as_str()
+                .filter(|key| !key.is_empty());
+            if saved_base.as_deref() != settings["inferenceGatewayBaseUrl"].as_str()
+                || saved_key.is_none()
+            {
+                return Err("请输入此地址对应的密钥。".into());
+            }
+            // Claude may encrypt the stored value. Preserve it verbatim on this device.
+            settings["inferenceGatewayApiKey"] = docs[0]["inferenceGatewayApiKey"].clone();
+        }
         for (key, value) in settings.as_object().ok_or("无法生成配置。")? {
             docs[0][key] = value.clone();
         }
@@ -322,6 +351,47 @@ mod tests {
             model: "claude-sonnet-4-6".into(),
         }
     }
+    #[test]
+    fn model_selection_does_not_change_catalog_order() {
+        let options = Options {
+            models: vec![
+                "claude-sonnet-5-5".into(),
+                "claude-fable-5-2".into(),
+                "claude-opus-5-5".into(),
+            ],
+            ..Options::default()
+        };
+        let mut connection = connection();
+        connection.model = "claude-sonnet-5-5".into();
+        let first = profile(&connection, &options).unwrap();
+        connection.model = "claude-opus-5-5".into();
+        let second = profile(&connection, &options).unwrap();
+        assert_eq!(first["inferenceModels"], second["inferenceModels"]);
+        assert_eq!(first["inferenceModels"][0]["name"], "claude-fable-5-2");
+    }
+
+    #[test]
+    fn reuses_saved_encrypted_key_only_for_the_same_endpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
+        let mut connection = connection();
+        store.apply(&connection, &Options::default()).unwrap();
+        let path = &store.paths()[0];
+        let mut doc = document(config::read(path).unwrap().as_deref()).unwrap();
+        doc["inferenceGatewayApiKey"] = json!("encrypted-local-fixture");
+        fs::write(path, encoded(&doc).unwrap()).unwrap();
+        connection.api_key.clear();
+        store.apply(&connection, &Options::default()).unwrap();
+        let after = config::read(path).unwrap();
+        assert_eq!(
+            document(after.as_deref()).unwrap()["inferenceGatewayApiKey"],
+            "encrypted-local-fixture"
+        );
+        connection.base_url = "https://different.example".into();
+        assert!(store.apply(&connection, &Options::default()).is_err());
+        assert_eq!(config::read(path).unwrap(), after);
+    }
+
     #[test]
     fn preserves_existing_profiles_and_unrelated_settings() {
         let dir = tempfile::tempdir().unwrap();

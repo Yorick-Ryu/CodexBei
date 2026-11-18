@@ -23,13 +23,15 @@ const nativeModels = (models: string[]) => {
 };
 const preferredModel = (models: string[]) => models.filter(name => /claude-sonnet-/.test(name))
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] || models[0] || "";
-export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean };
+export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean; savedKeyBaseUrl?: string };
 
 export function ClaudeDesktop({ onChangeTool, draftRef }: {
   onChangeTool: (tool: AppTool) => void; draftRef: MutableRefObject<DesktopDraft | null>;
 }) {
   const initial = useRef(draftRef.current);
   const [connection, setConnection] = useState<Connection>(initial.current?.connection || { baseUrl: "https://api.beiapi.cn", apiKey: "", model: "" });
+  const [savedKeyBaseUrl, setSavedKeyBaseUrl] = useState(initial.current?.savedKeyBaseUrl || "");
+  const hasSavedKey = !!savedKeyBaseUrl && connection.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "") === savedKeyBaseUrl;
   const [models, setModels] = useState(initial.current?.models || []);
   const [modelDiscovery, setModelDiscovery] = useState(initial.current?.modelDiscovery ?? true);
   const [context1m, setContext1m] = useState(initial.current?.context1m ?? true);
@@ -80,12 +82,13 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     void check();
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, [installationRefresh]);
-  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, draftRef]);
+  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, savedKeyBaseUrl }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, savedKeyBaseUrl, draftRef]);
   useEffect(() => {
     let active = true;
     api.claudeDesktopStatus().then(value => {
       if (!active) return;
       if (!initial.current) {
+        setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
         setModels(nativeModels(value.models || []));
         setConnection(current => ({ ...current, baseUrl: value.baseUrl || current.baseUrl, model: value.model || current.model }));
         setModelDiscovery(value.modelDiscovery ?? true); setContext1m(value.context1m ?? true);
@@ -114,6 +117,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     void run(async () => {
       const value = await api.incomingClaudeDesktop();
       if (!value) return;
+      setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
       setModels(nativeModels(value.models || []));
       setConnection(current => ({ ...current, apiKey: "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || "" }));
       setModelDiscovery(value.modelDiscovery ?? true);
@@ -178,7 +182,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
           if (disabled) return;
           void run(async () => {
             let available = models;
-            if (!available.length) {
+            if (!available.length && connection.apiKey.trim()) {
               available = nativeModels(await api.models(connection.apiKey, connection.baseUrl));
               setModels(available);
             }
@@ -188,7 +192,9 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
               throw "未发现原生 Claude 模型，请在更多设置中填写模型名称。";
             }
             setConnection(selected);
-            await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, allowAllWebsites, models: available });
+            const value = await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, allowAllWebsites, models: available });
+            setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
+            setConnection(current => ({ ...current, apiKey: "" }));
             setMessage("桌面配置已保存，重新打开 Claude 后生效。");
           });
         }}>
@@ -201,7 +207,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             <div className="credential-field">
               <div className="label-row"><label htmlFor="desktop-key">API 密钥</label></div>
               <div className="key-control">
-                <input id="desktop-key" type={visibleKey ? "text" : "password"} required autoComplete="off" spellCheck={false}
+                <input id="desktop-key" type={visibleKey ? "text" : "password"} required={!hasSavedKey} placeholder={hasSavedKey ? "已保存密钥，留空继续使用" : ""} autoComplete="off" spellCheck={false}
                   value={connection.apiKey} disabled={disabled}
                   onChange={event => { setModels([]); setConnection(current => ({ ...current, apiKey: event.target.value })); }} />
                 <div className="key-actions">
@@ -236,7 +242,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
                 </div>
               </div></div>
             </div>
-            <div className="action-row"><button id="apply" type="submit" className="primary" disabled={disabled || !connection.apiKey.trim()}>{busy ? "处理中…" : "一键配置"}</button></div>
+            <div className="action-row"><button id="apply" type="submit" className="primary" disabled={disabled || (!connection.apiKey.trim() && !hasSavedKey)}>{busy ? "处理中…" : "一键配置"}</button></div>
           </div>
         </form>}
       </section>

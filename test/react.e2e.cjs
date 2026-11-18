@@ -67,7 +67,7 @@ async function fixture(options = {}) {
           return window.fixtureDesktop;
         }
         if (cmd === 'claude_desktop_status') return window.fixtureDesktop || {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:false,models:[]};
-        if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
+        if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,hasKey:true,models:args.options.models,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
         if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
         if (cmd === 'incoming') { if (window.fixtureIncomingTool !== 'claude') return null; window.fixtureIncomingTool = null; return {}; }
         if (cmd === 'backups') return [...window.fixtureClaudeBackups];
@@ -2059,6 +2059,25 @@ test('React: website desktop link selects desktop and waits for installation', a
     assert.equal(await page.locator('#desktop-base-url').inputValue(), 'https://desktop.example');
     assert.equal(await page.evaluate(() => JSON.stringify([window.fixtureState, window.fixtureClaude])), saved);
     assert.equal(await page.evaluate(() => window.fixtureIncomingTool), null);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+
+test('React: Claude Desktop reuses a saved key and requires a key for a changed endpoint', async () => {
+  const f = await fixture(); const { page } = f;
+  try {
+    await page.evaluate(() => {
+      window.fixtureDesktop = { configured: true, hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-5-5', models: ['claude-sonnet-5-5'] };
+    });
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    await page.locator('#desktop-key[placeholder="已保存密钥，留空继续使用"]').waitFor();
+    await page.getByRole('button', { name: '一键配置', exact: true }).click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.apiKey === '');
+    await page.getByRole('button', { name: '更多设置', exact: true }).click();
+    await page.locator('#desktop-base-url').fill('https://different.example');
+    assert.equal(await page.getByRole('button', { name: '一键配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.locator('#desktop-key').getAttribute('placeholder'), '');
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

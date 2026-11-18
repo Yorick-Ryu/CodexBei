@@ -6,9 +6,11 @@
 
 下载按钮使用 [Wangnov/claude-app-mirror](https://github.com/Wangnov/claude-app-mirror) 社区镜像：macOS 打开 `https://claudeapp.agentsmirror.com/latest/mac`（通用 DMG）；Windows 根据 CodexBei 构建架构选择 `/latest/win-x64` 或 `/latest/win-arm64`（MSIX）。镜像由第三方维护，项目声明同步未经修改的官方安装包并提供校验和，CodexBei 不托管或修改这些文件。官方下载入口仍为 <https://claude.com/download>。
 
+密钥已保存时，输入框提示“已保存密钥，留空继续使用”；再次保存同一 API 地址的配置会复用本机密钥，包括 Claude 加密后的值。更换 API 地址需要重新填写对应密钥。
+
 保存配置后重新打开 Claude 生效。首次使用可能需要在 Claude 中确认第三方网关。仅支持 Anthropic Messages API 和完整的原生 Claude 模型 ID；DeepSeek、Kimi 等别名需要额外映射网关，当前不支持。`[1M]` 后缀转为 `supports1m`，不会直接写入模型 ID。
 
-模型发现与 1M 上下文默认开启，可分别关闭。获取到的原生 Claude 模型写入桌面模型列表，所选默认模型排在首位；启用 1M 时同时写入模型能力和上下文偏好。网关和模型仍需实际支持该上下文长度。
+模型发现与 1M 上下文默认开启，可分别关闭。获取到的原生 Claude 模型写入桌面模型列表，按 Fable、Opus、Sonnet、Haiku、Mythos 固定排序，同系列新版在前，选择模型不会置顶；Claude 将列表首项作为配置默认模型，当前会话模型在 Claude 中切换；启用 1M 时同时写入模型能力和上下文偏好。网关和模型仍需实际支持该上下文长度。
 
 “更多设置”中的“允许访问所有网站”控制网页抓取、内置浏览器和命令的出站联网，首次配置默认关闭，已有配置会读取当前状态。开启写入 `coworkEgressAllowedHosts: ["*"]`、`builtinBrowserEnabled: true` 和 `builtinBrowserDefaultDomainPolicy: "allow"`；关闭时域名列表为空、浏览器站点策略为 `block`，会替换现有自定义联网白名单。模型请求、搜索和 MCP 自身连接不受此开关控制；网站自身、网络环境和 Claude 站点安全检查仍可能限制访问。保存后需重开 Claude，并新建任务验证。
 
