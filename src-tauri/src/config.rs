@@ -946,7 +946,7 @@ impl Store {
             "api"
         };
         Ok(
-            json!({ "file": file, "revision": digest(bytes.as_deref()), "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(false), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
+            json!({ "file": file, "revision": digest(bytes.as_deref()), "baseUrl": base, "model": selected_model, "serviceTier": doc.get("service_tier").and_then(Item::as_str), "hasKey": has_key, "modelChannel": model_channel, "supportsWebsockets": item(&doc, &[custom[0], custom[1], "supports_websockets"]).and_then(Item::as_bool).unwrap_or(true), "keepOfficialLogin": item(&doc, &[custom[0], custom[1], "requires_openai_auth"]).and_then(Item::as_bool).unwrap_or(false), "platform": std::env::consts::OS }),
         )
     }
     pub fn configuration_channel(&self, selected: Option<ModelChannel>) -> Result<ModelChannel> {
@@ -2472,7 +2472,7 @@ mod tests {
         let (_dir, mut s) = store();
         let initial = s.inspect().unwrap();
         assert_eq!(initial["modelChannel"], "api");
-        assert_eq!(initial["supportsWebsockets"], false);
+        assert_eq!(initial["supportsWebsockets"], true);
         let c = connection();
         let plan = s.prepare(c.clone(), true, &template(), None).unwrap();
         s.apply_with_backup(&plan, false).unwrap();

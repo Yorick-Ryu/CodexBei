@@ -28,6 +28,7 @@ async function fixture(options = {}) {
     window.fixtureState = { apiKey: ${JSON.stringify(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, hasKey: ${!!(options.savedKey ?? 'sk-saved-fixture-not-real-key')}, modelChannel: ${JSON.stringify(options.modelChannel || 'api')}, keepOfficialLogin: ${!!options.keepOfficialLogin}, baseUrl: ${JSON.stringify(options.baseUrl || 'https://api.beiapi.cn/v1')}, model: 'gpt-6-astra', file: '/isolated/config/config.toml', platform: ${JSON.stringify(options.platform || 'macos')}, testMode: true };
     const configurationChannel = args => args.modelChannel ?? (window.fixtureState.hasKey && window.fixtureState.baseUrl ? window.fixtureState.modelChannel : 'api');
     window.fixtureState.serviceTier = ${JSON.stringify(options.serviceTier ?? null)};
+    window.fixtureState.supportsWebsockets = ${JSON.stringify(options.supportsWebsockets)};
     const configuredTier = args => args.speed === 'fast' ? 'fast' : args.speed === 'standard' ? 'default' : window.fixtureState.serviceTier;
     window.fixtureBackups = [];
     window.fixtureClaude = { apiKey: 'sk-claude-fixture-not-real', hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-test', file: '/isolated/claude/settings.json', platform: 'macos', modelChannel: 'api', keepOfficialLogin: false, testMode: true };
@@ -462,7 +463,7 @@ test('React: official login check waits before enabling and failures keep it off
 });
 
 test('React: transport switches immediately without backups and preserves drafts on failure', async () => {
-  const { page, errors, close } = await fixture();
+  const { page, errors, close } = await fixture({ supportsWebsockets: false });
   try {
     const http = page.getByRole('radio', { name: 'HTTP', exact: true });
     const ws = page.getByRole('radio', { name: 'WS', exact: true });
@@ -806,6 +807,9 @@ test('React: saved keys load masked, clearing stays empty, and gateway edits do 
   try {
     assert.equal(await empty.page.locator('#key').inputValue(), '');
     assert.equal(await empty.page.locator('#apply').isDisabled(), true);
+    const transport = empty.page.getByRole('radiogroup', { name: '传输协议' });
+    assert.deepEqual(await transport.locator('.channel-segment span').allTextContents(), ['WS', 'HTTP']);
+    assert.equal(await transport.getByRole('radio', { name: 'WS', exact: true }).isChecked(), true);
   } finally { await empty.close(); }
 });
 

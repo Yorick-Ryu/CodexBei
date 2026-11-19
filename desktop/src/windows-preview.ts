@@ -5,7 +5,7 @@ const previewParams = new URLSearchParams(location.search);
 const missingInstallation = previewParams.get("screen") === "missing";
 const previewPlatform = previewParams.get("platform") === "darwin" ? "darwin" : "windows";
 const firstConnection = previewParams.get("screen") === "first" || missingInstallation;
-let supportsWebsockets = false;
+let supportsWebsockets = firstConnection;
 let connection = { apiKey: firstConnection ? "" : "demo-preview-key", hasKey: !firstConnection, baseUrl: "https://api.beiapi.cn/v1", model: "gpt-6-astra", serviceTier: "default", modelChannel: "api", keepOfficialLogin: false };
 const installations = missingInstallation ? [] : [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
 mockIPC(async (cmd, raw) => {

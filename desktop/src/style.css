@@ -1192,7 +1192,7 @@ dialog:focus {
   opacity: 1;
 }
 .channel-segments[data-channel="official"]::before,
-.channel-segments[data-channel="ws"]::before,
+.channel-segments[data-channel="http"]::before,
 .channel-segments[data-channel="fast"]::before {
   transform: translateX(var(--channel-option-width));
 }

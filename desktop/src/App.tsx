@@ -585,6 +585,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const keyError = page === "config" && statusKeyError ? status : "";
   const footerStatus = statusKeyError ? "" : status;
   const disabled = busy || !inspection;
+  const supportsWebsockets = inspection?.supportsWebsockets ?? true;
   const channelUpdating = channelSwitching || transportSwitching || speedSwitching || (!!inspection && previewChannel !== undefined && previewChannel !== inspection.modelChannel);
   const applyReady = !!(apiKey.trim() && baseUrl.trim() && model.trim() && matching && !matching.needsSelection && !versionPending && (!previewPending || channelUpdating || loginPreviewPending) && preview && !previewError);
   const softwareUpdate = useSoftwareUpdate({ busy, run });
@@ -1022,7 +1023,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                             <div
                               id="transport-protocol"
                               className="channel-segments"
-                              data-channel={inspection?.supportsWebsockets ? "ws" : "http"}
+                              data-channel={supportsWebsockets ? "ws" : "http"}
                               role="radiogroup"
                               aria-label="传输协议"
                               aria-busy={transportSwitching}
@@ -1040,15 +1041,15 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                               }}
                             >
                               {([
-                                [false, "HTTP"],
                                 [true, "WS"],
+                                [false, "HTTP"],
                               ] as const).map(([enabled, label]) => (
                                 <label className="channel-segment" key={label}>
                                   <input
                                     type="radio"
                                     name="transport-protocol"
                                     value={label.toLowerCase()}
-                                    checked={!!inspection?.supportsWebsockets === enabled}
+                                    checked={supportsWebsockets === enabled}
                                     disabled={disabled || !inspection?.baseUrl}
                                     onChange={() => switchTransport(enabled)}
                                   />
