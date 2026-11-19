@@ -809,6 +809,34 @@ test('React: saved keys load masked, clearing stays empty, and gateway edits do 
   } finally { await empty.close(); }
 });
 
+test('React: saved third-party Codex gateways default to BeiAPI and retain the saved key', async () => {
+  const defaultBase = 'https://api.beiapi.cn/v1';
+  const savedKey = 'sk-saved-fixture-not-real-key';
+  for (const baseUrl of ['https://sub2api.sen666.com', 'https://api.beiapi.cn.example/v1']) {
+    const f = await fixture({ baseUrl });
+    const { page } = f;
+    try {
+      assert.equal(await page.locator('#base-url').inputValue(), defaultBase);
+      assert.equal(await page.locator('#key').inputValue(), savedKey);
+      assert.equal(await page.locator('#key').getAttribute('type'), 'password');
+      assert.equal(await page.evaluate(() => window.fixtureState.baseUrl), baseUrl);
+
+      await page.locator('#apply').click();
+      await page.locator('#success-title').waitFor();
+      assert.equal(await page.evaluate(() => window.fixtureState.baseUrl), defaultBase);
+      assert.equal(await page.evaluate(() => window.fixtureState.apiKey), savedKey);
+    } finally { await f.close(); }
+  }
+  for (const host of ['api.beiapi.top', 'api.novapi.cn', 'api.dianapi.cn']) {
+    const baseUrl = `https://${host}/v1`;
+    const f = await fixture({ baseUrl });
+    try {
+      assert.equal(await f.page.locator('#base-url').inputValue(), baseUrl);
+      assert.equal(await f.page.locator('#key').inputValue(), savedKey);
+    } finally { await f.close(); }
+  }
+});
+
 test('React: manual version matching blocks writes until valid, template activation updates preview', async () => {
   const f = await fixture(); const { page } = f;
   try {

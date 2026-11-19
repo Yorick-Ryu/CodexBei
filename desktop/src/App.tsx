@@ -60,6 +60,23 @@ function InstallerErrorNotice({ message }: { message: string }) {
 }
 
 const configureFirstNotice = "请点击一键配置";
+const codexDefaultBase = "https://api.beiapi.cn/v1";
+const beiApiOrigins = new Set([
+  new URL(codexDefaultBase).origin,
+  "https://api.beiapi.top",
+  "https://api.novapi.cn",
+  "https://api.dianapi.cn",
+]);
+
+function isBeiApiGateway(baseUrl: string | null) {
+  if (!baseUrl) return false;
+  try {
+    return beiApiOrigins.has(new URL(baseUrl).origin);
+  } catch {
+    return false;
+  }
+}
+
 // Match known credential failures, rather than routing any mention of a key here.
 const isKeyError = (message: string) => [
   "请输入 API 密钥。",
@@ -105,7 +122,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const restoringDraft = useRef(!!initialDraft.current);
   const api = useMemo(() => toolApi(activeTool), [activeTool]);
   const isClaude = activeTool === "claude";
-  const defaultBase = isClaude ? "https://api.beiapi.cn" : "https://api.beiapi.cn/v1";
+  const defaultBase = isClaude ? "https://api.beiapi.cn" : codexDefaultBase;
   const defaultModel = isClaude ? "claude-sonnet-4-6" : "gpt-6-astra";
   const [mapping, setMapping] = useState<Mapping>(initialDraft.current?.mapping ?? {});
   const [inspection, setInspection] = useState<Inspection | null>(initialDraft.current?.inspection ?? null);
@@ -211,13 +228,15 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const incomingQueued = useRef(false);
   const drainIncoming = useRef<() => void>(() => {});
   keepRef.current = keep;
-  const acceptInspection = useCallback((data: Inspection) => {
+  const acceptInspection = useCallback((data: Inspection, source: "saved" | "configured" = "saved") => {
+    const useSavedGateway = isClaude || source === "configured" || isBeiApiGateway(data.baseUrl);
+    const formBaseUrl = (useSavedGateway && data.baseUrl) || defaultBase;
     setInspection(data);
     setSelectedChannel(undefined);
     setApiKey(data.apiKey || "");
     setVisibleKey(false);
-    loadedKey.current = data.apiKey && data.baseUrl ? { value: data.apiKey, baseUrl: data.baseUrl } : null;
-    setBaseUrl(data.baseUrl || defaultBase);
+    loadedKey.current = data.apiKey && data.baseUrl ? { value: data.apiKey, baseUrl: formBaseUrl } : null;
+    setBaseUrl(formBaseUrl);
     setModel(data.model || defaultModel);
     setSpeed(configuredSpeed(data.serviceTier));
     setMapping(Object.fromEntries(Object.entries(data.mapping || {}).filter(([, value]) => value && value !== data.model)));
@@ -238,7 +257,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
     }
     document.body.dataset.platform =
       data.platform === "macos" ? "darwin" : data.platform;
-  }, [defaultBase, defaultModel]);
+  }, [defaultBase, defaultModel, isClaude]);
   useEffect(() => {
     if (inspection) drafts.current[activeTool] = { apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, inspection, matching, preview, previewError };
   }, [inspection, activeTool, apiKey, baseUrl, model, speed, mapping, keep, selectedChannel, expanded, matching, preview, previewError, drafts]);
@@ -261,7 +280,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
       setVersionDraft(null);
       dialog.current?.close();
       setSelectedBackup(null);
-      acceptInspection(await api.inspect());
+      acceptInspection(await api.inspect(), "configured");
       setMatching(await api.check());
       if (outcome?.warning) setStatus(outcome.warning);
     },
