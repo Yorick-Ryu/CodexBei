@@ -24,7 +24,7 @@ const nativeModels = (models: string[]) => {
 };
 const preferredModel = (models: string[]) => models.filter(name => /claude-sonnet-/.test(name))
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] || models[0] || "";
-export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean; hasSavedKey: boolean; addressEdited: boolean };
+export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean; hasSavedKey: boolean; savedKey: string; addressEdited: boolean };
 
 export function ClaudeDesktop({ onChangeTool, draftRef }: {
   onChangeTool: (tool: AppTool) => void; draftRef: MutableRefObject<DesktopDraft | null>;
@@ -32,6 +32,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const initial = useRef(draftRef.current);
   const [connection, setConnection] = useState<Connection>(initial.current?.connection || { baseUrl: "https://api.beiapi.cn", apiKey: "", model: "" });
   const [hasSavedKey, setHasSavedKey] = useState(initial.current?.hasSavedKey ?? false);
+  const [savedKey, setSavedKey] = useState(initial.current?.savedKey ?? "");
   const [addressEdited, setAddressEdited] = useState(initial.current?.addressEdited ?? false);
   const [models, setModels] = useState(initial.current?.models || []);
   const [modelDiscovery, setModelDiscovery] = useState(initial.current?.modelDiscovery ?? true);
@@ -82,15 +83,16 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     void check();
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, [installationRefresh]);
-  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, addressEdited }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, addressEdited, draftRef]);
+  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, savedKey, addressEdited }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, savedKey, addressEdited, draftRef]);
   useEffect(() => {
     let active = true;
     api.claudeDesktopStatus().then(value => {
       if (!active) return;
       if (!initial.current) {
         setHasSavedKey(value.hasKey ?? false);
+        setSavedKey(value.apiKey ?? "");
         setModels(nativeModels(value.models || []));
-        setConnection(current => ({ ...current, baseUrl: value.baseUrl || current.baseUrl, model: value.model || current.model }));
+        setConnection(current => ({ ...current, apiKey: value.apiKey ?? "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || current.model }));
         setModelDiscovery(value.modelDiscovery ?? true); setContext1m(value.context1m ?? true);
         setAllowAllWebsites(value.allowAllWebsites ?? false);
       }
@@ -118,9 +120,10 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
       const value = await api.incomingClaudeDesktop();
       if (!value) return;
       setHasSavedKey(value.hasKey ?? false);
+      setSavedKey(value.apiKey ?? "");
       setAddressEdited(false);
       setModels(nativeModels(value.models || []));
-      setConnection(current => ({ ...current, apiKey: "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || "" }));
+      setConnection(current => ({ ...current, apiKey: value.apiKey ?? "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || "" }));
       setModelDiscovery(value.modelDiscovery ?? true);
       setContext1m(value.context1m ?? true);
       setAllowAllWebsites(value.allowAllWebsites ?? false);
@@ -195,10 +198,12 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
               throw "未发现原生 Claude 模型，请在更多设置中填写模型名称。";
             }
             setConnection(selected);
-            const value = await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, allowAllWebsites, models: available });
+            const apiKey = selected.apiKey === savedKey ? "" : selected.apiKey;
+            const value = await api.configureClaudeDesktop({ ...selected, apiKey }, { modelDiscovery, context1m, allowAllWebsites, models: available });
             setHasSavedKey(value.hasKey ?? false);
+            setSavedKey(value.apiKey ?? "");
             setAddressEdited(false);
-            setConnection(current => ({ ...current, apiKey: "" }));
+            setConnection(current => ({ ...current, apiKey: value.apiKey ?? "" }));
             setMessage("桌面配置已保存，重新打开 Claude 后生效。");
           });
         }}>
@@ -211,14 +216,14 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             <div className="credential-field">
               <div className="label-row"><label htmlFor="desktop-key">API 密钥</label></div>
               <div className="key-control">
-                <input id="desktop-key" type={visibleKey ? "text" : "password"} required={!hasSavedKey} placeholder={hasSavedKey ? "已保存密钥，留空继续使用" : ""} autoComplete="off" spellCheck={false}
+                <input id="desktop-key" type={visibleKey ? "text" : "password"} required={!hasSavedKey} placeholder={hasSavedKey ? savedKey ? "留空继续使用当前密钥" : "密钥已由 Claude 加密，留空继续使用" : ""} autoComplete="off" spellCheck={false}
                   value={connection.apiKey} disabled={disabled}
                   onChange={event => { setModels([]); setConnection(current => ({ ...current, apiKey: event.target.value })); }} />
                 <div className="key-actions">
                   <button type="button" className="key-action" disabled={disabled || !connection.apiKey} aria-label={visibleKey ? "隐藏密钥" : "显示密钥"}
                     aria-pressed={visibleKey} onClick={() => setVisibleKey(value => !value)}>{visibleKey ? <EyeOffIcon /> : <EyeIcon />}</button>
                   <button type="button" className="key-action" disabled={disabled || !connection.apiKey} aria-label="清空输入的密钥"
-                    onClick={() => { setConnection(current => ({ ...current, apiKey: "" })); setModels([]); setVisibleKey(false); }}><CloseIcon /></button>
+                    onClick={() => { setConnection(current => ({ ...current, apiKey: "" })); setModels([]); }}><CloseIcon /></button>
                 </div>
               </div>
               <p className="field-feedback" aria-live="polite" />

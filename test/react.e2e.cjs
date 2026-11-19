@@ -69,7 +69,7 @@ async function fixture(options = {}) {
           return window.fixtureDesktop;
         }
         if (cmd === 'claude_desktop_status') return window.fixtureDesktop || {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:false,models:[]};
-        if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,hasKey:true,models:args.options.models,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
+        if (cmd === 'configure_claude_desktop') { if(window.fixtureDesktopError) throw window.fixtureDesktopError; window.fixtureDesktop = {profilePath:'/isolated/Claude-3p/configLibrary/profile.json',configured:true,hasKey:true,apiKey:args.connection.apiKey || window.fixtureDesktop?.apiKey,models:args.options.models,baseUrl:args.connection.baseUrl,model:args.connection.model}; window.fixtureDesktopConfigured = args; return window.fixtureDesktop; }
         if (cmd === 'configure') { Object.assign(window.fixtureClaude, args.connection, {mapping:args.mapping}); window.fixtureClaudeBackups.push({id:'claude-backup',file:window.fixtureClaude.file,created:'2026-09-24T06:00:00.000Z',kind:'configure',existed:false}); return {}; }
         if (cmd === 'incoming') { if (window.fixtureIncomingTool !== 'claude') return null; window.fixtureIncomingTool = null; return {}; }
         if (cmd === 'backups') return [...window.fixtureClaudeBackups];
@@ -2089,12 +2089,20 @@ test('React: Claude Desktop configures from a key with optional advanced control
     assert.equal(await page.getByLabel('启用模型发现').isVisible(), false);
     assert.equal(await page.getByRole('button', {name: '从 ChatGPT 导入'}).count(), 0);
     assert.equal(await page.getByLabel('我已彻底退出 Claude 桌面版').count(), 0);
-    await page.locator('#desktop-key').fill('sk-desktop-fixture-not-real');
+    const key = page.locator('#desktop-key');
+    await key.fill('sk-desktop-fixture-not-real');
+    assert.equal(await key.getAttribute('type'), 'password');
+    await page.getByRole('button', { name: '显示密钥', exact: true }).click();
+    assert.equal(await key.getAttribute('type'), 'text');
+    await page.getByRole('button', { name: '隐藏密钥', exact: true }).click();
+    assert.equal(await key.getAttribute('type'), 'password');
     await page.getByRole('tab', { name:'Claude Code', exact:true }).click();
     await page.getByRole('tab', { name:'Claude 桌面版', exact:true }).click();
     await page.waitForFunction(() => document.querySelector('#desktop-key')?.value === 'sk-desktop-fixture-not-real');
     await page.getByRole('button',{name:'一键配置',exact:true}).click();
     await page.getByRole('status').filter({hasText:'桌面配置已保存'}).waitFor();
+    assert.equal(await key.inputValue(), 'sk-desktop-fixture-not-real');
+    assert.equal(await key.getAttribute('type'), 'password');
     const configured = await page.evaluate(() => window.fixtureDesktopConfigured);
     assert.equal(configured.connection.model, 'claude-sonnet-5-5');
     assert.equal(configured.connection.baseUrl, 'https://api.beiapi.cn');
@@ -2152,7 +2160,8 @@ test('React: Claude Desktop keeps both saved and typed keys when changing the en
       window.fixtureDesktop = { configured: true, hasKey: true, baseUrl: 'https://api.beiapi.cn', model: 'claude-sonnet-5-5', models: ['claude-sonnet-5-5'] };
     });
     await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
-    await page.locator('#desktop-key[placeholder="已保存密钥，留空继续使用"]').waitFor();
+    await page.locator('#desktop-key[placeholder="密钥已由 Claude 加密，留空继续使用"]').waitFor();
+    assert.equal(await page.getByRole('button', { name: '显示密钥', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: '一键配置', exact: true }).click();
     await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.apiKey === '');
     await page.getByRole('button', { name: '更多设置', exact: true }).click();
@@ -2160,7 +2169,7 @@ test('React: Claude Desktop keeps both saved and typed keys when changing the en
     const key = page.locator('#desktop-key');
     const apply = page.getByRole('button', { name: '一键配置', exact: true });
     await address.fill('https://different.example');
-    assert.equal(await key.getAttribute('placeholder'), '已保存密钥，留空继续使用');
+    assert.equal(await key.getAttribute('placeholder'), '密钥已由 Claude 加密，留空继续使用');
     assert.equal(await key.inputValue(), '');
     await apply.click();
     await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.baseUrl === 'https://different.example');
@@ -2180,6 +2189,9 @@ test('React: Claude Desktop keeps both saved and typed keys when changing the en
     await apply.click();
     await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.baseUrl === 'https://new-gateway.example');
     assert.equal(await page.evaluate(() => window.fixtureDesktopConfigured.connection.apiKey), 'sk-desktop-fixture-not-real');
+    await apply.click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured.connection.apiKey === '');
+    assert.equal(await key.inputValue(), 'sk-desktop-fixture-not-real');
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

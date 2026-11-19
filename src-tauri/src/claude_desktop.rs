@@ -216,12 +216,14 @@ impl Store {
         let profile = document(config::read(&paths[0])?.as_deref())?;
         let meta = document(config::read(&paths[1])?.as_deref())?;
         let normal = document(config::read(&paths[3])?.as_deref())?;
+        let saved_key = profile["inferenceGatewayApiKey"].as_str();
         Ok(
             json!({"profilePath": paths[0], "configured": meta["appliedId"] == PROFILE && normal["deploymentMode"] == "3p",
             "models": profile["inferenceModels"].as_array().map(|models| models.iter().filter_map(|model| model["name"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
             "baseUrl": profile["inferenceGatewayBaseUrl"].as_str().and_then(|v| claude::endpoint(v).ok()),
             "model": profile["inferenceModels"][0]["name"].as_str(),
-            "hasKey": profile["inferenceGatewayApiKey"].as_str().is_some_and(|key| !key.is_empty()),
+            "hasKey": saved_key.is_some_and(|key| !key.is_empty()),
+            "apiKey": saved_key.and_then(|key| config::key(key).ok()),
             "modelDiscovery": profile["modelDiscoveryEnabled"].as_bool().unwrap_or(true),
             "context1m": profile["modelPrefer1mContext"].as_bool().unwrap_or(true),
             "allowAllWebsites": profile["coworkEgressAllowedHosts"].as_array().is_some_and(|hosts| hosts.iter().any(|host| host == "*"))
@@ -371,10 +373,14 @@ mod tests {
         let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
         let mut connection = connection();
         store.apply(&connection, &Options::default()).unwrap();
+        assert_eq!(store.inspect().unwrap()["apiKey"], connection.api_key);
         let path = &store.paths()[0];
         let mut doc = document(config::read(path).unwrap().as_deref()).unwrap();
         doc["inferenceGatewayApiKey"] = json!("encrypted-local-fixture");
         fs::write(path, encoded(&doc).unwrap()).unwrap();
+        let status = store.inspect().unwrap();
+        assert_eq!(status["hasKey"], true);
+        assert!(status["apiKey"].is_null());
         connection.api_key.clear();
         store.apply(&connection, &Options::default()).unwrap();
         let after = config::read(path).unwrap();

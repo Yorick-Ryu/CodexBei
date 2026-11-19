@@ -3,6 +3,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 mockWindows("main");
 const previewParams = new URLSearchParams(location.search);
 const missingClaudeRuntime = previewParams.get("screen") === "claude-runtime-missing";
+const savedClaudeDesktop = previewParams.get("screen") === "claude-saved" || missingClaudeRuntime;
 const installerDownloadFailed = previewParams.get("screen") === "codex-download-failed";
 const missingInstallation = previewParams.get("screen") === "missing" || installerDownloadFailed;
 const previewPlatform = previewParams.get("platform") === "darwin" ? "darwin" : "windows";
@@ -12,14 +13,16 @@ let connection = { apiKey: firstConnection ? "" : "demo-preview-key", hasKey: !f
 const installations = missingInstallation ? [] : [{ id: "preview-desktop", kind: "desktop", runtimeVersion: "0.153.4", appVersion: "26.903.8094.0" }];
 mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
-  if (cmd === "incoming_tool") return null;
+  if (cmd === "incoming_tool") return savedClaudeDesktop ? "claude-desktop" : null;
   if (args.tool === "claude") {
     if (cmd === "claude_desktop_installation") return {
       installed: previewParams.get("screen") !== "claude-missing",
       platform: previewPlatform === "darwin" ? "macos" : "windows",
       runtimeMissing: missingClaudeRuntime,
     };
-    if (cmd === "claude_desktop_status") return { configured: missingClaudeRuntime, hasKey: missingClaudeRuntime, models: [] };
+    if (cmd === "claude_desktop_status") return savedClaudeDesktop
+      ? { configured: true, hasKey: true, apiKey: "sk-demo-claude-desktop-preview", baseUrl: "https://api.beiapi.cn", model: "claude-sonnet-test", models: ["claude-sonnet-test"] }
+      : { configured: false, models: [] };
     if (cmd === "incoming_claude_desktop" || cmd === "open_claude_desktop_offline_installer") return null;
     if (cmd === "inspect") return { file: "C:\\Users\\Example\\.claude\\settings.json", testMode: true,
       baseUrl: "https://api.beiapi.cn", model: "claude-sonnet-test", hasKey: true, apiKey: "sk-preview-placeholder",
