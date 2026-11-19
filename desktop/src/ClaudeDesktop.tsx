@@ -23,15 +23,15 @@ const nativeModels = (models: string[]) => {
 };
 const preferredModel = (models: string[]) => models.filter(name => /claude-sonnet-/.test(name))
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] || models[0] || "";
-export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean; savedKeyBaseUrl?: string };
+export type DesktopDraft = { connection: Connection; models: string[]; modelDiscovery: boolean; context1m: boolean; allowAllWebsites: boolean; expanded: boolean; hasSavedKey: boolean; addressEdited: boolean };
 
 export function ClaudeDesktop({ onChangeTool, draftRef }: {
   onChangeTool: (tool: AppTool) => void; draftRef: MutableRefObject<DesktopDraft | null>;
 }) {
   const initial = useRef(draftRef.current);
   const [connection, setConnection] = useState<Connection>(initial.current?.connection || { baseUrl: "https://api.beiapi.cn", apiKey: "", model: "" });
-  const [savedKeyBaseUrl, setSavedKeyBaseUrl] = useState(initial.current?.savedKeyBaseUrl || "");
-  const hasSavedKey = !!savedKeyBaseUrl && connection.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "") === savedKeyBaseUrl;
+  const [hasSavedKey, setHasSavedKey] = useState(initial.current?.hasSavedKey ?? false);
+  const [addressEdited, setAddressEdited] = useState(initial.current?.addressEdited ?? false);
   const [models, setModels] = useState(initial.current?.models || []);
   const [modelDiscovery, setModelDiscovery] = useState(initial.current?.modelDiscovery ?? true);
   const [context1m, setContext1m] = useState(initial.current?.context1m ?? true);
@@ -82,13 +82,13 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     void check();
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, [installationRefresh]);
-  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, savedKeyBaseUrl }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, savedKeyBaseUrl, draftRef]);
+  useEffect(() => { draftRef.current = { connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, addressEdited }; }, [connection, models, modelDiscovery, context1m, allowAllWebsites, expanded, hasSavedKey, addressEdited, draftRef]);
   useEffect(() => {
     let active = true;
     api.claudeDesktopStatus().then(value => {
       if (!active) return;
       if (!initial.current) {
-        setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
+        setHasSavedKey(value.hasKey ?? false);
         setModels(nativeModels(value.models || []));
         setConnection(current => ({ ...current, baseUrl: value.baseUrl || current.baseUrl, model: value.model || current.model }));
         setModelDiscovery(value.modelDiscovery ?? true); setContext1m(value.context1m ?? true);
@@ -117,7 +117,8 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
     void run(async () => {
       const value = await api.incomingClaudeDesktop();
       if (!value) return;
-      setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
+      setHasSavedKey(value.hasKey ?? false);
+      setAddressEdited(false);
       setModels(nativeModels(value.models || []));
       setConnection(current => ({ ...current, apiKey: "", baseUrl: value.baseUrl || current.baseUrl, model: value.model || "" }));
       setModelDiscovery(value.modelDiscovery ?? true);
@@ -134,7 +135,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const update = useSoftwareUpdate({ busy, run });
   const disabled = busy || initializing || !installation?.installed;
   useEffect(() => {
-    if (!expanded || initializing || !installation?.installed || !connection.apiKey.trim()) {
+    if (!expanded || initializing || !installation?.installed || addressEdited || !connection.apiKey.trim()) {
       setModelsLoading(false);
       return;
     }
@@ -152,7 +153,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
       }).finally(() => { if (active) setModelsLoading(false); });
     }, 350);
     return () => { active = false; clearTimeout(timer); };
-  }, [expanded, initializing, installation?.installed, connection.apiKey, connection.baseUrl, modelRefresh]);
+  }, [expanded, initializing, installation?.installed, connection.apiKey, connection.baseUrl, addressEdited, modelRefresh]);
   return <>
     <header className="app-header"><div className="brand-row" data-tauri-drag-region>
       <div className="brand"><img className="logo" src={brand} alt="" />CodexBei</div>
@@ -193,7 +194,8 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
             }
             setConnection(selected);
             const value = await api.configureClaudeDesktop(selected, { modelDiscovery, context1m, allowAllWebsites, models: available });
-            setSavedKeyBaseUrl(value.hasKey && value.baseUrl ? value.baseUrl : "");
+            setHasSavedKey(value.hasKey ?? false);
+            setAddressEdited(false);
             setConnection(current => ({ ...current, apiKey: "" }));
             setMessage("桌面配置已保存，重新打开 Claude 后生效。");
           });
@@ -225,12 +227,18 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
                 <label htmlFor="desktop-base-url">API 地址</label>
                 <div className="key-control base-url-control">
                   <input id="desktop-base-url" type="url" autoComplete="off" spellCheck={false} value={connection.baseUrl} disabled={disabled}
-                    onChange={event => { setModels([]); setConnection(current => ({ ...current, baseUrl: event.target.value, apiKey: "", model: "" })); }} />
+                    onChange={event => {
+                      const baseUrl = event.target.value;
+                      setAddressEdited(true);
+                      setModelStatus("");
+                      if (connection.apiKey.trim()) setModels([]);
+                      setConnection(current => ({ ...current, baseUrl }));
+                    }} />
                 </div>
                 <p className="field-feedback" aria-hidden="true" />
                 <div className="label-row model-label"><label htmlFor="model">模型</label>
                   <button type="button" className="text-button" disabled={disabled || modelsLoading || !connection.apiKey.trim()}
-                    onClick={() => setModelRefresh(value => value + 1)}>{modelsLoading ? "获取中…" : "刷新"}</button>
+                    onClick={() => { setAddressEdited(false); setModelRefresh(value => value + 1); }}>{modelsLoading ? "获取中…" : "刷新"}</button>
                 </div>
                 <ModelPicker required={false} value={connection.model} options={models} disabled={disabled}
                   onChange={model => setConnection(current => ({ ...current, model }))} />

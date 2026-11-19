@@ -6,7 +6,7 @@
 
 下载按钮使用 [Wangnov/claude-app-mirror](https://github.com/Wangnov/claude-app-mirror) 社区镜像：macOS 打开 `https://claudeapp.agentsmirror.com/latest/mac`（通用 DMG）；Windows 根据 CodexBei 构建架构选择 `/latest/win-x64` 或 `/latest/win-arm64`（MSIX）。镜像由第三方维护，项目声明同步未经修改的官方安装包并提供校验和，CodexBei 不托管或修改这些文件。官方下载入口仍为 <https://claude.com/download>。
 
-密钥已保存时，输入框提示“已保存密钥，留空继续使用”；再次保存同一 API 地址的配置会复用本机密钥，包括 Claude 加密后的值。更换 API 地址需要重新填写对应密钥。
+更换 API 地址时会保留已经填写的密钥。密钥已保存时，输入框提示“已保存密钥，留空继续使用”。保存更改时，留空会沿用本机密钥，包括 Claude 加密后的值。
 
 保存配置后重新打开 Claude 生效。首次使用可能需要在 Claude 中确认第三方网关。仅支持 Anthropic Messages API 和完整的原生 Claude 模型 ID；DeepSeek、Kimi 等别名需要额外映射网关，当前不支持。`[1M]` 后缀转为 `supports1m`，不会直接写入模型 ID。
 

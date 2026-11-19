@@ -242,16 +242,11 @@ impl Store {
             .map(|b| document(b.as_deref()))
             .collect::<Result<_>>()?;
         if settings["inferenceGatewayApiKey"].is_null() {
-            let saved_base = docs[0]["inferenceGatewayBaseUrl"]
-                .as_str()
-                .and_then(|base| claude::endpoint(base).ok());
             let saved_key = docs[0]["inferenceGatewayApiKey"]
                 .as_str()
                 .filter(|key| !key.is_empty());
-            if saved_base.as_deref() != settings["inferenceGatewayBaseUrl"].as_str()
-                || saved_key.is_none()
-            {
-                return Err("请输入此地址对应的密钥。".into());
+            if saved_key.is_none() {
+                return Err("请输入 API 密钥。".into());
             }
             // Claude may encrypt the stored value. Preserve it verbatim on this device.
             settings["inferenceGatewayApiKey"] = docs[0]["inferenceGatewayApiKey"].clone();
@@ -371,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn reuses_saved_encrypted_key_only_for_the_same_endpoint() {
+    fn reuses_saved_encrypted_key_when_the_endpoint_changes() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("backup"), Some(dir.path())).unwrap();
         let mut connection = connection();
@@ -388,8 +383,13 @@ mod tests {
             "encrypted-local-fixture"
         );
         connection.base_url = "https://different.example".into();
-        assert!(store.apply(&connection, &Options::default()).is_err());
-        assert_eq!(config::read(path).unwrap(), after);
+        store.apply(&connection, &Options::default()).unwrap();
+        let updated = document(config::read(path).unwrap().as_deref()).unwrap();
+        assert_eq!(
+            updated["inferenceGatewayBaseUrl"],
+            "https://different.example"
+        );
+        assert_eq!(updated["inferenceGatewayApiKey"], "encrypted-local-fixture");
     }
 
     #[test]

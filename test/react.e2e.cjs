@@ -2064,7 +2064,7 @@ test('React: website desktop link selects desktop and waits for installation', a
 });
 
 
-test('React: Claude Desktop reuses a saved key and requires a key for a changed endpoint', async () => {
+test('React: Claude Desktop keeps both saved and typed keys when changing the endpoint', async () => {
   const f = await fixture(); const { page } = f;
   try {
     await page.evaluate(() => {
@@ -2075,9 +2075,30 @@ test('React: Claude Desktop reuses a saved key and requires a key for a changed 
     await page.getByRole('button', { name: '一键配置', exact: true }).click();
     await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.apiKey === '');
     await page.getByRole('button', { name: '更多设置', exact: true }).click();
-    await page.locator('#desktop-base-url').fill('https://different.example');
-    assert.equal(await page.getByRole('button', { name: '一键配置', exact: true }).isDisabled(), true);
-    assert.equal(await page.locator('#desktop-key').getAttribute('placeholder'), '');
+    const address = page.locator('#desktop-base-url');
+    const key = page.locator('#desktop-key');
+    const apply = page.getByRole('button', { name: '一键配置', exact: true });
+    await address.fill('https://different.example');
+    assert.equal(await key.getAttribute('placeholder'), '已保存密钥，留空继续使用');
+    assert.equal(await key.inputValue(), '');
+    await apply.click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.baseUrl === 'https://different.example');
+    assert.deepEqual(await page.evaluate(() => window.fixtureDesktopConfigured.connection), {
+      baseUrl: 'https://different.example', apiKey: '', model: 'claude-sonnet-5-5',
+    });
+    await key.fill('sk-desktop-fixture-not-real');
+    await address.fill('https://new-gateway.example');
+    assert.equal(await key.inputValue(), 'sk-desktop-fixture-not-real');
+    await page.getByRole('tab', { name: 'Claude Code', exact: true }).click();
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    assert.equal(await key.inputValue(), 'sk-desktop-fixture-not-real');
+    await page.waitForTimeout(450);
+    assert.equal(await page.evaluate(() => window.fixtureClaudeCalls.some(
+      ({ cmd, args }) => cmd === 'models' && args.baseUrl === 'https://new-gateway.example',
+    )), false);
+    await apply.click();
+    await page.waitForFunction(() => window.fixtureDesktopConfigured?.connection.baseUrl === 'https://new-gateway.example');
+    assert.equal(await page.evaluate(() => window.fixtureDesktopConfigured.connection.apiKey), 'sk-desktop-fixture-not-real');
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
