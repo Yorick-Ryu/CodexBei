@@ -2,7 +2,9 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 mockWindows("main");
 const previewParams = new URLSearchParams(location.search);
-const missingInstallation = previewParams.get("screen") === "missing";
+const missingClaudeRuntime = previewParams.get("screen") === "claude-runtime-missing";
+const installerDownloadFailed = previewParams.get("screen") === "codex-download-failed";
+const missingInstallation = previewParams.get("screen") === "missing" || installerDownloadFailed;
 const previewPlatform = previewParams.get("platform") === "darwin" ? "darwin" : "windows";
 const firstConnection = previewParams.get("screen") === "first" || missingInstallation;
 let supportsWebsockets = firstConnection;
@@ -12,8 +14,13 @@ mockIPC(async (cmd, raw) => {
   const args = raw as Record<string, unknown>;
   if (cmd === "incoming_tool") return null;
   if (args.tool === "claude") {
-    if (cmd === "claude_desktop_installation") return { installed: previewParams.get("screen") !== "claude-missing", platform: previewPlatform === "darwin" ? "macos" : "windows" };
-    if (cmd === "claude_desktop_status") return { configured: false, models: [] };
+    if (cmd === "claude_desktop_installation") return {
+      installed: previewParams.get("screen") !== "claude-missing",
+      platform: previewPlatform === "darwin" ? "macos" : "windows",
+      runtimeMissing: missingClaudeRuntime,
+    };
+    if (cmd === "claude_desktop_status") return { configured: missingClaudeRuntime, hasKey: missingClaudeRuntime, models: [] };
+    if (cmd === "incoming_claude_desktop" || cmd === "open_claude_desktop_offline_installer") return null;
     if (cmd === "inspect") return { file: "C:\\Users\\Example\\.claude\\settings.json", testMode: true,
       baseUrl: "https://api.beiapi.cn", model: "claude-sonnet-test", hasKey: true, apiKey: "sk-preview-placeholder",
       modelChannel: "api", keepOfficialLogin: false, platform: "windows" };
@@ -36,6 +43,9 @@ mockIPC(async (cmd, raw) => {
   if (cmd === "switch_channel") { connection.modelChannel = args.channel === "official" ? "official" : "api"; return {}; }
   if (cmd === "quota") return {channel:"api",rows:[{label:"余额",value:"$128.50"},{label:"密钥余额",value:"不限"}],groups:[]};
   if (cmd === "has_official_login") return false;
+  if (cmd === "open_chatgpt_installer" && installerDownloadFailed) {
+    throw "无法打开安装入口，请用浏览器访问 https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi";
+  }
   if (cmd === "switch_transport") { supportsWebsockets = args.supportsWebsockets === true; return { changed: true }; }
   if (cmd === "check") return {
     installations, selection: { mode: "auto" }, template: { id: "preview", version: "1.0.0", digest: "preview" },

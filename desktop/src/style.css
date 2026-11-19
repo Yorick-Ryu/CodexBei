@@ -5,6 +5,8 @@
   --app-header-height: calc(var(--title-row-height) + 1px);
   --feedback-height: 18px;
   --config-status-gap: 64px;
+  --config-inline-padding: 32px;
+  --desktop-form-width: 720px;
   --radius-small: 6px;
   --radius-control: 10px;
   --radius-header-control: 10px;
@@ -16,6 +18,7 @@
   --border: #343434;
   --border-strong: #636360;
   --control-border: #454543;
+  --control-outline: 1px solid var(--control-border);
   --text: #eeeeec;
   --label: #cdcdca;
   --muted: #a3a3a0;
@@ -377,7 +380,7 @@ select {
   min-width: 0;
   height: 38px;
   padding: 0 11px;
-  border: 1px solid var(--control-border);
+  border: var(--control-outline);
   border-radius: var(--radius-control);
   color: var(--text);
   background: var(--input);
@@ -738,12 +741,18 @@ pre {
 #status > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 #status.success { background: var(--success-bg); border-color: var(--success-border); color: var(--success); }
 #status.info { background: var(--surface); border-color: var(--border); color: var(--muted); }
+.status-region[data-form-width] { inset-inline: var(--config-inline-padding); }
+.status-region[data-form-width] #status.info {
+  max-width: calc(var(--desktop-form-width) - 2 * var(--config-inline-padding));
+  border: var(--control-outline);
+  border-radius: var(--radius-control);
+}
+.status-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.status-actions .secondary { min-height: 28px; padding: 4px 8px; white-space: nowrap; }
 #status.info > span { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; }
 #status.info .text-button { flex-shrink: 0; white-space: nowrap; color: var(--text); font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 #status .text-button { padding-block: 0; line-height: inherit; }
 #status .installer-error-url { display: block; -webkit-user-select: text; user-select: text; }
-#status .installer-copy { padding-inline: 0; color: inherit; font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
-#status .installer-copy-status:not(:empty) { margin-inline-start: 8px; }
 .status-close { display: grid; place-items: center; flex: 0 0 22px; height: 22px; padding: 3px; background: transparent; border-radius: 4px; color: inherit; }
 .status-close:hover { background: var(--hover); }
 .file-error { height: auto; min-height: var(--feedback-height); white-space: normal; overflow: visible; overflow-wrap: anywhere; }
@@ -1393,7 +1402,7 @@ main[data-channel-updating] .select-trigger:disabled {
 .tabs span { font-size: 9px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; }
 .toolbar-actions { gap: 10px; }
 .settings-entry { width: 26px; height: 26px; color: var(--muted); }
-main.config-main { padding: 100px 32px 56px; }
+main.config-main { padding: 100px var(--config-inline-padding) 56px; }
 #configuration-page { width: 100%; margin: auto; }
 .config-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .provider-row { padding: 0; align-items: flex-start; }
@@ -1507,6 +1516,6 @@ main[data-restoring][data-restore-ready] #apply:disabled { opacity: 1; }
 
 /* Three independent client tabs share the compact title bar. */
 @media (max-width: 680px) { .brand { font-size: 0; gap: 0; } }
-.desktop-main { max-width: 720px; margin: 0 auto; width: 100%; }
+.desktop-main { max-width: var(--desktop-form-width); margin: 0 auto; width: 100%; }
 .desktop-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-block: 6px; }
 .desktop-error { color: var(--danger); }

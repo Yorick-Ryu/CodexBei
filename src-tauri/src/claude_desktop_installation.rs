@@ -4,6 +4,105 @@ use crate::versions;
 use serde_json::{json, Value};
 use std::path::Path;
 
+pub fn offline_installer_url() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "aarch64") => {
+            Some("https://claude.ai/api/desktop/win32/arm64/offline/latest/redirect")
+        }
+        ("windows", "x86_64") => {
+            Some("https://claude.ai/api/desktop/win32/x64/offline/latest/redirect")
+        }
+        _ => None,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn runtime_cached(data: &Path, executable: &str) -> bool {
+    let directories = |path: &Path| {
+        std::fs::read_dir(path)
+            .into_iter()
+            .flatten()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path())
+    };
+    let has_binary = |path: &Path| {
+        path.join(executable)
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() != 0)
+    };
+    directories(&data.join("claude-code")).any(|version| {
+        has_binary(&version) || directories(&version).any(|build| has_binary(&build))
+    })
+}
+
+#[cfg(any(windows, test))]
+fn runtime_error(log: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    // Offline packages can bundle the binary outside the user cache. Require
+    // an explicit recent error before treating an empty cache as missing.
+    const LOG_TAIL_BYTES: u64 = 256 * 1024;
+    let Ok(mut file) = std::fs::File::open(log) else {
+        return false;
+    };
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+        return false;
+    };
+    let offset = length.saturating_sub(LOG_TAIL_BYTES);
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    if file.take(LOG_TAIL_BYTES).read_to_end(&mut bytes).is_err() {
+        return false;
+    }
+    let cutoff = chrono::Local::now().naive_local() - chrono::TimeDelta::days(7);
+    let contents = String::from_utf8_lossy(&bytes);
+    contents
+        .lines()
+        .rev()
+        .find_map(|line| {
+            let timestamp =
+                chrono::NaiveDateTime::parse_from_str(line.get(..19)?, "%Y-%m-%d %H:%M:%S").ok()?;
+            if timestamp < cutoff {
+                return None;
+            }
+            if line.contains("[CCD] Bundle verified")
+                || line.contains("[CCD] Falling back to installed version")
+            {
+                return Some(false);
+            }
+            [
+                "Host Claude Code binary not available",
+                "Couldn't download Claude Code",
+                "Couldn't install Claude Code",
+            ]
+            .iter()
+            .any(|message| line.contains(message))
+            .then_some(true)
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn missing_runtime() -> bool {
+    std::env::var_os("LOCALAPPDATA").is_some_and(|local| {
+        let root = std::path::PathBuf::from(local);
+        let package = root.join("Packages/Claude_pzs8sxrjxfjjc/LocalCache");
+        let data = [root, package.join("Local"), package.join("Roaming")]
+            .map(|root| root.join("Claude-3p"));
+        !data.iter().any(|path| runtime_cached(path, "claude.exe"))
+            && data
+                .iter()
+                .any(|path| runtime_error(&path.join("logs/main.log")))
+    })
+}
+
+#[cfg(not(windows))]
+fn missing_runtime() -> bool {
+    false
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn macos_bundle_installed(bundle: &Path) -> bool {
     bundle.join("Contents/Info.plist").is_file() && bundle.join("Contents/MacOS/Claude").is_file()
@@ -116,12 +215,55 @@ pub async fn inspect(test_root: Option<&Path>) -> Result<Value> {
     } else {
         installed().await?
     };
-    Ok(json!({"installed": detected, "platform": std::env::consts::OS}))
+    let runtime_missing = detected
+        && match test_root {
+            Some(root) => root.join("claude-desktop-runtime-missing").is_file(),
+            None => missing_runtime(),
+        };
+    Ok(json!({
+        "installed": detected,
+        "platform": std::env::consts::OS,
+        "runtimeMissing": runtime_missing,
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_cached_runtime_with_or_without_build_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let build = data.join("claude-code/2.1.326/c4434d650cb3");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join(".verified"), b"").unwrap();
+        assert!(!runtime_cached(data, "claude.exe"));
+        std::fs::write(build.join("claude.exe"), b"fixture").unwrap();
+        assert!(runtime_cached(data, "claude.exe"));
+        std::fs::rename(build.join("claude.exe"), build.join("../claude.exe")).unwrap();
+        assert!(runtime_cached(data, "claude.exe"));
+    }
+
+    #[test]
+    fn reports_recent_component_failure_until_a_recovery_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("main.log");
+        assert!(!runtime_error(&log));
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let old = "2020-01-01 00:00:00 [error] Host Claude Code binary not available";
+        std::fs::write(&log, old).unwrap();
+        assert!(!runtime_error(&log));
+        let failed = format!("{now} [error] Host Claude Code binary not available");
+        std::fs::write(&log, &failed).unwrap();
+        assert!(runtime_error(&log));
+        std::fs::write(
+            &log,
+            format!("{failed}\n{now} [info] [CCD] Bundle verified"),
+        )
+        .unwrap();
+        assert!(!runtime_error(&log));
+    }
 
     #[test]
     fn configuration_directories_do_not_count_as_installed_apps() {

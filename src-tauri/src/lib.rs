@@ -92,6 +92,16 @@ fn open_claude_desktop_installer() -> Result<()> {
     )
 }
 
+#[tauri::command]
+fn open_claude_desktop_offline_installer() -> Result<()> {
+    let url = claude_desktop_installation::offline_installer_url()
+        .ok_or("Claude 桌面版组件修复目前仅支持 Windows x64 和 ARM64。")?;
+    open_claude_page(
+        url,
+        &format!("无法打开 Claude 官方离线安装包，请访问 {url}。"),
+    )
+}
+
 fn open_claude_page(url: &str, error: &str) -> Result<()> {
     #[cfg(windows)]
     let mut command = {
@@ -854,6 +864,7 @@ pub fn run() {
             open_chatgpt_installer,
             open_claude_installer,
             open_claude_desktop_installer,
+            open_claude_desktop_offline_installer,
             claude_desktop_installation,
             claude_desktop_status,
             configure_claude_desktop,

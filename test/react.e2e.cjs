@@ -53,8 +53,9 @@ async function fixture(options = {}) {
       if (cmd === 'incoming_tool') return window.fixtureIncomingTool || null;
       if (args?.tool === 'claude') {
         window.fixtureClaudeCalls.push({ cmd, args });
-        if (cmd === 'claude_desktop_installation') { if (window.fixtureDesktopInstallationError) throw window.fixtureDesktopInstallationError; return { installed: window.fixtureDesktopInstalled !== false, platform: window.fixtureState.platform }; }
+        if (cmd === 'claude_desktop_installation') { if (window.fixtureDesktopInstallationError) throw window.fixtureDesktopInstallationError; return { installed: window.fixtureDesktopInstalled !== false, platform: window.fixtureState.platform, runtimeMissing: !!window.fixtureDesktopRuntimeMissing }; }
         if (cmd === 'open_claude_desktop_installer') { window.fixtureDesktopInstallerOpened = true; return null; }
+        if (cmd === 'open_claude_desktop_offline_installer') return null;
         if (cmd === 'open_claude_installer') return null;
         if (cmd === 'inspect' || cmd === 'choose') return {...window.fixtureClaude};
         if (cmd === 'check') return {installations: [], selection: {mode: 'auto'}, template: {id: 'claude-builtin', version:'1.0.0',digest:'claude-v1'},latestTemplate:null,templateUpdateAvailable:false,offline:false,needsSelection:false,modelClientVersion:'claude'};
@@ -1976,7 +1977,6 @@ for (const platform of ['macos', 'windows']) {
       await page.evaluate(() => { window.fixtureDesktopInstalled = true; window.dispatchEvent(new Event('focus')); });
       await page.locator('#desktop-key').waitFor();
       const installedCount = await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length);
-      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await page.clock.fastForward(30_000);
       assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length), installedCount);
       assert.equal(await page.evaluate(() => window.fixtureDesktopConfigured), undefined);
@@ -2001,6 +2001,30 @@ test('React: Claude Desktop installation detection errors can be retried and pol
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.clock.fastForward(30_000);
     assert.equal(await page.evaluate(() => window.fixtureCalls.filter(c => c === 'claude_desktop_installation').length), count);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('React: Claude Desktop runtime repair leaves configuration available and rechecks on focus', async () => {
+  const f = await fixture({ platform: 'windows' }); const { page } = f;
+  try {
+    await page.getByRole('tab', { name: 'Claude 桌面版', exact: true }).click();
+    const notice = page.locator('.status-region');
+    await page.locator('#desktop-key').waitFor();
+    assert.equal(await notice.isVisible(), false);
+    await page.evaluate(() => { window.fixtureDesktopRuntimeMissing = true; window.dispatchEvent(new Event('focus')); });
+    await notice.getByText('检测到 Claude Code 组件缺失', { exact: true }).waitFor();
+    await notice.getByText('可能无法正常对话，点击一键修复后重启 Claude。').waitFor();
+    assert.equal(await notice.evaluate(el => getComputedStyle(el).position), 'fixed');
+    assert.equal(await notice.getByRole('button', { name: '复制链接' }).count(), 0);
+    await page.locator('#desktop-key').fill('sk-desktop-fixture-not-real');
+    assert.equal(await page.getByRole('button', { name: '一键配置' }).isEnabled(), true);
+    await notice.getByRole('button', { name: '一键修复' }).click();
+    await page.waitForFunction(() => window.fixtureCalls.includes('open_claude_desktop_offline_installer'));
+    assert.equal(await page.evaluate(() => window.fixtureDesktopConfigured), undefined);
+    assert.equal(await page.locator('#desktop-key').inputValue(), 'sk-desktop-fixture-not-real');
+    await page.evaluate(() => { window.fixtureDesktopRuntimeMissing = false; window.dispatchEvent(new Event('focus')); });
+    await notice.waitFor({ state: 'hidden' });
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

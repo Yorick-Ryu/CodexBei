@@ -109,7 +109,8 @@ export function toolApi(tool: Tool) {
     invoke<{ canceled?: boolean }>("delete_backup", { id }),
   openClaudeInstaller: () => invoke<void>("open_claude_installer"),
   openClaudeDesktopInstaller: () => invoke<void>("open_claude_desktop_installer"),
-  claudeDesktopInstallation: () => invoke<{ installed: boolean; platform: string }>("claude_desktop_installation"),
+  openClaudeDesktopOfflineInstaller: () => invoke<void>("open_claude_desktop_offline_installer"),
+  claudeDesktopInstallation: () => invoke<{ installed: boolean; platform: string; runtimeMissing: boolean }>("claude_desktop_installation"),
   claudeDesktopStatus: () => invoke<ClaudeDesktopStatus>("claude_desktop_status"),
   incomingClaudeDesktop: () => invoke<ClaudeDesktopStatus | null>("incoming_claude_desktop"),
   configureClaudeDesktop: (connection: Connection, options: ClaudeDesktopOptions) =>

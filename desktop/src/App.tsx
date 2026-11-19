@@ -32,6 +32,7 @@ import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
 import { Select } from "./Select";
 import { ModelPicker } from "./ModelPicker";
+import { StatusNotice } from "./StatusNotice";
 import brand from "../assets/brand/codexbei.svg";
 
 const date = (value: string) =>
@@ -39,24 +40,24 @@ const date = (value: string) =>
 const errorText = (error: unknown) =>
   typeof error === "string" ? error : "操作未完成，请重试。";
 
-function InstallerErrorNotice({ message }: { message: string }) {
+function InstallerErrorNotice({ message, onClose }: { message: string; onClose: () => void }) {
   const [copyStatus, setCopyStatus] = useState("");
   const url = message.match(/https:\/\/\S+$/)?.[0];
-  if (!url) return message;
-
-  return <>
-    {message.slice(0, -url.length).trimEnd()}
-    <span className="installer-error-url">{url}</span>
-    <button type="button" className="text-button installer-copy" onClick={async () => {
+  return <StatusNotice visible kind="error" onClose={onClose}
+    actions={url && <button type="button" className="secondary" onClick={async () => {
       try {
         await navigator.clipboard.writeText(url);
         setCopyStatus("已复制");
       } catch {
         setCopyStatus("复制失败，可手动选中链接复制。");
       }
-    }}>复制链接</button>
-    <span className="installer-copy-status" role="status">{copyStatus}</span>
-  </>;
+    }}>复制链接</button>}>
+    {url ? <>
+      {message.slice(0, -url.length).trimEnd()}
+      <span className="installer-error-url">{url}</span>
+      {copyStatus && <span role="status">{copyStatus}</span>}
+    </> : message}
+  </StatusNotice>;
 }
 
 const configureFirstNotice = "请点击一键配置";
@@ -1175,29 +1176,24 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
           )}
         </main>
       </div>
-      <div className="status-region" hidden={!showNotice}>
-        <div id="status" className={noticeKind} hidden={!showNotice}
-          role={noticeKind === "error" ? "alert" : "status"}>
-          <span>
-            {footerStatus || (installerError ? <InstallerErrorNotice message={installerError} /> : needsVersionNotice ? (
-              <>
-                {versionPending && !versionOpen ? "请完成版本匹配。" : "没有匹配的配置模板。"}{" "}
-                <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
-              </>
-            ) : showInstallHint && (
-              isClaude ? <>
-                <span>未检测到 Claude Code，可先保存配置，安装后新会话生效。</span>
-                <button type="button" className="text-button" disabled={busy} onClick={() => void run(() => api.openClaudeInstaller())}>安装指南</button>
-              </> : <>
-                <span>未检测到桌面版，Codex CLI 可正常配置</span>
-                <button type="button" className="text-button" disabled={openingInstaller} onClick={() => void openInstaller()}>{installerLabel}</button>
-              </>
-            ))}
-          </span>
-          {(footerStatus || installerError || showInstallHint) && <button type="button" className="status-close" aria-label="关闭提示"
-            onClick={closeNotice}><CloseIcon /></button>}
-        </div>
-      </div>
+      {!footerStatus && installerError ? <InstallerErrorNotice key={installerError} message={installerError} onClose={closeNotice} /> :
+      <StatusNotice visible={showNotice} kind={noticeKind}
+        onClose={footerStatus || showInstallHint ? closeNotice : undefined}>
+        {footerStatus || (needsVersionNotice ? (
+          <>
+            {versionPending && !versionOpen ? "请完成版本匹配。" : "没有匹配的配置模板。"}{" "}
+            <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
+          </>
+        ) : showInstallHint && (
+          isClaude ? <>
+            <span>未检测到 Claude Code，可先保存配置，安装后新会话生效。</span>
+            <button type="button" className="text-button" disabled={busy} onClick={() => void run(() => api.openClaudeInstaller())}>安装指南</button>
+          </> : <>
+            <span>未检测到桌面版，Codex CLI 可正常配置</span>
+            <button type="button" className="text-button" disabled={openingInstaller} onClick={() => void openInstaller()}>{installerLabel}</button>
+          </>
+        ))}
+      </StatusNotice>}
       <Modal id="official-login-confirm" title="开启保留官方登录"
         descriptionId="official-login-confirm-description"
         open={officialLoginConfirmOpen} onClose={() => setOfficialLoginConfirmOpen(false)}>

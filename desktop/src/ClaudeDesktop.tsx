@@ -5,6 +5,7 @@ import { ToolTabs, type AppTool } from "./ToolTabs";
 import { ModelPicker } from "./ModelPicker";
 import { AppSettings } from "./AppSettings";
 import { ThemeSelector } from "./ThemeSelector";
+import { StatusNotice } from "./StatusNotice";
 import { useSoftwareUpdate } from "./SoftwareUpdate";
 import { SettingsIcon, EyeIcon, EyeOffIcon, CloseIcon } from "./icons";
 import claude from "../assets/agents/claude.svg";
@@ -38,7 +39,9 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   const [allowAllWebsites, setAllowAllWebsites] = useState(initial.current?.allowAllWebsites ?? false);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
-  const [installation, setInstallation] = useState<{ installed: boolean; platform: string } | null>(null);
+  const [installation, setInstallation] = useState<Awaited<ReturnType<typeof api.claudeDesktopInstallation>> | null>(null);
+  const [repairOpening, setRepairOpening] = useState(false);
+  const [repairNoticeDismissed, setRepairNoticeDismissed] = useState(false);
   const [installationError, setInstallationError] = useState("");
   const [installationRefresh, setInstallationRefresh] = useState(0);
   const [error, setError] = useState("");
@@ -59,18 +62,15 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   useEffect(() => {
     let active = true;
     let checking = false;
-    let found = false;
     const check = async () => {
-      if (checking || found || busyRef.current) return;
+      if (checking || busyRef.current) return;
       checking = true;
       try {
         const value = await api.claudeDesktopInstallation();
         if (!active) return;
         setInstallation(value); setInstallationError("");
-        if (value.installed) {
-          found = true;
+        if (value.installed && !value.runtimeMissing) {
           window.clearInterval(timer);
-          window.removeEventListener("focus", onFocus);
         }
       } catch (error) {
         if (active) setInstallationError(typeof error === "string" ? error : "无法检测安装状态，请重试。");
@@ -134,6 +134,8 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   }, [initializing, installation?.installed]);
   const update = useSoftwareUpdate({ busy, run });
   const disabled = busy || initializing || !installation?.installed;
+  const showRepairNotice = installation?.installed && installation.platform === "windows"
+    && installation.runtimeMissing && !repairNoticeDismissed && !error && !message;
   useEffect(() => {
     if (!expanded || initializing || !installation?.installed || addressEdited || !connection.apiKey.trim()) {
       setModelsLoading(false);
@@ -255,13 +257,29 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
         </form>}
       </section>
     </main></div>
-    <div className="status-region" hidden={!error && !message}>
-      <div id="status" className={error ? "error" : "success"} hidden={!error && !message}
-        role={error ? "alert" : "status"}>
-        <span>{error || message}</span>
-        <button type="button" className="status-close" aria-label="关闭提示"
-          onClick={() => { setError(""); setMessage(""); }}><CloseIcon /></button>
-      </div>
-    </div>
+    <StatusNotice visible={!!(error || message || showRepairNotice)}
+      kind={error ? "error" : message ? "success" : "info"}
+      formWidth={!!showRepairNotice}
+      onClose={() => {
+        if (error || message) { setError(""); setMessage(""); }
+        else setRepairNoticeDismissed(true);
+      }}
+      actions={showRepairNotice &&
+        <button type="button" className="secondary" disabled={repairOpening}
+          title="下载并运行 Claude 官方离线安装包"
+          onClick={async () => {
+            setRepairOpening(true);
+            try {
+              await api.openClaudeDesktopOfflineInstaller();
+            } catch (error) {
+              setError(typeof error === "string" ? error : "无法打开 Claude 官方离线安装包。");
+            } finally {
+              setRepairOpening(false);
+            }
+          }}>{repairOpening ? "正在打开…" : "一键修复"}</button>
+      }>
+      {error || message || (showRepairNotice &&
+        <span><strong>检测到 Claude Code 组件缺失</strong><br />可能无法正常对话，点击一键修复后重启 Claude。</span>)}
+    </StatusNotice>
   </>;
 }
