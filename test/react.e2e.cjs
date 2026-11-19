@@ -544,7 +544,7 @@ test('React: custom selects support keyboard choice and Escape inside the versio
     await waitForSettingOption(page, '#model', 'new-model');
     await page.locator('#model-toggle').click();
     assert.equal(await page.getByTestId('select-option-gpt-6-astra').getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('.model-control').evaluate(element => {
+    assert.equal(await page.locator('#model').locator('..').evaluate(element => {
       const chevron = element.querySelector('svg').getBoundingClientRect();
       return element.getBoundingClientRect().right - chevron.right <= 12;
     }), true);
@@ -781,6 +781,54 @@ test('React: themes, compact layouts, private inputs and configure/history flow'
     await page.keyboard.press('Escape'); await page.locator('#back-to-config').click();
     assert.equal(await page.locator('#key').inputValue(), 'sk-react-fixture-not-a-real-key');
     assert.equal(await page.locator('#keep-official-login').isChecked(), true);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('React: API address picker offers all four gateways for each tool and still accepts custom addresses', async () => {
+  const f = await fixture(); const { page } = f;
+  const hosts = ['api.beiapi.cn', 'api.beiapi.top', 'api.novapi.cn', 'api.dianapi.cn'];
+  try {
+    for (const [tool, settings, field, suffix] of [
+      ['ChatGPT', '#toggle-settings', '#base-url', '/v1'],
+      ['Claude Code', '#toggle-settings', '#base-url', ''],
+      ['Claude 桌面版', '[aria-controls="desktop-settings"]', '#desktop-base-url', ''],
+    ]) {
+      await page.getByRole('tab', { name: tool, exact: true }).click();
+      await page.locator(settings).click();
+      const address = page.locator(field);
+      const toggle = page.getByRole('button', { name: '选择 API 地址', exact: true });
+      const list = page.getByRole('listbox');
+      const addresses = hosts.map(host => `https://${host}${suffix}`);
+      await toggle.click();
+      await list.getByRole('option', { name: addresses[3], exact: true }).waitFor({ timeout: 3000 });
+      assert.deepEqual(await list.getByRole('option').allTextContents(), addresses);
+      assert.equal(await list.getByRole('option', { name: addresses[0], exact: true }).getAttribute('aria-selected'), 'true');
+      await address.press('ArrowDown');
+      await address.press('Enter');
+      assert.equal(await address.inputValue(), addresses[1]);
+      await toggle.click();
+      await list.getByRole('option', { name: addresses[3], exact: true }).click();
+      assert.equal(await address.inputValue(), addresses[3]);
+      await toggle.click();
+      await list.getByRole('option', { name: addresses[0], exact: true }).waitFor();
+      assert.deepEqual(await list.getByRole('option').allTextContents(), addresses);
+      await address.press('Escape');
+      await address.fill('beiapi');
+      await list.getByRole('option', { name: addresses[1], exact: true }).waitFor();
+      assert.deepEqual(await list.getByRole('option').allTextContents(), addresses.slice(0, 2));
+      await list.getByRole('option', { name: addresses[0], exact: true }).click();
+      assert.equal(await address.inputValue(), addresses[0]);
+      await address.fill('https://custom.example/gateway');
+      assert.equal(await address.inputValue(), 'https://custom.example/gateway');
+      assert.equal(await list.getByRole('option', { name: '没有匹配的预设地址' }).getAttribute('aria-disabled'), 'true');
+      await address.press('Escape');
+      await list.waitFor({ state: 'hidden' });
+      if (tool === 'ChatGPT') {
+        assert.equal(await page.locator('#key').inputValue(), '');
+        assert.equal(await page.evaluate(() => window.fixtureCalls.includes('configure')), false);
+      }
+    }
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

@@ -401,13 +401,6 @@ input::placeholder {
 .key-control {
   position: relative;
 }
-.base-url-control {
-  margin-bottom: 0;
-}
-#base-url {
-  display: block;
-  padding-right: 40px;
-}
 #key {
   display: block;
   padding-right: 72px;

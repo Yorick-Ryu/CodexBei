@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { toolApi, type Connection } from "./api";
 import { ToolTabs, type AppTool } from "./ToolTabs";
 import { ModelPicker } from "./ModelPicker";
+import { ApiAddressPicker, defaultClaudeAddress } from "./ApiAddressPicker";
 import { AppSettings } from "./AppSettings";
 import { ThemeSelector } from "./ThemeSelector";
 import { StatusNotice } from "./StatusNotice";
@@ -30,7 +31,7 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
   onChangeTool: (tool: AppTool) => void; draftRef: MutableRefObject<DesktopDraft | null>;
 }) {
   const initial = useRef(draftRef.current);
-  const [connection, setConnection] = useState<Connection>(initial.current?.connection || { baseUrl: "https://api.beiapi.cn", apiKey: "", model: "" });
+  const [connection, setConnection] = useState<Connection>(initial.current?.connection || { baseUrl: defaultClaudeAddress, apiKey: "", model: "" });
   const [hasSavedKey, setHasSavedKey] = useState(initial.current?.hasSavedKey ?? false);
   const [savedKey, setSavedKey] = useState(initial.current?.savedKey ?? "");
   const [addressEdited, setAddressEdited] = useState(initial.current?.addressEdited ?? false);
@@ -232,16 +233,13 @@ export function ClaudeDesktop({ onChangeTool, draftRef }: {
               ref={element => { if (element) element.inert = !expanded; }}>
               <div className="settings-clip"><div className="settings-body desktop-options-body">
                 <label htmlFor="desktop-base-url">API 地址</label>
-                <div className="key-control base-url-control">
-                  <input id="desktop-base-url" type="url" autoComplete="off" spellCheck={false} value={connection.baseUrl} disabled={disabled}
-                    onChange={event => {
-                      const baseUrl = event.target.value;
-                      setAddressEdited(true);
-                      setModelStatus("");
-                      if (connection.apiKey.trim()) setModels([]);
-                      setConnection(current => ({ ...current, baseUrl }));
-                    }} />
-                </div>
+                <ApiAddressPicker id="desktop-base-url" value={connection.baseUrl} disabled={disabled} required={false}
+                  onChange={baseUrl => {
+                    setAddressEdited(true);
+                    setModelStatus("");
+                    if (connection.apiKey.trim()) setModels([]);
+                    setConnection(current => ({ ...current, baseUrl }));
+                  }} />
                 <p className="field-feedback" aria-hidden="true" />
                 <div className="label-row model-label"><label htmlFor="model">模型</label>
                   <button type="button" className="text-button" disabled={disabled || modelsLoading || !connection.apiKey.trim()}

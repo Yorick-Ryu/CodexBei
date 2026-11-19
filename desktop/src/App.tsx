@@ -32,6 +32,7 @@ import { QuotaCard } from "./QuotaCard";
 import { ThemeSelector } from "./ThemeSelector";
 import { Select } from "./Select";
 import { ModelPicker } from "./ModelPicker";
+import { ApiAddressPicker, apiOrigins, defaultClaudeAddress, defaultCodexAddress } from "./ApiAddressPicker";
 import { StatusNotice } from "./StatusNotice";
 import brand from "../assets/brand/codexbei.svg";
 
@@ -61,18 +62,10 @@ function InstallerErrorNotice({ message, onClose }: { message: string; onClose: 
 }
 
 const configureFirstNotice = "请点击一键配置";
-const codexDefaultBase = "https://api.beiapi.cn/v1";
-const beiApiOrigins = new Set([
-  new URL(codexDefaultBase).origin,
-  "https://api.beiapi.top",
-  "https://api.novapi.cn",
-  "https://api.dianapi.cn",
-]);
-
 function isBeiApiGateway(baseUrl: string | null) {
   if (!baseUrl) return false;
   try {
-    return beiApiOrigins.has(new URL(baseUrl).origin);
+    return apiOrigins.includes(new URL(baseUrl).origin);
   } catch {
     return false;
   }
@@ -123,7 +116,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   const restoringDraft = useRef(!!initialDraft.current);
   const api = useMemo(() => toolApi(activeTool), [activeTool]);
   const isClaude = activeTool === "claude";
-  const defaultBase = isClaude ? "https://api.beiapi.cn" : codexDefaultBase;
+  const defaultBase = isClaude ? defaultClaudeAddress : defaultCodexAddress;
   const defaultModel = isClaude ? "claude-sonnet-4-6" : "gpt-6-astra";
   const [mapping, setMapping] = useState<Mapping>(initialDraft.current?.mapping ?? {});
   const [inspection, setInspection] = useState<Inspection | null>(initialDraft.current?.inspection ?? null);
@@ -221,7 +214,6 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
   );
   const [dialogError, setDialogError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
-  const baseUrlInput = useRef<HTMLInputElement>(null);
   const successTitle = useRef<HTMLHeadingElement>(null);
   const historyTitle = useRef<HTMLHeadingElement>(null);
   const busyRef = useRef(true);
@@ -790,36 +782,8 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
                         <div className="settings-clip">
                           <div className="settings-body">
                             <label htmlFor="base-url">API 地址</label>
-                            <div className="key-control base-url-control">
-                              <input
-                                id="base-url"
-                                ref={baseUrlInput}
-                                type="url"
-                                value={baseUrl}
-                                onChange={(e) => changeBaseUrl(e.target.value)}
-                                disabled={disabled}
-                                required
-                                autoComplete="off"
-                                spellCheck={false}
-                              />
-                              <div className="key-actions">
-                                <button
-                                  id="clear-base-url"
-                                  type="button"
-                                  className="key-action"
-                                  aria-label="清空 API 地址"
-                                  title="清空 API 地址"
-                                  aria-controls="base-url"
-                                  disabled={disabled || !baseUrl}
-                                  onClick={() => {
-                                    changeBaseUrl("");
-                                    baseUrlInput.current?.focus({ preventScroll: true });
-                                  }}
-                                >
-                                  <CloseIcon />
-                                </button>
-                              </div>
-                            </div>
+                            <ApiAddressPicker id="base-url" codex={!isClaude} clearId="clear-base-url"
+                              value={baseUrl} onChange={changeBaseUrl} disabled={disabled} />
                             <p className="field-feedback" aria-hidden="true" />
                             <div className="label-row model-label">
                               <label htmlFor="model">模型</label>
