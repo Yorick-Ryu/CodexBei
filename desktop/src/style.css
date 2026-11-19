@@ -741,6 +741,9 @@ pre {
 #status.info > span { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; }
 #status.info .text-button { flex-shrink: 0; white-space: nowrap; color: var(--text); font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 #status .text-button { padding-block: 0; line-height: inherit; }
+#status .installer-error-url { display: block; -webkit-user-select: text; user-select: text; }
+#status .installer-copy { padding-inline: 0; color: inherit; font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+#status .installer-copy-status:not(:empty) { margin-inline-start: 8px; }
 .status-close { display: grid; place-items: center; flex: 0 0 22px; height: 22px; padding: 3px; background: transparent; border-radius: 4px; color: inherit; }
 .status-close:hover { background: var(--hover); }
 .file-error { height: auto; min-height: var(--feedback-height); white-space: normal; overflow: visible; overflow-wrap: anywhere; }

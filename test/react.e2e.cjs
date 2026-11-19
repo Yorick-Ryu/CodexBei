@@ -113,7 +113,11 @@ async function fixture(options = {}) {
       if (cmd === 'models') { await new Promise(resolve => setTimeout(resolve, window.fixtureModelsDelay)); if (window.fixtureModelsError) throw window.fixtureModelsError; return window.fixtureModels; }
       if (cmd === 'inspect' && window.fixtureInitialError) throw '配置不是有效的 TOML，请先修复原文件。';
       if (cmd === 'choose') window.fixtureInitialError = false;
-      if (cmd === 'open_chatgpt_installer') { window.fixtureInstallerArgs = args; return null; }
+      if (cmd === 'open_chatgpt_installer') {
+        window.fixtureInstallerArgs = args;
+        if (window.fixtureInstallerError) throw window.fixtureInstallerError;
+        return null;
+      }
       if (cmd === 'open_config_file') {
         if (window.fixtureOpenConfigError) throw window.fixtureOpenConfigError;
         window.fixtureOpenedFile = window.fixtureState.file;
@@ -1626,9 +1630,30 @@ test('React: Windows installation offers a direct download fallback', async () =
   try {
     await page.getByRole('button', { name: '微软商店下载', exact: true }).click();
     assert.equal(await page.evaluate(() => window.fixtureInstallerArgs.directDownload), false);
-    await page.getByRole('button', { name: '下载安装程序', exact: true }).click();
+    const download = page.getByRole('button', { name: '下载安装程序', exact: true });
+    const url = 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi';
+    await page.evaluate(url => {
+      window.fixtureInstallerError = '无法打开安装入口，请用浏览器访问 ' + url;
+      window.fixtureCopyError = true;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => {
+        if (window.fixtureCopyError) throw new Error('clipboard unavailable');
+        window.fixtureCopied = text;
+      } } });
+    }, url);
+    await download.click();
     assert.equal(await page.evaluate(() => window.fixtureInstallerArgs.directDownload), true);
+    const notice = page.getByRole('alert').filter({ hasText: url });
+    const copy = notice.getByRole('button', { name: '复制链接', exact: true });
+    await copy.click();
+    await notice.getByText('复制失败，可手动选中链接复制。', { exact: true }).waitFor();
+    await page.evaluate(() => { window.fixtureCopyError = false; });
+    await copy.click();
+    await notice.getByText('已复制', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixtureCopied), url);
+    await notice.getByRole('button', { name: '关闭提示', exact: true }).click();
+    await notice.waitFor({ state: 'hidden' });
     await page.evaluate(() => {
+      window.fixtureInstallerError = '';
       window.fixtureMatching.installations = [{ id: 'desktop', kind: 'desktop', runtimeVersion: '0.153.4' }];
       window.fixtureMatching.selection = { mode: 'installed', id: 'desktop' };
       window.dispatchEvent(new Event('focus'));

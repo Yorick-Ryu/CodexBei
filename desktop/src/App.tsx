@@ -38,6 +38,27 @@ const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", { hour12: false });
 const errorText = (error: unknown) =>
   typeof error === "string" ? error : "操作未完成，请重试。";
+
+function InstallerErrorNotice({ message }: { message: string }) {
+  const [copyStatus, setCopyStatus] = useState("");
+  const url = message.match(/https:\/\/\S+$/)?.[0];
+  if (!url) return message;
+
+  return <>
+    {message.slice(0, -url.length).trimEnd()}
+    <span className="installer-error-url">{url}</span>
+    <button type="button" className="text-button installer-copy" onClick={async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopyStatus("已复制");
+      } catch {
+        setCopyStatus("复制失败，可手动选中链接复制。");
+      }
+    }}>复制链接</button>
+    <span className="installer-copy-status" role="status">{copyStatus}</span>
+  </>;
+}
+
 const configureFirstNotice = "请点击一键配置";
 // Match known credential failures, rather than routing any mention of a key here.
 const isKeyError = (message: string) => [
@@ -1138,7 +1159,7 @@ function ToolApp({ activeTool, setActiveTool, drafts }: { activeTool: Tool; setA
         <div id="status" className={noticeKind} hidden={!showNotice}
           role={noticeKind === "error" ? "alert" : "status"}>
           <span>
-            {footerStatus || installerError || (needsVersionNotice ? (
+            {footerStatus || (installerError ? <InstallerErrorNotice message={installerError} /> : needsVersionNotice ? (
               <>
                 {versionPending && !versionOpen ? "请完成版本匹配。" : "没有匹配的配置模板。"}{" "}
                 <button type="button" className="text-button" onClick={() => setVersionOpen(true)}>选择版本</button>
